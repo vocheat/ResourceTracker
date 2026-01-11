@@ -1,0 +1,28 @@
+# Gradle files
+.gradle/
+build/
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# MacOS
+.DS_Store
+
+# Fabric/Minecraft run folders
+run/
+run*/
+
+# Logs
+logs/
+*.log
+
+*.py
