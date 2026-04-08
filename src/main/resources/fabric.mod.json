@@ -8,13 +8,10 @@
   "contact": {},
   "license": "MIT",
   "icon": "assets/resourcetracker/icon.png",
-  "environment": "*",
+  "environment": "client",
   "entrypoints": {
     "client": [
       "net.fabricmc.resourcetracker.client.ResourceTrackerClient"
-    ],
-    "main": [
-      "net.fabricmc.resourcetracker.ResourceTracker"
     ]
   },
   "mixins": [

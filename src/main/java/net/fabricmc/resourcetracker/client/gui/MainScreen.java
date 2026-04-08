@@ -25,6 +25,7 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -57,8 +58,7 @@ public class MainScreen extends Screen {
     private double scrollOffset = 0;
     private int listTop = 60;
     private int listBottom;
-    private final int itemHeight = 20; // Height of a single list entry
-
+    private final int itemHeight = 20;
     private boolean wasMouseDown = false;
 
     public MainScreen(Screen parent) {
@@ -126,10 +126,8 @@ public class MainScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Darkened background (similar to standard Minecraft Edit screens)
         context.fill(0, 0, this.width, this.height, 0xA0000000);
 
-        // Title with background box
         String titleText = this.title.getString();
         int titleWidth = this.textRenderer.getWidth(titleText);
         int titleX = (this.width - titleWidth) / 2;
@@ -158,7 +156,7 @@ public class MainScreen extends Screen {
         int maxScroll = Math.max(0, contentHeight - boxHeight);
         this.scrollOffset = MathHelper.clamp(this.scrollOffset, 0, maxScroll);
 
-        drawBox(context, boxX, listTop, boxWidth, boxHeight);
+        RenderUtils.drawBox(context, boxX, listTop, boxWidth, boxHeight);
 
         // Enable scissor to clip content outside the list box
         context.enableScissor(boxX, listTop, boxX + boxWidth, listBottom);
@@ -195,13 +193,8 @@ public class MainScreen extends Screen {
             boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 16 && mouseY >= eyeY && mouseY < eyeY + 16);
             drawPixelEye(context, eyeX, eyeY, list.isVisible, eyeHovered);
 
-            // List Name
-            String nameText = list.name;
-            int maxNameWidth = boxWidth - 60;
-            if (this.textRenderer.getWidth(nameText) > maxNameWidth) {
-                nameText = this.textRenderer.trimToWidth(nameText, maxNameWidth) + "..";
-            }
-            context.drawText(this.textRenderer, Text.translatable(nameText), x + 24, y + 6, 0xFFFFFFFF, true);
+            String nameText = RenderUtils.shortenText(this.textRenderer, list.name, boxWidth - 60);
+            context.drawText(this.textRenderer, Text.literal(nameText), x + 24, y + 6, 0xFFFFFFFF, true);
 
             // Trash Icon (Delete)
             int trashX = x + boxWidth - 20;
@@ -219,7 +212,7 @@ public class MainScreen extends Screen {
         context.disableScissor();
 
         if (maxScroll > 0) {
-            drawStyledScrollbar(context, boxX + boxWidth - 6, listTop, boxHeight, contentHeight, scrollOffset);
+            RenderUtils.drawStyledScrollbar(context, boxX + boxWidth - 6, listTop, boxHeight, contentHeight, scrollOffset);
         }
 
         // Render Tooltip ABOVE the scissor cut (after disableScissor)
@@ -234,36 +227,6 @@ public class MainScreen extends Screen {
         }
     }
 
-    /**
-     * Draws the background box for the list.
-     */
-    private void drawBox(DrawContext context, int x, int y, int w, int h) {
-        // 1. Semi-transparent black background
-        context.fill(x, y, x + w, y + h, 0x80000000);
-
-        // 2. Border color
-        // Changed from dark gray to White (0xFFFFFFFF) for better visibility on dark backgrounds
-        int color = 0xFFFFFFFF;
-
-        // 3. Draw border lines manually
-        context.fill(x, y, x + w, y + 1, color);       // Top
-        context.fill(x, y + h - 1, x + w, y + h, color); // Bottom
-        context.fill(x, y, x + 1, y + h, color);       // Left
-        context.fill(x + w - 1, y, x + w, y + h, color); // Right
-    }
-
-    private void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
-        if (contentH <= h) return;
-        context.fill(x, y, x + 5, y + h, 0xFF000000);
-        int barH = Math.max(20, (int) ((float) h / contentH * h));
-        int maxScroll = contentH - h;
-        int barY = y + (int) ((scroll / maxScroll) * (h - barH));
-        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
-    }
-
-    /**
-     * Manually handles mouse input for the custom list, as the items are not standard widgets.
-     */
     private void handleMouseInput(int mouseX, int mouseY) {
         long windowHandle = this.client.getWindow().getHandle();
         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
@@ -285,22 +248,17 @@ public class MainScreen extends Screen {
                         int eyeX = boxX + 4;
                         int trashX = boxX + boxWidth - 20;
 
-                        // Click on Eye (Toggle Visibility)
                         if (mouseX >= eyeX && mouseX < eyeX + 16) {
                             list.isVisible = !list.isVisible;
                             TrackerConfig.save();
                             playClickSound();
-                        }
-                        // Click on Trash (Delete)
-                        else if (mouseX >= trashX && mouseX < trashX + 16) {
+                        } else if (mouseX >= trashX && mouseX < trashX + 16) {
                             if (isShiftDown()) {
                                 lists.remove(list);
                                 TrackerConfig.save();
                                 playClickSound();
                             }
-                        }
-                        // Click on Center (Edit)
-                        else if (mouseX > boxX + 24 && mouseX < trashX - 4) {
+                        } else if (mouseX > boxX + 24 && mouseX < trashX - 4) {
                             if (this.client != null) {
                                 this.client.setScreen(new EditScreen(this, list));
                             }
@@ -310,7 +268,6 @@ public class MainScreen extends Screen {
                 }
             }
         }
-
         wasMouseDown = isMouseDown;
     }
 
@@ -446,7 +403,7 @@ public class MainScreen extends Screen {
     private boolean isShiftDown() {
         if (this.client == null) return false;
         long handle = this.client.getWindow().getHandle();
-        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
-                GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+                || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
     }
 }

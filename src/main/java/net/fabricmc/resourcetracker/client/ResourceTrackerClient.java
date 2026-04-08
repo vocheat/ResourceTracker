@@ -34,9 +34,6 @@ import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.InventoryUtils;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.Item;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -80,24 +77,18 @@ public class ResourceTrackerClient implements ClientModInitializer {
                 client.setScreen(new MainScreen(null));
             }
 
-            // --- OPTIMIZATION: Update cache every 10 ticks (0.5 seconds) ---
-            // Instead of scanning the inventory every single frame (which is expensive),
-            // we update the item counts periodically.
             if (client.player != null && client.world != null && client.player.age % 10 == 0) {
                 for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
                     if (!list.isVisible) continue;
                     for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                        Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
-                        if (item != null) {
-                            // Helper method handles Shulker Boxes and Bundles recursively
-                            trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
+                        if (trackedItem.isValid()) {
+                            trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
                         } else {
                             trackedItem.cachedCount = 0;
                         }
                     }
                 }
             }
-            // ---------------------------------------------------------------
         });
 
         // Register the HUD renderer

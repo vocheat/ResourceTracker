@@ -26,14 +26,11 @@ package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.InventoryUtils;
+import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -72,7 +69,7 @@ public class HudMoveScreen extends Screen {
         // Render a darkened background
         context.fill(0, 0, this.width, this.height, 0xA0000000);
 
-        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFF);
+        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFFFF);
 
         handleMouseInput(mouseX, mouseY);
 
@@ -85,107 +82,73 @@ public class HudMoveScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
     }
 
-    /**
-     * Renders a specific list with its configured scale and position.
-     * Highlights the border green if it is currently being dragged.
-     */
     private void renderScaledList(DrawContext context, TrackerConfig.TrackingList list) {
         context.getMatrices().pushMatrix();
         context.getMatrices().translate((float) list.x, (float) list.y);
         context.getMatrices().scale(list.scale, list.scale);
 
         BoxSize baseSize = calculateBaseSize(list);
-        // Green border if dragging, White otherwise
         int borderColor = (list == draggingList) ? 0xFF00FF00 : 0xFFFFFFFF;
         int padding = 4;
 
         renderBorder(context, -padding - 2, -padding - 2, baseSize.width + 4, baseSize.height + 4, borderColor);
         context.fill(-padding, -padding, baseSize.width - padding, baseSize.height - padding, list.backgroundColor);
-        context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
+        context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor);
 
         int headerHeight = 14;
         int itemRowHeight = 24;
         int currentY = headerHeight;
-
-        // Determine offset based on icon visibility
         int iconOffset = list.showIcons ? 20 : 2;
 
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
-            if (item != null) {
-                // Render Icon
-                if (list.showIcons) {
-                    context.drawItem(new ItemStack(item), 0, currentY + 1);
-                }
-
-                // Render Text
-                String name = item.getName().getString();
-
-                // Check cache (calculate if missing)
-                if (trackedItem.cachedCount == -1) {
-                    if (client.player != null) {
-                        trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
-                    }
-                }
-                int currentCount = trackedItem.cachedCount;
-                String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-
-                // Draw item name
-                context.drawTextWithShadow(textRenderer, name, iconOffset, currentY, list.textColor | 0xFF000000);
-
-                // Draw count
-                int countColor = (currentCount >= trackedItem.targetCount) ? 0xFF55FF55 : (list.textColor & 0xAAFFFFFF);
-                context.drawTextWithShadow(textRenderer, countText, iconOffset, currentY + 10, countColor);
+            if (!trackedItem.isValid()) {
+                currentY += itemRowHeight;
+                continue;
             }
+
+            if (list.showIcons) {
+                context.drawItem(trackedItem.getStack(), 0, currentY + 1);
+            }
+
+            if (trackedItem.cachedCount == -1 && client.player != null) {
+                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
+            }
+            int currentCount = trackedItem.cachedCount;
+            String countText = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+
+            context.drawTextWithShadow(textRenderer, trackedItem.getDisplayName(), iconOffset, currentY, list.textColor);
+
+            int countColor = (currentCount >= trackedItem.targetCount) ? 0xFF55FF55 : (list.textColor & 0xAAFFFFFF);
+            context.drawTextWithShadow(textRenderer, countText, iconOffset, currentY + 10, countColor);
+
             currentY += itemRowHeight;
         }
 
         context.getMatrices().popMatrix();
     }
 
-    /**
-     * Calculates the unscaled width and height of the list box based on its content.
-     */
     private BoxSize calculateBaseSize(TrackerConfig.TrackingList list) {
         int padding = 4;
         int headerHeight = 14;
         int itemRowHeight = 24;
         int maxTextWidth = textRenderer.getWidth(list.name);
-
-        // Include icon width in calculation if enabled
         int iconOffset = list.showIcons ? 20 : 2;
 
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
-            if (item == null) continue;
+            if (!trackedItem.isValid()) continue;
 
-            // Check cache
-            if (trackedItem.cachedCount == -1) {
-                if (client.player != null) {
-                    trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
-                }
+            if (trackedItem.cachedCount == -1 && client.player != null) {
+                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
             }
-            int currentCount = trackedItem.cachedCount;
-            String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-            String nameText = item.getName().getString();
+            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
 
-            int w = iconOffset + Math.max(textRenderer.getWidth(nameText), textRenderer.getWidth(countText));
+            int w = iconOffset + Math.max(textRenderer.getWidth(trackedItem.getDisplayName()), textRenderer.getWidth(countText));
             if (w > maxTextWidth) maxTextWidth = w;
         }
 
         int width = maxTextWidth + (padding * 2);
         int height = headerHeight + (list.items.size() * itemRowHeight) + padding;
-
         return new BoxSize(width, height);
-    }
-
-    private String getCountText(int current, int target, boolean showRemaining) {
-        if (current >= target) {
-            return Text.translatable("gui.resourcetracker.overlay.done").getString() + " (" + current + "/" + target + ")";
-        }
-        return showRemaining ?
-                Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current) :
-                current + " / " + target;
     }
 
     private void renderBorder(DrawContext context, int x, int y, int width, int height, int color) {

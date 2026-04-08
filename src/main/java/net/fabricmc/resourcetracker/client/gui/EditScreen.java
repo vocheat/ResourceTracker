@@ -25,6 +25,7 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -33,7 +34,6 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 
@@ -71,6 +71,9 @@ public class EditScreen extends Screen {
 
     // Cache for item count text fields
     private final Map<TrackerConfig.TrackedItem, TextFieldWidget> itemCountFields = new HashMap<>();
+
+    // Cache for ItemStacks used in search list rendering (avoids per-frame allocations)
+    private final Map<Item, ItemStack> searchStackCache = new HashMap<>();
 
     private double scrollLeft = 0;
     private double scrollRight = 0;
@@ -119,10 +122,7 @@ public class EditScreen extends Screen {
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.list_name"), startX, 120, row1Y - 12);
         TextFieldWidget nameField = new TextFieldWidget(textRenderer, startX, row1Y, 120, 16, Text.translatable("gui.resourcetracker.edit.list_name"));
         nameField.setText(list.name);
-        nameField.setChangedListener(s -> {
-            list.name = s;
-            TrackerConfig.save();
-        });
+        nameField.setChangedListener(s -> list.name = s);
         this.addDrawableChild(nameField);
 
         int curX = startX + 130;
@@ -130,10 +130,7 @@ public class EditScreen extends Screen {
         // Position X Field
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_x"), curX, 30, row1Y - 12);
         xField = createSmallField(curX, row1Y, 30, list.x, s -> {
-            try {
-                list.x = Integer.parseInt(s);
-                TrackerConfig.save();
-            } catch (Exception e) {}
+            try { list.x = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(xField);
         curX += 35;
@@ -141,10 +138,7 @@ public class EditScreen extends Screen {
         // Position Y Field
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_y"), curX, 30, row1Y - 12);
         yField = createSmallField(curX, row1Y, 30, list.y, s -> {
-            try {
-                list.y = Integer.parseInt(s);
-                TrackerConfig.save();
-            } catch (Exception e) {}
+            try { list.y = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(yField);
         curX += 35;
@@ -152,10 +146,7 @@ public class EditScreen extends Screen {
         // Scale Field
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.scale"), curX, 30, row1Y - 12);
         scaleField = createSmallField(curX, row1Y, 30, String.valueOf(list.scale), s -> {
-            try {
-                list.scale = Float.parseFloat(s);
-                TrackerConfig.save();
-            } catch (Exception e) {}
+            try { list.scale = Float.parseFloat(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(scaleField);
         curX += 40;
@@ -164,15 +155,12 @@ public class EditScreen extends Screen {
         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"), b -> {
             list.showRemaining = !list.showRemaining;
             b.setMessage(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"));
-            TrackerConfig.save();
         }).dimensions(curX, row1Y, 70, 16).build());
         curX += 75;
 
-        // Icons Toggle Button
         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"), b -> {
             list.showIcons = !list.showIcons;
             b.setMessage(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"));
-            TrackerConfig.save();
         }).dimensions(curX, row1Y, 70, 16).build());
         curX += 75;
 
@@ -186,15 +174,12 @@ public class EditScreen extends Screen {
         int row2Width = groupWidth + 20 + groupWidth + 20 + groupWidth;
         int colorStartX = centerX - (row2Width / 2);
 
-        // Text Color Configuration
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_text"), colorStartX, groupWidth, row2Y - 12);
-        textR = createColorField(colorStartX, row2Y, (list.textColor >> 16) & 0xFF);
-        textG = createColorField(colorStartX + 28, row2Y, (list.textColor >> 8) & 0xFF);
-        textB = createColorField(colorStartX + 56, row2Y, list.textColor & 0xFF);
-        int ta = (list.textColor >> 24) & 0xFF;
-        if (ta == 0 && list.textColor != 0) ta = 255;
-        else if (list.textColor == 0) ta = 255;
-        textA = createColorField(colorStartX + 84, row2Y, ta);
+        textR = createColorField(colorStartX, row2Y, 0);
+        textG = createColorField(colorStartX + 28, row2Y, 0);
+        textB = createColorField(colorStartX + 56, row2Y, 0);
+        textA = createColorField(colorStartX + 84, row2Y, 0);
+        updateColorFields(textR, textG, textB, textA, list.textColor);
         this.addDrawableChild(textR);
         this.addDrawableChild(textG);
         this.addDrawableChild(textB);
@@ -202,15 +187,12 @@ public class EditScreen extends Screen {
 
         int titleX = colorStartX + 130;
 
-        // Title Color Configuration
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_title"), titleX, groupWidth, row2Y - 12);
-        nameR = createColorField(titleX, row2Y, (list.nameColor >> 16) & 0xFF);
-        nameG = createColorField(titleX + 28, row2Y, (list.nameColor >> 8) & 0xFF);
-        nameB = createColorField(titleX + 56, row2Y, list.nameColor & 0xFF);
-        int na = (list.nameColor >> 24) & 0xFF;
-        if (na == 0 && list.nameColor != 0) na = 255;
-        else if (list.nameColor == 0) na = 255;
-        nameA = createColorField(titleX + 84, row2Y, na);
+        nameR = createColorField(titleX, row2Y, 0);
+        nameG = createColorField(titleX + 28, row2Y, 0);
+        nameB = createColorField(titleX + 56, row2Y, 0);
+        nameA = createColorField(titleX + 84, row2Y, 0);
+        updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
         this.addDrawableChild(nameR);
         this.addDrawableChild(nameG);
         this.addDrawableChild(nameB);
@@ -218,12 +200,12 @@ public class EditScreen extends Screen {
 
         int bgX = titleX + 130;
 
-        // Background Color Configuration
         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_bg"), bgX, groupWidth, row2Y - 12);
-        bgR = createColorField(bgX, row2Y, (list.backgroundColor >> 16) & 0xFF);
-        bgG = createColorField(bgX + 28, row2Y, (list.backgroundColor >> 8) & 0xFF);
-        bgB = createColorField(bgX + 56, row2Y, list.backgroundColor & 0xFF);
-        bgA = createColorField(bgX + 84, row2Y, (list.backgroundColor >> 24) & 0xFF);
+        bgR = createColorField(bgX, row2Y, 0);
+        bgG = createColorField(bgX + 28, row2Y, 0);
+        bgB = createColorField(bgX + 56, row2Y, 0);
+        bgA = createColorField(bgX + 84, row2Y, 0);
+        updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
         this.addDrawableChild(bgR);
         this.addDrawableChild(bgG);
         this.addDrawableChild(bgB);
@@ -253,7 +235,6 @@ public class EditScreen extends Screen {
         // Clear List Button
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.edit.clear"), b -> {
             list.items.clear();
-            TrackerConfig.save();
             refreshCountWidgets();
         }).dimensions(rightBoxX + boxWidth - 60, listAreaY - 19, 60, 15).build());
 
@@ -296,31 +277,14 @@ public class EditScreen extends Screen {
         updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
         updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
 
-        // 5. Save and reload the screen
-        TrackerConfig.save();
         client.setScreen(new EditScreen(parent, list));
     }
 
-    /**
-     * Helper to populate 4 separate color fields from one integer value.
-     */
     private void updateColorFields(TextFieldWidget r, TextFieldWidget g, TextFieldWidget b, TextFieldWidget a, int color) {
-        int alpha = (color >> 24) & 0xFF;
-        int red = (color >> 16) & 0xFF;
-        int green = (color >> 8) & 0xFF;
-        int blue = color & 0xFF;
-
-        // Fix for old color formats (if alpha is 0 but color is not transparent/black, assume full opacity)
-        if (alpha == 0 && color != 0) alpha = 255;
-
-        // If color is effectively transparent but has RGB values (e.g. 0xFFFFFF with 0 alpha), fix it
-        // In TrackerConfig, textColor=0xFFFFFF (no alpha bits). We correct it here:
-        if (alpha == 0 && (red != 0 || green != 0 || blue != 0)) alpha = 255;
-
-        r.setText(String.valueOf(red));
-        g.setText(String.valueOf(green));
-        b.setText(String.valueOf(blue));
-        a.setText(String.valueOf(alpha));
+        r.setText(String.valueOf((color >> 16) & 0xFF));
+        g.setText(String.valueOf((color >> 8) & 0xFF));
+        b.setText(String.valueOf(color & 0xFF));
+        a.setText(String.valueOf((color >> 24) & 0xFF));
     }
 
     private void refreshCountWidgets() {
@@ -334,10 +298,7 @@ public class EditScreen extends Screen {
                 w.setText(String.valueOf(item.targetCount));
                 w.setEditableColor(0xFFFFFFFF);
                 w.setChangedListener(val -> {
-                    try {
-                        item.targetCount = Integer.parseInt(val);
-                        TrackerConfig.save();
-                    } catch (NumberFormatException ignored) {}
+                    try { item.targetCount = Integer.parseInt(val); } catch (NumberFormatException ignored) {}
                 });
             }
             newMap.put(item, w);
@@ -381,14 +342,12 @@ public class EditScreen extends Screen {
 
         handleInput(mouseX, mouseY);
 
-        // Draw Left Box (Search Results)
-        drawBox(context, leftBoxX, listAreaY, boxWidth, boxHeight);
+        RenderUtils.drawBox(context, leftBoxX, listAreaY, boxWidth, boxHeight);
         context.fill(leftBoxX, listAreaY + searchHeight, leftBoxX + boxWidth, listAreaY + searchHeight + 1, 0xFF555555);
         drawMagnifyingGlass(context, leftBoxX + boxWidth - 14, listAreaY + 4);
         renderItemList(context, mouseX, mouseY, leftBoxX, listAreaY, boxWidth, boxHeight, filteredItems, scrollLeft);
 
-        // Draw Right Box (Added Items)
-        drawBox(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+        RenderUtils.drawBox(context, rightBoxX, listAreaY, boxWidth, boxHeight);
         renderAddedList(context, mouseX, mouseY, rightBoxX, listAreaY, boxWidth, boxHeight);
 
         super.render(context, mouseX, mouseY, delta);
@@ -425,12 +384,12 @@ public class EditScreen extends Screen {
                 hoveredItem = item;
             }
 
-            context.drawItem(new ItemStack(item), x + 4, cy + 2);
+            context.drawItem(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 2);
 
             // Shorten text using helper method
             String name = item.getName().getString();
             // Text width = list width - left padding (24) - right padding (4)
-            name = shortenText(textRenderer, name, w - 28);
+            name = RenderUtils.shortenText(textRenderer, name, w - 28);
 
             context.drawText(textRenderer, Text.literal(name), x + 24, cy + 6, 0xFFFFFFFF, true);
         }
@@ -438,7 +397,7 @@ public class EditScreen extends Screen {
         // 3. Disable scissor BEFORE drawing tooltip
         context.disableScissor();
 
-        drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH, scroll);
+        RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH, scroll);
 
         // 4. Draw tooltip on top of everything
         if (hoveredItem != null) {
@@ -452,7 +411,7 @@ public class EditScreen extends Screen {
         int startY = (int) (y - scrollRight + 2);
 
         // 1. Variable for item under cursor
-        Item hoveredItem = null;
+        TrackerConfig.TrackedItem hoveredTracked = null;
 
         for (int i = 0; i < list.items.size(); i++) {
             TrackerConfig.TrackedItem ti = list.items.get(i);
@@ -472,44 +431,38 @@ public class EditScreen extends Screen {
             }
 
             if (!isVisible) continue;
+            if (!ti.isValid()) continue;
 
-            Item item = Registries.ITEM.get(Identifier.of(ti.itemId));
             // Hover zone (excluding buttons on the right)
             boolean hover = mx >= x && mx < x + w - 45 && my >= cy && my < cy + itemH;
 
             if (hover) {
                 context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x10FFFFFF);
-                // 2. Store item if exists
-                if (item != null) {
-                    hoveredItem = item;
-                }
+                hoveredTracked = ti;
             }
 
-            if (item != null) {
-                context.drawItem(new ItemStack(item), x + 4, cy + 2);
+            context.drawItem(ti.getStack(), x + 4, cy + 2);
 
-                // Shorten text
-                String txt = item.getName().getString();
-                txt = shortenText(textRenderer, txt, w - 85 - 24);
-                context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
+            // Shorten text
+            String txt = RenderUtils.shortenText(textRenderer, ti.getDisplayName(), w - 85 - 24);
+            context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
 
-                // Delete Cross
-                int crossX = x + w - 20;
-                int crossY = cy + 6;
-                boolean crossHover = mx >= crossX - 2 && mx <= crossX + 7 && my >= crossY - 2 && my <= crossY + 7;
-                int crossColor = crossHover ? 0xFFFFFFFF : 0xFFA0A0A0;
-                drawPixelCross(context, crossX, crossY, crossColor);
-            }
+            // Delete Cross
+            int crossX = x + w - 20;
+            int crossY = cy + 6;
+            boolean crossHover = mx >= crossX - 2 && mx <= crossX + 7 && my >= crossY - 2 && my <= crossY + 7;
+            int crossColor = crossHover ? 0xFFFFFFFF : 0xFFA0A0A0;
+            drawPixelCross(context, crossX, crossY, crossColor);
         }
 
         // 3. Disable scissor
         context.disableScissor();
 
-        drawStyledScrollbar(context, x + w - 6, y, h, list.items.size() * itemH, scrollRight);
+        RenderUtils.drawStyledScrollbar(context, x + w - 6, y, h, list.items.size() * itemH, scrollRight);
 
         // 4. Draw tooltip on top
-        if (hoveredItem != null) {
-            context.drawTooltip(textRenderer, hoveredItem.getName(), mx, my);
+        if (hoveredTracked != null) {
+            context.drawTooltip(textRenderer, hoveredTracked.getItem().getName(), mx, my);
         }
     }
 
@@ -547,7 +500,6 @@ public class EditScreen extends Screen {
 
                     if (mx >= crossX - 3 && mx <= crossX + 8 && my >= crossY - 3 && my <= crossY + 8) {
                         list.items.remove(idx);
-                        TrackerConfig.save();
                         refreshCountWidgets();
                     }
                 }
@@ -579,14 +531,6 @@ public class EditScreen extends Screen {
         wasMouseDown = down;
     }
 
-    private void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
-        if (contentH <= h) return;
-        context.fill(x, y, x + 5, y + h, 0xFF000000);
-        int barH = Math.max(20, (int) ((float) h / contentH * h));
-        int barY = y + (int) ((scroll / (contentH - h)) * (h - barH));
-        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
-    }
-
     private void drawMagnifyingGlass(DrawContext context, int x, int y) {
         int color = 0xFFAAAAAA;
         context.fill(x + 2, y + 2, x + 7, y + 3, color);
@@ -594,21 +538,6 @@ public class EditScreen extends Screen {
         context.fill(x + 2, y + 3, x + 3, y + 6, color);
         context.fill(x + 6, y + 3, x + 7, y + 6, color);
         context.fill(x + 7, y + 7, x + 9, y + 9, color);
-    }
-
-    private void drawBox(DrawContext context, int x, int y, int w, int h) {
-        // 1. Semi-transparent black background
-        context.fill(x, y, x + w, y + h, 0x80000000);
-
-        // 2. Border color
-        // Changed from dark gray to White (0xFFFFFFFF) for visibility
-        int color = 0xFFFFFFFF;
-
-        // 3. Draw border lines manually
-        context.fill(x, y, x + w, y + 1, color);       // Top
-        context.fill(x, y + h - 1, x + w, y + h, color); // Bottom
-        context.fill(x, y, x + 1, y + h, color);       // Left
-        context.fill(x + w - 1, y, x + w, y + h, color); // Right
     }
 
     private void addCenteredLabel(Text text, int x, int width, int y) {
@@ -637,7 +566,6 @@ public class EditScreen extends Screen {
             list.textColor = packColor(textR, textG, textB, textA);
             list.nameColor = packColor(nameR, nameG, nameB, nameA);
             list.backgroundColor = packColor(bgR, bgG, bgB, bgA);
-            TrackerConfig.save();
         } catch (Exception ignored) {}
     }
 
@@ -659,6 +587,12 @@ public class EditScreen extends Screen {
 
     private int clamp(int val) {
         return Math.max(0, Math.min(255, val));
+    }
+
+    @Override
+    public void close() {
+        TrackerConfig.save();
+        super.close();
     }
 
     @Override
@@ -696,21 +630,8 @@ public class EditScreen extends Screen {
         }
         if (!found) {
             list.items.add(new TrackerConfig.TrackedItem(id, 0));
-            TrackerConfig.save();
             refreshCountWidgets();
         }
     }
 
-    /**
-     * Trims text to fit within a specific width, appending "..." if truncated.
-     */
-    private String shortenText(net.minecraft.client.font.TextRenderer textRenderer, String text, int maxWidth) {
-        if (textRenderer.getWidth(text) <= maxWidth) {
-            return text;
-        }
-        String suffix = "...";
-        int suffixWidth = textRenderer.getWidth(suffix);
-        // trimToWidth trims text to (width - suffix_width)
-        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
-    }
 }
