@@ -96,32 +96,82 @@ public class HudMoveScreen extends Screen {
         context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor);
 
         int headerHeight = 14;
-        int itemRowHeight = 24;
+        int itemRowHeight = list.showIcons ? 24 : 12;
         int currentY = headerHeight;
         int iconOffset = list.showIcons ? 20 : 2;
 
+        int validItems = 0;
+        for (TrackerConfig.TrackedItem ti : list.items) {
+            if (ti.isValid()) validItems++;
+        }
+
+        int numColumns;
+        int itemsPerColumn;
+
+        if (list.columns > 0) {
+            numColumns = list.columns;
+            itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
+        } else {
+            int screenHeight = client.getWindow().getScaledHeight();
+            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
+
+            if (validItems <= maxItemsPerColumn) {
+                numColumns = 1;
+                itemsPerColumn = validItems;
+            } else {
+                numColumns = (int) Math.ceil((double) validItems / maxItemsPerColumn);
+                itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
+            }
+        }
+
+        int colWidth = (baseSize.width - (padding * (numColumns - 1))) / numColumns;
+        if (numColumns == 1) colWidth = baseSize.width;
+
+        int currentColumn = 0;
+        int columnOffsetX = 0;
+        int drawn = 0;
+
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) {
-                currentY += itemRowHeight;
-                continue;
+            if (!trackedItem.isValid()) continue;
+
+            if (drawn > 0 && drawn % itemsPerColumn == 0) {
+                currentColumn++;
+                columnOffsetX = currentColumn * (colWidth + padding);
+                currentY = headerHeight;
             }
 
             if (list.showIcons) {
-                context.drawItem(trackedItem.getStack(), 0, currentY + 1);
+                context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
             }
 
             if (trackedItem.cachedCount == -1 && client.player != null) {
                 trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
             }
             int currentCount = trackedItem.cachedCount;
-            String countText = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+            boolean isDone = currentCount >= trackedItem.targetCount;
+            
+            int itemColor = list.textColor;
+            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
 
-            context.drawTextWithShadow(textRenderer, trackedItem.getDisplayName(), iconOffset, currentY, list.textColor);
+            if (list.showIcons) {
+                int availableWidth = colWidth - iconOffset;
+                String itemName = RenderUtils.shortenText(textRenderer, trackedItem.getDisplayName(), availableWidth);
+                context.drawTextWithShadow(textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
 
-            int countColor = (currentCount >= trackedItem.targetCount) ? 0xFF55FF55 : (list.textColor & 0xAAFFFFFF);
-            context.drawTextWithShadow(textRenderer, countText, iconOffset, currentY + 10, countColor);
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                context.drawTextWithShadow(textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
+            } else {
+                String namePart = trackedItem.getDisplayName() + ": ";
+                int nw = textRenderer.getWidth(namePart);
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                
+                context.drawTextWithShadow(textRenderer, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
+                context.drawTextWithShadow(textRenderer, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
+            }
 
             currentY += itemRowHeight;
+            drawn++;
         }
 
         context.getMatrices().popMatrix();
@@ -130,24 +180,62 @@ public class HudMoveScreen extends Screen {
     private BoxSize calculateBaseSize(TrackerConfig.TrackingList list) {
         int padding = 4;
         int headerHeight = 14;
-        int itemRowHeight = 24;
+        int itemRowHeight = list.showIcons ? 24 : 12;
         int maxTextWidth = textRenderer.getWidth(list.name);
         int iconOffset = list.showIcons ? 20 : 2;
 
+        int validItems = 0;
+
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
             if (!trackedItem.isValid()) continue;
+            validItems++;
 
             if (trackedItem.cachedCount == -1 && client.player != null) {
                 trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
             }
-            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
 
-            int w = iconOffset + Math.max(textRenderer.getWidth(trackedItem.getDisplayName()), textRenderer.getWidth(countText));
-            if (w > maxTextWidth) maxTextWidth = w;
+            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
+            
+            int entryWidth;
+            if (list.showIcons) {
+                int nameWidth = textRenderer.getWidth(trackedItem.getDisplayName());
+                int countWidth = textRenderer.getWidth(countText);
+                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
+            } else {
+                String combined = trackedItem.getDisplayName() + ": " + countText;
+                entryWidth = iconOffset + textRenderer.getWidth(combined);
+            }
+
+            if (entryWidth > maxTextWidth) {
+                maxTextWidth = entryWidth;
+            }
         }
 
-        int width = maxTextWidth + (padding * 2);
-        int height = headerHeight + (list.items.size() * itemRowHeight) + padding;
+        int columnWidth = maxTextWidth + (padding * 2);
+
+        int numColumns;
+        int itemsPerColumn;
+
+        if (list.columns > 0) {
+            numColumns = list.columns;
+            itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
+        } else {
+            int screenHeight = client.getWindow().getScaledHeight();
+            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
+
+            if (validItems <= maxItemsPerColumn) {
+                numColumns = 1;
+                itemsPerColumn = validItems;
+            } else {
+                numColumns = (int) Math.ceil((double) validItems / maxItemsPerColumn);
+                itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
+            }
+        }
+
+        int width = (columnWidth * numColumns) + (padding * (numColumns - 1));
+        int height = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
+
         return new BoxSize(width, height);
     }
 
@@ -187,8 +275,15 @@ public class HudMoveScreen extends Screen {
         } else if (isMouseDown && wasMouseDown) {
             // Mouse Dragging: Update position
             if (draggingList != null) {
-                draggingList.x = mouseX - dragOffsetX;
-                draggingList.y = mouseY - dragOffsetY;
+                int newX = mouseX - dragOffsetX;
+                int newY = mouseY - dragOffsetY;
+
+                BoxSize baseSize = calculateBaseSize(draggingList);
+                int scaledWidth = (int) (baseSize.width * draggingList.scale);
+                int scaledHeight = (int) (baseSize.height * draggingList.scale);
+
+                draggingList.x = Math.max(0, Math.min(newX, this.width - scaledWidth));
+                draggingList.y = Math.max(0, Math.min(newY, this.height - scaledHeight));
             }
         } else if (!isMouseDown && wasMouseDown) {
             // Mouse Released: Stop dragging and save

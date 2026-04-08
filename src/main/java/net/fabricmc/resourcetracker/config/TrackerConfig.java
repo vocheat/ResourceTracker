@@ -79,6 +79,9 @@ public class TrackerConfig {
         /** Determines if item icons should be rendered next to the text. Default: true. */
         public boolean showIcons = true;
 
+        /** Number of columns for the list display. 0 = auto (fit screen height), 1+ = fixed. Default: 0. */
+        public int columns = 0;
+
         /** Text color for items (ARGB). Default: White (0xFFFFFFFF). */
         public int textColor = 0xFFFFFFFF;
 

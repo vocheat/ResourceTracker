@@ -46,6 +46,28 @@ public class RenderUtils {
     }
 
     /**
+     * Draws only a semi-transparent dark background fill (no border).
+     */
+    public static void drawBoxFill(DrawContext context, int x, int y, int w, int h) {
+        context.fill(x, y, x + w, y + h, 0x80000000);
+    }
+
+    /**
+     * Draws a box outline only (no background fill) with a uniform gray border.
+     */
+    public static void drawBoxOutline(DrawContext context, int x, int y, int w, int h) {
+        int color = 0xFF6B6B6B;
+        // Top edge
+        context.fill(x, y, x + w, y + 1, color);
+        // Bottom edge
+        context.fill(x, y + h - 1, x + w, y + h, color);
+        // Left edge
+        context.fill(x, y, x + 1, y + h, color);
+        // Right edge
+        context.fill(x + w - 1, y, x + w, y + h, color);
+    }
+
+    /**
      * Draws a styled scrollbar track and thumb.
      */
     public static void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {

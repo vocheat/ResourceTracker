@@ -1,0 +1,1683 @@
+﻿diff --git a/.claude/commands/build.md b/.claude/commands/build.md
+new file mode 100644
+index 0000000..4f2d314
+--- /dev/null
++++ b/.claude/commands/build.md
+@@ -0,0 +1,8 @@
++---
++description: Compile the mod and fix any errors
++---
++
++1. Run `./gradlew compileJava 2>&1` and capture output
++2. If compilation fails тАФ read error messages, fix the source files, and recompile. Repeat until clean.
++3. Then run `./gradlew build 2>&1` to produce the final JAR
++4. Report: "Build OK тАФ JAR at build/libs/" or list remaining errors
+diff --git a/.claude/commands/check.md b/.claude/commands/check.md
+new file mode 100644
+index 0000000..29e00e8
+--- /dev/null
++++ b/.claude/commands/check.md
+@@ -0,0 +1,7 @@
++---
++description: Quick compile check without full JAR packaging
++---
++
++1. Run `./gradlew compileJava 2>&1`
++2. If errors тАФ show each with file:line and a one-line fix suggestion
++3. If clean тАФ respond "Compilation OK"
+diff --git a/.claude/commands/review-mod.md b/.claude/commands/review-mod.md
+new file mode 100644
+index 0000000..866f74e
+--- /dev/null
++++ b/.claude/commands/review-mod.md
+@@ -0,0 +1,17 @@
++---
++description: Audit codebase for common Minecraft Fabric mod issues
++---
++
++Read all Java files in src/main/java/ and check:
++
++1. **Render-thread allocations**: `new ItemStack()`, `Registries.ITEM.get()`, `item.getName().getString()` in render methods тАФ use TrackedItem caching instead
++2. **Registry null checks**: `Registries.ITEM.get()` returns AIR, never null тАФ use `isValid()` not `!= null`
++3. **Color format**: all colors must be ARGB (0xAARRGGBB), not RGB
++4. **Code duplication**: drawBox, shortenText, getCountText, drawStyledScrollbar тАФ must use RenderUtils
++5. **Config I/O in listeners**: `TrackerConfig.save()` must NOT be in text field change listeners
++6. **Localization sync**: en_us.json and ru_ru.json must have identical keys
++7. **Unused imports**
++
++Then run `./gradlew compileJava 2>&1` to verify compilation.
++
++Report as table: file | line | severity | issue.
+diff --git a/.claude/commands/run.md b/.claude/commands/run.md
+new file mode 100644
+index 0000000..73e22a0
+--- /dev/null
++++ b/.claude/commands/run.md
+@@ -0,0 +1,6 @@
++---
++description: Launch Minecraft with the mod for testing
++---
++
++1. Run `./gradlew runClient 2>&1` in background
++2. Tell user: "Client launching тАФ press M in-game to open tracker menu"
+diff --git a/.claude/commands/sync-lang.md b/.claude/commands/sync-lang.md
+new file mode 100644
+index 0000000..9ef9a45
+--- /dev/null
++++ b/.claude/commands/sync-lang.md
+@@ -0,0 +1,9 @@
++---
++description: Sync en_us.json and ru_ru.json localization keys
++---
++
++1. Read both files from `src/main/resources/assets/resourcetracker/lang/`
++2. Find keys present in one but missing in the other
++3. Add missing Russian keys with English value prefixed "[EN] "
++4. Add missing English keys with Russian value prefixed "[RU] "
++5. Report what was added
+diff --git a/.claude/commands/verify.md b/.claude/commands/verify.md
+new file mode 100644
+index 0000000..492fcc4
+--- /dev/null
++++ b/.claude/commands/verify.md
+@@ -0,0 +1,14 @@
++---
++description: Full verification loop тАФ compile, check imports, validate config, review patterns
++---
++
++Run all checks sequentially. Stop and fix on first failure before proceeding.
++
++1. `./gradlew compileJava 2>&1` тАФ must compile clean
++2. Grep all Java files for unused imports тАФ remove any found, recompile
++3. Verify TrackerConfig.java colors are all ARGB (bit 24-31 must be non-zero in defaults)
++4. Verify en_us.json and ru_ru.json have identical key sets
++5. Verify fabric.mod.json has `"environment": "client"` and no `"main"` entrypoint
++6. Grep for `new ItemStack(` in render/ and gui/ тАФ should only appear in TrackedItem.getStack()
++7. Grep for `TrackerConfig.save()` in setChangedListener lambdas тАФ should be zero matches
++8. Report: "All checks passed" or list failures
+diff --git a/.claude/settings.json b/.claude/settings.json
+new file mode 100644
+index 0000000..72335b4
+--- /dev/null
++++ b/.claude/settings.json
+@@ -0,0 +1,49 @@
++{
++  "permissions": {
++    "allow": [
++      "Bash(./gradlew:*)",
++      "Bash(chmod +x gradlew)",
++      "Bash(git add:*)",
++      "Bash(git commit:*)",
++      "Bash(git push:*)",
++      "Bash(git diff:*)",
++      "Bash(git log:*)",
++      "Bash(git status:*)",
++      "Bash(git branch:*)",
++      "Bash(git checkout:*)",
++      "Bash(git stash:*)",
++      "Bash(git merge:*)",
++      "Bash(gh pr:*)"
++    ],
++    "deny": [
++      "Bash(rm -rf:*)",
++      "Bash(git push --force origin master:*)",
++      "Bash(git push --force origin main:*)",
++      "Bash(git reset --hard:*)"
++    ]
++  },
++  "hooks": {
++    "PostToolUse": [
++      {
++        "matcher": "Edit|Write",
++        "hooks": [
++          {
++            "type": "command",
++            "command": "if echo \"$CLAUDE_TOOL_ARG_FILE_PATH\" | grep -q '\\.java$'; then echo 'Java file modified тАФ run /check to verify compilation'; fi"
++          }
++        ]
++      }
++    ],
++    "Stop": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "if git diff --name-only 2>/dev/null | grep -q '\\.java$'; then echo 'Uncommitted Java changes detected. Consider running ./gradlew compileJava to verify.'; fi"
++          }
++        ]
++      }
++    ]
++  },
++  "effortLevel": "high"
++}
+diff --git a/.mcp.json b/.mcp.json
+new file mode 100644
+index 0000000..b4e650f
+--- /dev/null
++++ b/.mcp.json
+@@ -0,0 +1,9 @@
++{
++  "mcpServers": {
++    "mcmodding": {
++      "command": "npx",
++      "args": ["-y", "mcmodding-mcp@latest"],
++      "description": "Minecraft modding docs: Fabric API, Parchment mappings, mod examples"
++    }
++  }
++}
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..b59bd8a
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1,54 @@
++# CLAUDE.md
++
++This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
++
++## Build & Verify
++
++```bash
++./gradlew compileJava    # fast compile check (use this often)
++./gradlew build          # full build тАФ JAR in build/libs/
++./gradlew runClient      # launch Minecraft with mod loaded
++./gradlew genSources     # decompile MC sources for navigation
++```
++
++No test suite. **Always run `./gradlew compileJava` after making changes.** Use `/verify` for full validation.
++
++## Architecture
++
++Client-side Fabric mod (MC 1.21.11, Java 21). Package root: `net.fabricmc.resourcetracker`.
++
++```
++config/TrackerConfig       Singleton config (GSON тЖТ resourcetracker.json)
++  тФФ TrackingList           name, x/y, scale, colors (ARGB), items
++    тФФ TrackedItem          itemId, targetCount + transient caches
++
++client/ResourceTrackerClient   Loads config, registers keybind (M), ticks cache every 10 ticks
++client/render/HudOverlay       Renders lists on HUD, auto double-column on overflow
++client/gui/MainScreen          List CRUD, scrollable, eye/trash icons
++client/gui/EditScreen          Item search + add, color/position/scale editing
++client/gui/HudMoveScreen       Drag-and-drop HUD positioning
++
++util/InventoryUtils            Recursive counting (inventory тЖТ shulker boxes тЖТ bundles)
++util/RenderUtils               Shared: drawBox, drawStyledScrollbar, shortenText, getCountText
++```
++
++## Non-Obvious Rules
++
++These have caused bugs before. Do not violate them.
++
++- **`Registries.ITEM.get()` never returns null** тАФ it returns `Items.AIR`. Use `trackedItem.isValid()`, not `item != null`.
++- **TrackedItem has caching methods** тАФ `getItem()`, `getStack()`, `getDisplayName()` cache lazily. Never call `Registries.ITEM.get(Identifier.of(...))` or `new ItemStack(item)` in render paths.
++- **All colors are ARGB** тАФ `textColor`, `nameColor`, `backgroundColor` use format `0xAARRGGBB`. Don't use RGB-only like `0xFFFFFF`.
++- **EditScreen saves on close** тАФ `TrackerConfig.save()` is called in `close()`, NOT in `setChangedListener` callbacks. MainScreen saves immediately because toggle/delete are discrete actions.
++- **Don't duplicate RenderUtils** тАФ `drawBox`, `drawStyledScrollbar`, `shortenText`, `getCountText` are in `util/RenderUtils.java`. Never create private copies in screens.
++- **MC 1.21.11 changed `mouseClicked` signature** to `(Click, boolean)`. Custom list click handling uses GLFW polling via `wasMouseDown` pattern тАФ don't try to override `mouseClicked(double, double, int)`.
++- **`Screen.hasShiftDown()` does not exist** in this MC version. Use GLFW `glfwGetKey` for shift detection.
++- **Yarn mappings, not Mojang** тАФ method names follow Yarn conventions (`getStack`, `drawTextWithShadow`).
++
++## Localization
++
++Two files: `en_us.json`, `ru_ru.json` in `assets/resourcetracker/lang/`. Must have identical key sets. Use `/sync-lang` to check.
++
++## Verification
++
++After any code change, run `/verify` or at minimum `./gradlew compileJava`. The mod has no tests тАФ compilation is the primary correctness check.
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+new file mode 100644
+index 0000000..7b99be5
+--- /dev/null
++++ b/CONTRIBUTING.md
+@@ -0,0 +1,71 @@
++# Contributing
++
++Contributions are welcome. This document explains how to set up the development environment and submit changes.
++
++## Prerequisites
++
++- Java 21 (JDK)
++- Git
++
++## Setup
++
++```bash
++git clone https://github.com/your-username/ResourceTracker.git
++cd ResourceTracker
++./gradlew genSources    # decompile Minecraft sources for IDE navigation
++./gradlew build         # verify everything compiles
++```
++
++Import the project into your IDE as a Gradle project. IntelliJ IDEA with the Fabric Loom plugin is recommended.
++
++## Development Workflow
++
++1. Create a branch from `master`
++2. Make your changes
++3. Run `./gradlew compileJava` to verify compilation (there is no test suite yet)
++4. Test manually with `./gradlew runClient` тАФ press M in-game to open the tracker menu
++5. Submit a pull request
++
++## Project Structure
++
++```
++src/main/java/net/fabricmc/resourcetracker/
++  config/         TrackerConfig тАФ GSON-based config, singleton
++  client/         Client entry point, tick handler, keybinding
++  client/gui/     GUI screens (MainScreen, EditScreen, HudMoveScreen)
++  client/render/  HUD overlay renderer
++  util/           InventoryUtils (item counting), RenderUtils (shared rendering)
++
++src/main/resources/
++  fabric.mod.json                        Mod metadata
++  assets/resourcetracker/lang/           Localization (en_us.json, ru_ru.json)
++```
++
++## Code Conventions
++
++**Colors** тАФ all color values are ARGB format (`0xAARRGGBB`), not RGB. This applies to `textColor`, `nameColor`, `backgroundColor` in `TrackerConfig.TrackingList`.
++
++**Item lookups** тАФ never call `Registries.ITEM.get(Identifier.of(...))` directly in render methods. Use `TrackedItem.getItem()`, `getStack()`, `getDisplayName()` which cache the result. `Registries.ITEM.get()` returns `Items.AIR` for unknown IDs (never `null`), so use `trackedItem.isValid()` instead of null checks.
++
++**Shared rendering** тАФ `drawBox`, `drawStyledScrollbar`, `shortenText`, `getCountText` live in `util/RenderUtils.java`. Do not create private copies in screen classes.
++
++**Config saving** тАФ `TrackerConfig.save()` should not be called from text field change listeners. EditScreen saves on close. MainScreen saves immediately only for discrete actions (toggle visibility, delete list).
++
++**Mouse handling** тАФ MC 1.21.11 changed the `Screen.mouseClicked` signature. Custom list interactions use GLFW polling (`glfwGetMouseButton` + `wasMouseDown` pattern).
++
++**Mappings** тАФ this project uses Fabric Yarn mappings. Method names follow Yarn conventions (`getStack`, `getInventory`, `drawTextWithShadow`).
++
++## Localization
++
++Two language files: `en_us.json` and `ru_ru.json`. When adding new UI text:
++
++1. Add the key to both files
++2. Use `Text.translatable("gui.resourcetracker.your_key")` in code
++3. Use `Text.literal(...)` for user-defined content (list names, etc.), not `Text.translatable`
++
++## Submitting Changes
++
++- Keep pull requests focused тАФ one feature or fix per PR
++- Verify compilation passes before submitting
++- Update both localization files if you add UI text
++- Describe what you changed and why in the PR description
+diff --git a/README.md b/README.md
+index 7d53794..4867e35 100644
+--- a/README.md
++++ b/README.md
+@@ -1,34 +1,57 @@
+-# Resource Tracker Mod
++# Resource Tracker
+ 
+-A client-side **Minecraft Fabric** mod that helps you track your resource gathering progress directly on your HUD. Perfect for large survival projects!
++A client-side **Minecraft Fabric** mod that helps you track resource gathering progress directly on the HUD. Built for large survival projects where you need to collect hundreds of specific items.
+ 
+-## тЬи Features
++## Features
+ 
+-* **ЁЯУж Deep Scanning:** Counts items not just in your inventory, but recursively inside **Shulker Boxes** and **Bundles**.
+-* **ЁЯОи Fully Customizable:** Change text colors, background colors, scale, and position of your tracking lists.
+-* **ЁЯУЛ Multiple Lists:** Create separate tracking lists for different builds or goals.
+-* **ЁЯФН Easy Search:** Built-in search bar to quickly find items to track.
+-* **drag-and-drop:** Easily move HUD elements on the screen using the configuration menu.
++- **Deep Scanning** тАФ counts items not just in the main inventory, but recursively inside Shulker Boxes and Bundles
++- **Fully Customizable** тАФ text colors, background colors, scale, and position of each tracking list
++- **Multiple Lists** тАФ create separate tracking lists for different builds or goals
++- **Item Search** тАФ built-in search bar to quickly find any item in the registry
++- **Drag-and-Drop** тАФ move HUD elements on screen using the configuration menu
++- **Two Display Modes** тАФ show total count (`64/128`) or remaining (`Need: 64`)
+ 
+-## ЁЯОо Usage
++## Requirements
+ 
+-1.  **Open Menu:** Press **`M`** (default keybinding) to open the Resource Tracker menu.
+-2.  **Create List:** Click **"Add New List"**.
+-3.  **Add Items:** Click the **Edit** button (middle of the list row) to open the editor.
+-    * Search for items on the left.
+-    * Click to add them to your tracker.
+-    * Set target amounts (optional).
+-4.  **Customize:** Use the input fields to change colors (ARGB) or scale.
+-5.  **Move HUD:** In the main menu, click **"Move HUD Elements"** to drag your lists to the perfect spot on your screen.
++- Java 21+
++- [Fabric Loader](https://fabricmc.net/) >= 0.18.0
++- [Fabric API](https://modrinth.com/mod/fabric-api)
++- Minecraft 1.21.11
+ 
+-## ЁЯЫая╕П Requirements
++## Installation
+ 
+-* [Fabric Loader](https://fabricmc.net/)
+-* [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api)
++1. Install Fabric Loader and Fabric API
++2. Download the latest `.jar` from [Releases](../../releases)
++3. Place it in your `.minecraft/mods/` folder
++4. Launch the game
+ 
+-## ЁЯУД License
++## Usage
++
++1. Press **M** (default keybinding) to open the Resource Tracker menu
++2. Click **"Add New List"** to create a tracking list
++3. Click the list name to open the editor тАФ search for items on the left, click to add them
++4. Set target amounts for each item (optional)
++5. Use the color fields (RGBA) to customize appearance
++6. Click **"Move HUD Elements"** to drag lists to the desired screen position
++
++## Building from Source
++
++```bash
++git clone https://github.com/your-username/ResourceTracker.git
++cd ResourceTracker
++./gradlew build
++```
++
++The compiled JAR will be in `build/libs/`.
++
++To launch Minecraft with the mod for testing:
++
++```bash
++./gradlew runClient
++```
++
++## License
+ 
+ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+ 
+----
+ Copyright (c) 2026 vocheat
+diff --git a/build.gradle b/build.gradle
+index 3ef4a28..867274d 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -72,7 +72,7 @@ java {
+ 
+ jar {
+     from("LICENSE") {
+-        rename { "${it}_${project.archivesBaseName}" }
++        rename { "${it}_${project.archives_base_name}" }
+     }
+ }
+ 
+diff --git a/gradlew b/gradlew
+old mode 100644
+new mode 100755
+diff --git a/src/main/java/net/fabricmc/resourcetracker/ResourceTracker.java b/src/main/java/net/fabricmc/resourcetracker/ResourceTracker.java
+deleted file mode 100644
+index 5cd292d..0000000
+--- a/src/main/java/net/fabricmc/resourcetracker/ResourceTracker.java
++++ /dev/null
+@@ -1,10 +0,0 @@
+-package net.fabricmc.resourcetracker;
+-
+-import net.fabricmc.api.ModInitializer;
+-
+-public class ResourceTracker implements ModInitializer {
+-
+-    @Override
+-    public void onInitialize() {
+-    }
+-}
+diff --git a/src/main/java/net/fabricmc/resourcetracker/client/ResourceTrackerClient.java b/src/main/java/net/fabricmc/resourcetracker/client/ResourceTrackerClient.java
+index e4124ba..05f21a4 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/client/ResourceTrackerClient.java
++++ b/src/main/java/net/fabricmc/resourcetracker/client/ResourceTrackerClient.java
+@@ -34,9 +34,6 @@ import net.fabricmc.resourcetracker.config.TrackerConfig;
+ import net.fabricmc.resourcetracker.util.InventoryUtils;
+ import net.minecraft.client.option.KeyBinding;
+ import net.minecraft.client.util.InputUtil;
+-import net.minecraft.item.Item;
+-import net.minecraft.registry.Registries;
+-import net.minecraft.util.Identifier;
+ import org.lwjgl.glfw.GLFW;
+ 
+ /**
+@@ -80,24 +77,18 @@ public class ResourceTrackerClient implements ClientModInitializer {
+                 client.setScreen(new MainScreen(null));
+             }
+ 
+-            // --- OPTIMIZATION: Update cache every 10 ticks (0.5 seconds) ---
+-            // Instead of scanning the inventory every single frame (which is expensive),
+-            // we update the item counts periodically.
+             if (client.player != null && client.world != null && client.player.age % 10 == 0) {
+                 for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+                     if (!list.isVisible) continue;
+                     for (TrackerConfig.TrackedItem trackedItem : list.items) {
+-                        Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
+-                        if (item != null) {
+-                            // Helper method handles Shulker Boxes and Bundles recursively
+-                            trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
++                        if (trackedItem.isValid()) {
++                            trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
+                         } else {
+                             trackedItem.cachedCount = 0;
+                         }
+                     }
+                 }
+             }
+-            // ---------------------------------------------------------------
+         });
+ 
+         // Register the HUD renderer
+diff --git a/src/main/java/net/fabricmc/resourcetracker/client/gui/EditScreen.java b/src/main/java/net/fabricmc/resourcetracker/client/gui/EditScreen.java
+index bf48903..8c40e4e 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/client/gui/EditScreen.java
++++ b/src/main/java/net/fabricmc/resourcetracker/client/gui/EditScreen.java
+@@ -25,6 +25,7 @@
+ package net.fabricmc.resourcetracker.client.gui;
+ 
+ import net.fabricmc.resourcetracker.config.TrackerConfig;
++import net.fabricmc.resourcetracker.util.RenderUtils;
+ import net.minecraft.client.gui.DrawContext;
+ import net.minecraft.client.gui.screen.Screen;
+ import net.minecraft.client.gui.widget.ButtonWidget;
+@@ -33,7 +34,6 @@ import net.minecraft.item.Item;
+ import net.minecraft.item.ItemStack;
+ import net.minecraft.registry.Registries;
+ import net.minecraft.text.Text;
+-import net.minecraft.util.Identifier;
+ import net.minecraft.util.math.MathHelper;
+ import org.lwjgl.glfw.GLFW;
+ 
+@@ -72,6 +72,9 @@ public class EditScreen extends Screen {
+     // Cache for item count text fields
+     private final Map<TrackerConfig.TrackedItem, TextFieldWidget> itemCountFields = new HashMap<>();
+ 
++    // Cache for ItemStacks used in search list rendering (avoids per-frame allocations)
++    private final Map<Item, ItemStack> searchStackCache = new HashMap<>();
++
+     private double scrollLeft = 0;
+     private double scrollRight = 0;
+ 
+@@ -119,10 +122,7 @@ public class EditScreen extends Screen {
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.list_name"), startX, 120, row1Y - 12);
+         TextFieldWidget nameField = new TextFieldWidget(textRenderer, startX, row1Y, 120, 16, Text.translatable("gui.resourcetracker.edit.list_name"));
+         nameField.setText(list.name);
+-        nameField.setChangedListener(s -> {
+-            list.name = s;
+-            TrackerConfig.save();
+-        });
++        nameField.setChangedListener(s -> list.name = s);
+         this.addDrawableChild(nameField);
+ 
+         int curX = startX + 130;
+@@ -130,10 +130,7 @@ public class EditScreen extends Screen {
+         // Position X Field
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_x"), curX, 30, row1Y - 12);
+         xField = createSmallField(curX, row1Y, 30, list.x, s -> {
+-            try {
+-                list.x = Integer.parseInt(s);
+-                TrackerConfig.save();
+-            } catch (Exception e) {}
++            try { list.x = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
+         });
+         this.addDrawableChild(xField);
+         curX += 35;
+@@ -141,10 +138,7 @@ public class EditScreen extends Screen {
+         // Position Y Field
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_y"), curX, 30, row1Y - 12);
+         yField = createSmallField(curX, row1Y, 30, list.y, s -> {
+-            try {
+-                list.y = Integer.parseInt(s);
+-                TrackerConfig.save();
+-            } catch (Exception e) {}
++            try { list.y = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
+         });
+         this.addDrawableChild(yField);
+         curX += 35;
+@@ -152,10 +146,7 @@ public class EditScreen extends Screen {
+         // Scale Field
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.scale"), curX, 30, row1Y - 12);
+         scaleField = createSmallField(curX, row1Y, 30, String.valueOf(list.scale), s -> {
+-            try {
+-                list.scale = Float.parseFloat(s);
+-                TrackerConfig.save();
+-            } catch (Exception e) {}
++            try { list.scale = Float.parseFloat(s); } catch (NumberFormatException ignored) {}
+         });
+         this.addDrawableChild(scaleField);
+         curX += 40;
+@@ -164,15 +155,12 @@ public class EditScreen extends Screen {
+         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"), b -> {
+             list.showRemaining = !list.showRemaining;
+             b.setMessage(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"));
+-            TrackerConfig.save();
+         }).dimensions(curX, row1Y, 70, 16).build());
+         curX += 75;
+ 
+-        // Icons Toggle Button
+         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"), b -> {
+             list.showIcons = !list.showIcons;
+             b.setMessage(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"));
+-            TrackerConfig.save();
+         }).dimensions(curX, row1Y, 70, 16).build());
+         curX += 75;
+ 
+@@ -186,15 +174,12 @@ public class EditScreen extends Screen {
+         int row2Width = groupWidth + 20 + groupWidth + 20 + groupWidth;
+         int colorStartX = centerX - (row2Width / 2);
+ 
+-        // Text Color Configuration
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_text"), colorStartX, groupWidth, row2Y - 12);
+-        textR = createColorField(colorStartX, row2Y, (list.textColor >> 16) & 0xFF);
+-        textG = createColorField(colorStartX + 28, row2Y, (list.textColor >> 8) & 0xFF);
+-        textB = createColorField(colorStartX + 56, row2Y, list.textColor & 0xFF);
+-        int ta = (list.textColor >> 24) & 0xFF;
+-        if (ta == 0 && list.textColor != 0) ta = 255;
+-        else if (list.textColor == 0) ta = 255;
+-        textA = createColorField(colorStartX + 84, row2Y, ta);
++        textR = createColorField(colorStartX, row2Y, 0);
++        textG = createColorField(colorStartX + 28, row2Y, 0);
++        textB = createColorField(colorStartX + 56, row2Y, 0);
++        textA = createColorField(colorStartX + 84, row2Y, 0);
++        updateColorFields(textR, textG, textB, textA, list.textColor);
+         this.addDrawableChild(textR);
+         this.addDrawableChild(textG);
+         this.addDrawableChild(textB);
+@@ -202,15 +187,12 @@ public class EditScreen extends Screen {
+ 
+         int titleX = colorStartX + 130;
+ 
+-        // Title Color Configuration
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_title"), titleX, groupWidth, row2Y - 12);
+-        nameR = createColorField(titleX, row2Y, (list.nameColor >> 16) & 0xFF);
+-        nameG = createColorField(titleX + 28, row2Y, (list.nameColor >> 8) & 0xFF);
+-        nameB = createColorField(titleX + 56, row2Y, list.nameColor & 0xFF);
+-        int na = (list.nameColor >> 24) & 0xFF;
+-        if (na == 0 && list.nameColor != 0) na = 255;
+-        else if (list.nameColor == 0) na = 255;
+-        nameA = createColorField(titleX + 84, row2Y, na);
++        nameR = createColorField(titleX, row2Y, 0);
++        nameG = createColorField(titleX + 28, row2Y, 0);
++        nameB = createColorField(titleX + 56, row2Y, 0);
++        nameA = createColorField(titleX + 84, row2Y, 0);
++        updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
+         this.addDrawableChild(nameR);
+         this.addDrawableChild(nameG);
+         this.addDrawableChild(nameB);
+@@ -218,12 +200,12 @@ public class EditScreen extends Screen {
+ 
+         int bgX = titleX + 130;
+ 
+-        // Background Color Configuration
+         addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_bg"), bgX, groupWidth, row2Y - 12);
+-        bgR = createColorField(bgX, row2Y, (list.backgroundColor >> 16) & 0xFF);
+-        bgG = createColorField(bgX + 28, row2Y, (list.backgroundColor >> 8) & 0xFF);
+-        bgB = createColorField(bgX + 56, row2Y, list.backgroundColor & 0xFF);
+-        bgA = createColorField(bgX + 84, row2Y, (list.backgroundColor >> 24) & 0xFF);
++        bgR = createColorField(bgX, row2Y, 0);
++        bgG = createColorField(bgX + 28, row2Y, 0);
++        bgB = createColorField(bgX + 56, row2Y, 0);
++        bgA = createColorField(bgX + 84, row2Y, 0);
++        updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
+         this.addDrawableChild(bgR);
+         this.addDrawableChild(bgG);
+         this.addDrawableChild(bgB);
+@@ -253,7 +235,6 @@ public class EditScreen extends Screen {
+         // Clear List Button
+         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.edit.clear"), b -> {
+             list.items.clear();
+-            TrackerConfig.save();
+             refreshCountWidgets();
+         }).dimensions(rightBoxX + boxWidth - 60, listAreaY - 19, 60, 15).build());
+ 
+@@ -296,31 +277,14 @@ public class EditScreen extends Screen {
+         updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
+         updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
+ 
+-        // 5. Save and reload the screen
+-        TrackerConfig.save();
+         client.setScreen(new EditScreen(parent, list));
+     }
+ 
+-    /**
+-     * Helper to populate 4 separate color fields from one integer value.
+-     */
+     private void updateColorFields(TextFieldWidget r, TextFieldWidget g, TextFieldWidget b, TextFieldWidget a, int color) {
+-        int alpha = (color >> 24) & 0xFF;
+-        int red = (color >> 16) & 0xFF;
+-        int green = (color >> 8) & 0xFF;
+-        int blue = color & 0xFF;
+-
+-        // Fix for old color formats (if alpha is 0 but color is not transparent/black, assume full opacity)
+-        if (alpha == 0 && color != 0) alpha = 255;
+-
+-        // If color is effectively transparent but has RGB values (e.g. 0xFFFFFF with 0 alpha), fix it
+-        // In TrackerConfig, textColor=0xFFFFFF (no alpha bits). We correct it here:
+-        if (alpha == 0 && (red != 0 || green != 0 || blue != 0)) alpha = 255;
+-
+-        r.setText(String.valueOf(red));
+-        g.setText(String.valueOf(green));
+-        b.setText(String.valueOf(blue));
+-        a.setText(String.valueOf(alpha));
++        r.setText(String.valueOf((color >> 16) & 0xFF));
++        g.setText(String.valueOf((color >> 8) & 0xFF));
++        b.setText(String.valueOf(color & 0xFF));
++        a.setText(String.valueOf((color >> 24) & 0xFF));
+     }
+ 
+     private void refreshCountWidgets() {
+@@ -334,10 +298,7 @@ public class EditScreen extends Screen {
+                 w.setText(String.valueOf(item.targetCount));
+                 w.setEditableColor(0xFFFFFFFF);
+                 w.setChangedListener(val -> {
+-                    try {
+-                        item.targetCount = Integer.parseInt(val);
+-                        TrackerConfig.save();
+-                    } catch (NumberFormatException ignored) {}
++                    try { item.targetCount = Integer.parseInt(val); } catch (NumberFormatException ignored) {}
+                 });
+             }
+             newMap.put(item, w);
+@@ -381,14 +342,12 @@ public class EditScreen extends Screen {
+ 
+         handleInput(mouseX, mouseY);
+ 
+-        // Draw Left Box (Search Results)
+-        drawBox(context, leftBoxX, listAreaY, boxWidth, boxHeight);
++        RenderUtils.drawBox(context, leftBoxX, listAreaY, boxWidth, boxHeight);
+         context.fill(leftBoxX, listAreaY + searchHeight, leftBoxX + boxWidth, listAreaY + searchHeight + 1, 0xFF555555);
+         drawMagnifyingGlass(context, leftBoxX + boxWidth - 14, listAreaY + 4);
+         renderItemList(context, mouseX, mouseY, leftBoxX, listAreaY, boxWidth, boxHeight, filteredItems, scrollLeft);
+ 
+-        // Draw Right Box (Added Items)
+-        drawBox(context, rightBoxX, listAreaY, boxWidth, boxHeight);
++        RenderUtils.drawBox(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+         renderAddedList(context, mouseX, mouseY, rightBoxX, listAreaY, boxWidth, boxHeight);
+ 
+         super.render(context, mouseX, mouseY, delta);
+@@ -425,12 +384,12 @@ public class EditScreen extends Screen {
+                 hoveredItem = item;
+             }
+ 
+-            context.drawItem(new ItemStack(item), x + 4, cy + 2);
++            context.drawItem(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 2);
+ 
+             // Shorten text using helper method
+             String name = item.getName().getString();
+             // Text width = list width - left padding (24) - right padding (4)
+-            name = shortenText(textRenderer, name, w - 28);
++            name = RenderUtils.shortenText(textRenderer, name, w - 28);
+ 
+             context.drawText(textRenderer, Text.literal(name), x + 24, cy + 6, 0xFFFFFFFF, true);
+         }
+@@ -438,7 +397,7 @@ public class EditScreen extends Screen {
+         // 3. Disable scissor BEFORE drawing tooltip
+         context.disableScissor();
+ 
+-        drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH, scroll);
++        RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH, scroll);
+ 
+         // 4. Draw tooltip on top of everything
+         if (hoveredItem != null) {
+@@ -452,7 +411,7 @@ public class EditScreen extends Screen {
+         int startY = (int) (y - scrollRight + 2);
+ 
+         // 1. Variable for item under cursor
+-        Item hoveredItem = null;
++        TrackerConfig.TrackedItem hoveredTracked = null;
+ 
+         for (int i = 0; i < list.items.size(); i++) {
+             TrackerConfig.TrackedItem ti = list.items.get(i);
+@@ -472,44 +431,38 @@ public class EditScreen extends Screen {
+             }
+ 
+             if (!isVisible) continue;
++            if (!ti.isValid()) continue;
+ 
+-            Item item = Registries.ITEM.get(Identifier.of(ti.itemId));
+             // Hover zone (excluding buttons on the right)
+             boolean hover = mx >= x && mx < x + w - 45 && my >= cy && my < cy + itemH;
+ 
+             if (hover) {
+                 context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x10FFFFFF);
+-                // 2. Store item if exists
+-                if (item != null) {
+-                    hoveredItem = item;
+-                }
++                hoveredTracked = ti;
+             }
+ 
+-            if (item != null) {
+-                context.drawItem(new ItemStack(item), x + 4, cy + 2);
++            context.drawItem(ti.getStack(), x + 4, cy + 2);
+ 
+-                // Shorten text
+-                String txt = item.getName().getString();
+-                txt = shortenText(textRenderer, txt, w - 85 - 24);
+-                context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
++            // Shorten text
++            String txt = RenderUtils.shortenText(textRenderer, ti.getDisplayName(), w - 85 - 24);
++            context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
+ 
+-                // Delete Cross
+-                int crossX = x + w - 20;
+-                int crossY = cy + 6;
+-                boolean crossHover = mx >= crossX - 2 && mx <= crossX + 7 && my >= crossY - 2 && my <= crossY + 7;
+-                int crossColor = crossHover ? 0xFFFFFFFF : 0xFFA0A0A0;
+-                drawPixelCross(context, crossX, crossY, crossColor);
+-            }
++            // Delete Cross
++            int crossX = x + w - 20;
++            int crossY = cy + 6;
++            boolean crossHover = mx >= crossX - 2 && mx <= crossX + 7 && my >= crossY - 2 && my <= crossY + 7;
++            int crossColor = crossHover ? 0xFFFFFFFF : 0xFFA0A0A0;
++            drawPixelCross(context, crossX, crossY, crossColor);
+         }
+ 
+         // 3. Disable scissor
+         context.disableScissor();
+ 
+-        drawStyledScrollbar(context, x + w - 6, y, h, list.items.size() * itemH, scrollRight);
++        RenderUtils.drawStyledScrollbar(context, x + w - 6, y, h, list.items.size() * itemH, scrollRight);
+ 
+         // 4. Draw tooltip on top
+-        if (hoveredItem != null) {
+-            context.drawTooltip(textRenderer, hoveredItem.getName(), mx, my);
++        if (hoveredTracked != null) {
++            context.drawTooltip(textRenderer, hoveredTracked.getItem().getName(), mx, my);
+         }
+     }
+ 
+@@ -547,7 +500,6 @@ public class EditScreen extends Screen {
+ 
+                     if (mx >= crossX - 3 && mx <= crossX + 8 && my >= crossY - 3 && my <= crossY + 8) {
+                         list.items.remove(idx);
+-                        TrackerConfig.save();
+                         refreshCountWidgets();
+                     }
+                 }
+@@ -579,14 +531,6 @@ public class EditScreen extends Screen {
+         wasMouseDown = down;
+     }
+ 
+-    private void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
+-        if (contentH <= h) return;
+-        context.fill(x, y, x + 5, y + h, 0xFF000000);
+-        int barH = Math.max(20, (int) ((float) h / contentH * h));
+-        int barY = y + (int) ((scroll / (contentH - h)) * (h - barH));
+-        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
+-    }
+-
+     private void drawMagnifyingGlass(DrawContext context, int x, int y) {
+         int color = 0xFFAAAAAA;
+         context.fill(x + 2, y + 2, x + 7, y + 3, color);
+@@ -596,21 +540,6 @@ public class EditScreen extends Screen {
+         context.fill(x + 7, y + 7, x + 9, y + 9, color);
+     }
+ 
+-    private void drawBox(DrawContext context, int x, int y, int w, int h) {
+-        // 1. Semi-transparent black background
+-        context.fill(x, y, x + w, y + h, 0x80000000);
+-
+-        // 2. Border color
+-        // Changed from dark gray to White (0xFFFFFFFF) for visibility
+-        int color = 0xFFFFFFFF;
+-
+-        // 3. Draw border lines manually
+-        context.fill(x, y, x + w, y + 1, color);       // Top
+-        context.fill(x, y + h - 1, x + w, y + h, color); // Bottom
+-        context.fill(x, y, x + 1, y + h, color);       // Left
+-        context.fill(x + w - 1, y, x + w, y + h, color); // Right
+-    }
+-
+     private void addCenteredLabel(Text text, int x, int width, int y) {
+         int textWidth = textRenderer.getWidth(text);
+         int centeredX = x + (width - textWidth) / 2;
+@@ -637,7 +566,6 @@ public class EditScreen extends Screen {
+             list.textColor = packColor(textR, textG, textB, textA);
+             list.nameColor = packColor(nameR, nameG, nameB, nameA);
+             list.backgroundColor = packColor(bgR, bgG, bgB, bgA);
+-            TrackerConfig.save();
+         } catch (Exception ignored) {}
+     }
+ 
+@@ -661,6 +589,12 @@ public class EditScreen extends Screen {
+         return Math.max(0, Math.min(255, val));
+     }
+ 
++    @Override
++    public void close() {
++        TrackerConfig.save();
++        super.close();
++    }
++
+     @Override
+     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+         double amount = verticalAmount;
+@@ -696,21 +630,8 @@ public class EditScreen extends Screen {
+         }
+         if (!found) {
+             list.items.add(new TrackerConfig.TrackedItem(id, 0));
+-            TrackerConfig.save();
+             refreshCountWidgets();
+         }
+     }
+ 
+-    /**
+-     * Trims text to fit within a specific width, appending "..." if truncated.
+-     */
+-    private String shortenText(net.minecraft.client.font.TextRenderer textRenderer, String text, int maxWidth) {
+-        if (textRenderer.getWidth(text) <= maxWidth) {
+-            return text;
+-        }
+-        String suffix = "...";
+-        int suffixWidth = textRenderer.getWidth(suffix);
+-        // trimToWidth trims text to (width - suffix_width)
+-        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
+-    }
+ }
+\ No newline at end of file
+diff --git a/src/main/java/net/fabricmc/resourcetracker/client/gui/HudMoveScreen.java b/src/main/java/net/fabricmc/resourcetracker/client/gui/HudMoveScreen.java
+index 78992ac..085a8e9 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/client/gui/HudMoveScreen.java
++++ b/src/main/java/net/fabricmc/resourcetracker/client/gui/HudMoveScreen.java
+@@ -26,14 +26,11 @@ package net.fabricmc.resourcetracker.client.gui;
+ 
+ import net.fabricmc.resourcetracker.config.TrackerConfig;
+ import net.fabricmc.resourcetracker.util.InventoryUtils;
++import net.fabricmc.resourcetracker.util.RenderUtils;
+ import net.minecraft.client.gui.DrawContext;
+ import net.minecraft.client.gui.screen.Screen;
+ import net.minecraft.client.gui.widget.ButtonWidget;
+-import net.minecraft.item.Item;
+-import net.minecraft.item.ItemStack;
+-import net.minecraft.registry.Registries;
+ import net.minecraft.text.Text;
+-import net.minecraft.util.Identifier;
+ import org.lwjgl.glfw.GLFW;
+ 
+ /**
+@@ -72,7 +69,7 @@ public class HudMoveScreen extends Screen {
+         // Render a darkened background
+         context.fill(0, 0, this.width, this.height, 0xA0000000);
+ 
+-        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFF);
++        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFFFF);
+ 
+         handleMouseInput(mouseX, mouseY);
+ 
+@@ -85,109 +82,75 @@ public class HudMoveScreen extends Screen {
+         super.render(context, mouseX, mouseY, delta);
+     }
+ 
+-    /**
+-     * Renders a specific list with its configured scale and position.
+-     * Highlights the border green if it is currently being dragged.
+-     */
+     private void renderScaledList(DrawContext context, TrackerConfig.TrackingList list) {
+         context.getMatrices().pushMatrix();
+         context.getMatrices().translate((float) list.x, (float) list.y);
+         context.getMatrices().scale(list.scale, list.scale);
+ 
+         BoxSize baseSize = calculateBaseSize(list);
+-        // Green border if dragging, White otherwise
+         int borderColor = (list == draggingList) ? 0xFF00FF00 : 0xFFFFFFFF;
+         int padding = 4;
+ 
+         renderBorder(context, -padding - 2, -padding - 2, baseSize.width + 4, baseSize.height + 4, borderColor);
+         context.fill(-padding, -padding, baseSize.width - padding, baseSize.height - padding, list.backgroundColor);
+-        context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
++        context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor);
+ 
+         int headerHeight = 14;
+         int itemRowHeight = 24;
+         int currentY = headerHeight;
+-
+-        // Determine offset based on icon visibility
+         int iconOffset = list.showIcons ? 20 : 2;
+ 
+         for (TrackerConfig.TrackedItem trackedItem : list.items) {
+-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
+-            if (item != null) {
+-                // Render Icon
+-                if (list.showIcons) {
+-                    context.drawItem(new ItemStack(item), 0, currentY + 1);
+-                }
++            if (!trackedItem.isValid()) {
++                currentY += itemRowHeight;
++                continue;
++            }
+ 
+-                // Render Text
+-                String name = item.getName().getString();
++            if (list.showIcons) {
++                context.drawItem(trackedItem.getStack(), 0, currentY + 1);
++            }
+ 
+-                // Check cache (calculate if missing)
+-                if (trackedItem.cachedCount == -1) {
+-                    if (client.player != null) {
+-                        trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
+-                    }
+-                }
+-                int currentCount = trackedItem.cachedCount;
+-                String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
++            if (trackedItem.cachedCount == -1 && client.player != null) {
++                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
++            }
++            int currentCount = trackedItem.cachedCount;
++            String countText = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+ 
+-                // Draw item name
+-                context.drawTextWithShadow(textRenderer, name, iconOffset, currentY, list.textColor | 0xFF000000);
++            context.drawTextWithShadow(textRenderer, trackedItem.getDisplayName(), iconOffset, currentY, list.textColor);
++
++            int countColor = (currentCount >= trackedItem.targetCount) ? 0xFF55FF55 : (list.textColor & 0xAAFFFFFF);
++            context.drawTextWithShadow(textRenderer, countText, iconOffset, currentY + 10, countColor);
+ 
+-                // Draw count
+-                int countColor = (currentCount >= trackedItem.targetCount) ? 0xFF55FF55 : (list.textColor & 0xAAFFFFFF);
+-                context.drawTextWithShadow(textRenderer, countText, iconOffset, currentY + 10, countColor);
+-            }
+             currentY += itemRowHeight;
+         }
+ 
+         context.getMatrices().popMatrix();
+     }
+ 
+-    /**
+-     * Calculates the unscaled width and height of the list box based on its content.
+-     */
+     private BoxSize calculateBaseSize(TrackerConfig.TrackingList list) {
+         int padding = 4;
+         int headerHeight = 14;
+         int itemRowHeight = 24;
+         int maxTextWidth = textRenderer.getWidth(list.name);
+-
+-        // Include icon width in calculation if enabled
+         int iconOffset = list.showIcons ? 20 : 2;
+ 
+         for (TrackerConfig.TrackedItem trackedItem : list.items) {
+-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
+-            if (item == null) continue;
++            if (!trackedItem.isValid()) continue;
+ 
+-            // Check cache
+-            if (trackedItem.cachedCount == -1) {
+-                if (client.player != null) {
+-                    trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
+-                }
++            if (trackedItem.cachedCount == -1 && client.player != null) {
++                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
+             }
+-            int currentCount = trackedItem.cachedCount;
+-            String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+-            String nameText = item.getName().getString();
++            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
+ 
+-            int w = iconOffset + Math.max(textRenderer.getWidth(nameText), textRenderer.getWidth(countText));
++            int w = iconOffset + Math.max(textRenderer.getWidth(trackedItem.getDisplayName()), textRenderer.getWidth(countText));
+             if (w > maxTextWidth) maxTextWidth = w;
+         }
+ 
+         int width = maxTextWidth + (padding * 2);
+         int height = headerHeight + (list.items.size() * itemRowHeight) + padding;
+-
+         return new BoxSize(width, height);
+     }
+ 
+-    private String getCountText(int current, int target, boolean showRemaining) {
+-        if (current >= target) {
+-            return Text.translatable("gui.resourcetracker.overlay.done").getString() + " (" + current + "/" + target + ")";
+-        }
+-        return showRemaining ?
+-                Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current) :
+-                current + " / " + target;
+-    }
+-
+     private void renderBorder(DrawContext context, int x, int y, int width, int height, int color) {
+         context.fill(x, y, x + width, y + 1, color);
+         context.fill(x, y + height - 1, x + width, y + height, color);
+diff --git a/src/main/java/net/fabricmc/resourcetracker/client/gui/MainScreen.java b/src/main/java/net/fabricmc/resourcetracker/client/gui/MainScreen.java
+index 73032ff..0e1f0f7 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/client/gui/MainScreen.java
++++ b/src/main/java/net/fabricmc/resourcetracker/client/gui/MainScreen.java
+@@ -25,6 +25,7 @@
+ package net.fabricmc.resourcetracker.client.gui;
+ 
+ import net.fabricmc.resourcetracker.config.TrackerConfig;
++import net.fabricmc.resourcetracker.util.RenderUtils;
+ import net.minecraft.client.gui.DrawContext;
+ import net.minecraft.client.gui.screen.Screen;
+ import net.minecraft.client.gui.widget.ButtonWidget;
+@@ -57,8 +58,7 @@ public class MainScreen extends Screen {
+     private double scrollOffset = 0;
+     private int listTop = 60;
+     private int listBottom;
+-    private final int itemHeight = 20; // Height of a single list entry
+-
++    private final int itemHeight = 20;
+     private boolean wasMouseDown = false;
+ 
+     public MainScreen(Screen parent) {
+@@ -126,10 +126,8 @@ public class MainScreen extends Screen {
+ 
+     @Override
+     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+-        // Darkened background (similar to standard Minecraft Edit screens)
+         context.fill(0, 0, this.width, this.height, 0xA0000000);
+ 
+-        // Title with background box
+         String titleText = this.title.getString();
+         int titleWidth = this.textRenderer.getWidth(titleText);
+         int titleX = (this.width - titleWidth) / 2;
+@@ -158,7 +156,7 @@ public class MainScreen extends Screen {
+         int maxScroll = Math.max(0, contentHeight - boxHeight);
+         this.scrollOffset = MathHelper.clamp(this.scrollOffset, 0, maxScroll);
+ 
+-        drawBox(context, boxX, listTop, boxWidth, boxHeight);
++        RenderUtils.drawBox(context, boxX, listTop, boxWidth, boxHeight);
+ 
+         // Enable scissor to clip content outside the list box
+         context.enableScissor(boxX, listTop, boxX + boxWidth, listBottom);
+@@ -195,13 +193,8 @@ public class MainScreen extends Screen {
+             boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 16 && mouseY >= eyeY && mouseY < eyeY + 16);
+             drawPixelEye(context, eyeX, eyeY, list.isVisible, eyeHovered);
+ 
+-            // List Name
+-            String nameText = list.name;
+-            int maxNameWidth = boxWidth - 60;
+-            if (this.textRenderer.getWidth(nameText) > maxNameWidth) {
+-                nameText = this.textRenderer.trimToWidth(nameText, maxNameWidth) + "..";
+-            }
+-            context.drawText(this.textRenderer, Text.translatable(nameText), x + 24, y + 6, 0xFFFFFFFF, true);
++            String nameText = RenderUtils.shortenText(this.textRenderer, list.name, boxWidth - 60);
++            context.drawText(this.textRenderer, Text.literal(nameText), x + 24, y + 6, 0xFFFFFFFF, true);
+ 
+             // Trash Icon (Delete)
+             int trashX = x + boxWidth - 20;
+@@ -219,7 +212,7 @@ public class MainScreen extends Screen {
+         context.disableScissor();
+ 
+         if (maxScroll > 0) {
+-            drawStyledScrollbar(context, boxX + boxWidth - 6, listTop, boxHeight, contentHeight, scrollOffset);
++            RenderUtils.drawStyledScrollbar(context, boxX + boxWidth - 6, listTop, boxHeight, contentHeight, scrollOffset);
+         }
+ 
+         // Render Tooltip ABOVE the scissor cut (after disableScissor)
+@@ -234,36 +227,6 @@ public class MainScreen extends Screen {
+         }
+     }
+ 
+-    /**
+-     * Draws the background box for the list.
+-     */
+-    private void drawBox(DrawContext context, int x, int y, int w, int h) {
+-        // 1. Semi-transparent black background
+-        context.fill(x, y, x + w, y + h, 0x80000000);
+-
+-        // 2. Border color
+-        // Changed from dark gray to White (0xFFFFFFFF) for better visibility on dark backgrounds
+-        int color = 0xFFFFFFFF;
+-
+-        // 3. Draw border lines manually
+-        context.fill(x, y, x + w, y + 1, color);       // Top
+-        context.fill(x, y + h - 1, x + w, y + h, color); // Bottom
+-        context.fill(x, y, x + 1, y + h, color);       // Left
+-        context.fill(x + w - 1, y, x + w, y + h, color); // Right
+-    }
+-
+-    private void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
+-        if (contentH <= h) return;
+-        context.fill(x, y, x + 5, y + h, 0xFF000000);
+-        int barH = Math.max(20, (int) ((float) h / contentH * h));
+-        int maxScroll = contentH - h;
+-        int barY = y + (int) ((scroll / maxScroll) * (h - barH));
+-        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
+-    }
+-
+-    /**
+-     * Manually handles mouse input for the custom list, as the items are not standard widgets.
+-     */
+     private void handleMouseInput(int mouseX, int mouseY) {
+         long windowHandle = this.client.getWindow().getHandle();
+         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+@@ -285,22 +248,17 @@ public class MainScreen extends Screen {
+                         int eyeX = boxX + 4;
+                         int trashX = boxX + boxWidth - 20;
+ 
+-                        // Click on Eye (Toggle Visibility)
+                         if (mouseX >= eyeX && mouseX < eyeX + 16) {
+                             list.isVisible = !list.isVisible;
+                             TrackerConfig.save();
+                             playClickSound();
+-                        }
+-                        // Click on Trash (Delete)
+-                        else if (mouseX >= trashX && mouseX < trashX + 16) {
++                        } else if (mouseX >= trashX && mouseX < trashX + 16) {
+                             if (isShiftDown()) {
+                                 lists.remove(list);
+                                 TrackerConfig.save();
+                                 playClickSound();
+                             }
+-                        }
+-                        // Click on Center (Edit)
+-                        else if (mouseX > boxX + 24 && mouseX < trashX - 4) {
++                        } else if (mouseX > boxX + 24 && mouseX < trashX - 4) {
+                             if (this.client != null) {
+                                 this.client.setScreen(new EditScreen(this, list));
+                             }
+@@ -310,7 +268,6 @@ public class MainScreen extends Screen {
+                 }
+             }
+         }
+-
+         wasMouseDown = isMouseDown;
+     }
+ 
+@@ -446,7 +403,7 @@ public class MainScreen extends Screen {
+     private boolean isShiftDown() {
+         if (this.client == null) return false;
+         long handle = this.client.getWindow().getHandle();
+-        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
+-                GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
++        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
++                || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+     }
+ }
+\ No newline at end of file
+diff --git a/src/main/java/net/fabricmc/resourcetracker/client/render/HudOverlay.java b/src/main/java/net/fabricmc/resourcetracker/client/render/HudOverlay.java
+index 23a23a0..56a0544 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/client/render/HudOverlay.java
++++ b/src/main/java/net/fabricmc/resourcetracker/client/render/HudOverlay.java
+@@ -27,14 +27,10 @@ package net.fabricmc.resourcetracker.client.render;
+ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+ import net.fabricmc.resourcetracker.config.TrackerConfig;
+ import net.fabricmc.resourcetracker.util.InventoryUtils;
++import net.fabricmc.resourcetracker.util.RenderUtils;
+ import net.minecraft.client.MinecraftClient;
+ import net.minecraft.client.gui.DrawContext;
+ import net.minecraft.client.render.RenderTickCounter;
+-import net.minecraft.item.Item;
+-import net.minecraft.item.ItemStack;
+-import net.minecraft.registry.Registries;
+-import net.minecraft.text.Text;
+-import net.minecraft.util.Identifier;
+ 
+ /**
+  * Handles the rendering of the Resource Tracker overlay on the in-game HUD.
+@@ -47,9 +43,8 @@ import net.minecraft.util.Identifier;
+  */
+ public class HudOverlay implements HudRenderCallback {
+ 
+-    private static final int ITEM_ROW_HEIGHT = 24; // Fixed height per row, matches EditScreen layout
+-    private static final boolean USE_COMPACT_DONE = true; // Compact mode for completed items
+-    private static final int MAX_TEXT_WIDTH = 200; // Maximum text width before truncation
++    private static final int ITEM_ROW_HEIGHT = 24;
++    private static final int MAX_TEXT_WIDTH = 200;
+ 
+     @Override
+     public void onHudRender(DrawContext context, RenderTickCounter tickCounter) {
+@@ -59,83 +54,54 @@ public class HudOverlay implements HudRenderCallback {
+         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+             if (!list.isVisible) continue;
+ 
+-            // Save the current matrix state
+             context.getMatrices().pushMatrix();
+-            // Apply translation and scaling based on config
+             context.getMatrices().translate((float) list.x, (float) list.y);
+             context.getMatrices().scale(list.scale, list.scale);
+ 
+             renderListContent(context, client, list);
+ 
+-            // Restore the matrix state
+             context.getMatrices().popMatrix();
+         }
+     }
+ 
+-    /**
+-     * Calculates dimensions and renders the content of a single tracking list.
+-     */
+     private void renderListContent(DrawContext context, MinecraftClient client, TrackerConfig.TrackingList list) {
+         int padding = 4;
+         int headerHeight = 14;
+         int itemCount = list.items.size();
+ 
+-        // Handle empty list case - just draw the header
+         if (itemCount == 0) {
+             int boxWidth = client.textRenderer.getWidth(list.name) + (padding * 2);
+             int boxHeight = headerHeight + padding;
+-
+             context.fill(-padding, -padding, boxWidth - padding, boxHeight - padding, list.backgroundColor);
+-            context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
++            context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor);
+             return;
+         }
+ 
+-        // --- Step 1: Pre-calculate layout and maximum width ---
+         int maxTextWidth = client.textRenderer.getWidth(list.name);
+-
+-        // Determine offset: 20 pixels if icons are shown, 2 pixels if not
+         int iconOffset = list.showIcons ? 20 : 2;
+ 
+         for (TrackerConfig.TrackedItem trackedItem : list.items) {
+-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
+-            if (item == null) continue;
++            if (!trackedItem.isValid()) continue;
+ 
+-            // Update cache if necessary for width calculation
+             if (trackedItem.cachedCount == -1) {
+-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
++                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
+             }
+-            int currentCount = trackedItem.cachedCount;
+ 
+-            String itemName = item.getName().getString();
+-            String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+-
+-            int nameWidth = client.textRenderer.getWidth(itemName);
++            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
++            int nameWidth = client.textRenderer.getWidth(trackedItem.getDisplayName());
+             int countWidth = client.textRenderer.getWidth(countText);
+-
+-            // Calculate total width for this entry
+-            int entryWidth = iconOffset + Math.max(nameWidth, countWidth);
+-
+-            // Cap the width to the maximum allowed
+-            if (entryWidth > MAX_TEXT_WIDTH + iconOffset) {
+-                entryWidth = MAX_TEXT_WIDTH + iconOffset;
+-            }
++            int entryWidth = iconOffset + Math.min(Math.max(nameWidth, countWidth), MAX_TEXT_WIDTH);
+ 
+             if (entryWidth > maxTextWidth) {
+                 maxTextWidth = entryWidth;
+             }
+         }
+ 
+-        // Calculate single column dimensions
+         int columnWidth = maxTextWidth + (padding * 2);
+         int singleColumnHeight = headerHeight + (itemCount * ITEM_ROW_HEIGHT) + padding;
+ 
+-        // --- Step 2: Check if the list fits on the screen vertically ---
+         int screenHeight = client.getWindow().getScaledHeight();
+-        int scaledHeight = (int) (singleColumnHeight * list.scale);
+-        int actualBottomY = (int) (list.y + scaledHeight);
+-
+-        // Use double columns if the list extends beyond the screen height
+-        boolean useDoubleColumn = actualBottomY > screenHeight;
++        boolean useDoubleColumn = (list.y + (int) (singleColumnHeight * list.scale)) > screenHeight;
+ 
+         int itemsPerColumn;
+         int totalWidth;
+@@ -151,102 +117,44 @@ public class HudOverlay implements HudRenderCallback {
+             boxHeight = singleColumnHeight;
+         }
+ 
+-        // Draw background panel
+         context.fill(-padding, -padding, totalWidth - padding, boxHeight - padding, list.backgroundColor);
++        context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor);
+ 
+-        // Draw header text
+-        context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
+-
+-        // --- Step 3: Render Items ---
+         int currentY = headerHeight;
+         int currentColumn = 0;
+         int columnOffsetX = 0;
+ 
+         for (int i = 0; i < list.items.size(); i++) {
+             TrackerConfig.TrackedItem trackedItem = list.items.get(i);
+-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
+-            if (item == null) continue;
++            if (!trackedItem.isValid()) continue;
+ 
+-            // Use cached count (likely calculated in Step 1)
+             if (trackedItem.cachedCount == -1) {
+-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
++                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
+             }
+             int currentCount = trackedItem.cachedCount;
++            boolean isDone = currentCount >= trackedItem.targetCount;
+ 
+-            int target = trackedItem.targetCount;
+-            boolean isDone = currentCount >= target;
+-
+-            // Handle column switching
+-            if (useDoubleColumn && i >= itemsPerColumn) {
+-                if (currentColumn == 0) {
+-                    columnOffsetX = columnWidth + padding;
+-                    currentY = headerHeight;
+-                    currentColumn = 1;
+-                }
++            if (useDoubleColumn && i >= itemsPerColumn && currentColumn == 0) {
++                columnOffsetX = columnWidth + padding;
++                currentY = headerHeight;
++                currentColumn = 1;
+             }
+ 
+-            // Draw Item Icon (only if enabled)
+             if (list.showIcons) {
+-                int iconY = currentY + 1;
+-                context.drawItem(new ItemStack(item), columnOffsetX, iconY);
++                context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
+             }
+ 
+-            // Prepare Item Name
+-            String itemName = item.getName().getString();
+-
+-            // Calculate available width for text (total width - icon offset)
+             int availableWidth = maxTextWidth - iconOffset;
++            String itemName = RenderUtils.shortenText(client.textRenderer, trackedItem.getDisplayName(), availableWidth);
+ 
+-            // Smartly trim text if it's too long
+-            itemName = shortenText(client.textRenderer, itemName, availableWidth);
+-
+-            // Draw Item Name
+-            int itemColor = list.textColor | 0xFF000000;
++            int itemColor = list.textColor;
+             context.drawTextWithShadow(client.textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
+ 
+-            // Draw Item Count
+-            String countLine = getCountText(currentCount, target, list.showRemaining);
+-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF); // Green if done, else slightly transparent
++            String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
++            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
+             context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
+ 
+             currentY += ITEM_ROW_HEIGHT;
+         }
+     }
+-
+-    /**
+-     * Formats the count text based on current progress and settings.
+-     */
+-    private String getCountText(int current, int target, boolean showRemaining) {
+-        boolean isDone = current >= target;
+-
+-        if (USE_COMPACT_DONE && isDone) {
+-            return "[тЬУ] " + current + "/" + target;
+-        }
+-
+-        if (isDone) {
+-            return Text.translatable("gui.resourcetracker.overlay.done").getString() + " (" + current + "/" + target + ")";
+-        }
+-
+-        return showRemaining ?
+-                Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current) :
+-                current + " / " + target;
+-    }
+-
+-    /**
+-     * Trims text to fit within a specific width, appending "..." if truncated.
+-     *
+-     * @param textRenderer The text renderer instance.
+-     * @param text         The string to potentially shorten.
+-     * @param maxWidth     The maximum allowed width in pixels.
+-     * @return The original text if it fits, or a shortened version ending in "..."
+-     */
+-    private String shortenText(net.minecraft.client.font.TextRenderer textRenderer, String text, int maxWidth) {
+-        if (textRenderer.getWidth(text) <= maxWidth) {
+-            return text;
+-        }
+-        String suffix = "...";
+-        int suffixWidth = textRenderer.getWidth(suffix);
+-        // trimToWidth cuts text to (width - suffix_width) to ensure the suffix fits
+-        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
+-    }
+ }
+\ No newline at end of file
+diff --git a/src/main/java/net/fabricmc/resourcetracker/config/TrackerConfig.java b/src/main/java/net/fabricmc/resourcetracker/config/TrackerConfig.java
+index 4d42019..3d61888 100644
+--- a/src/main/java/net/fabricmc/resourcetracker/config/TrackerConfig.java
++++ b/src/main/java/net/fabricmc/resourcetracker/config/TrackerConfig.java
+@@ -27,6 +27,10 @@ package net.fabricmc.resourcetracker.config;
+ import com.google.gson.Gson;
+ import com.google.gson.GsonBuilder;
+ import net.fabricmc.loader.api.FabricLoader;
++import net.minecraft.item.Item;
++import net.minecraft.item.ItemStack;
++import net.minecraft.registry.Registries;
++import net.minecraft.util.Identifier;
+ 
+ import java.io.File;
+ import java.io.FileReader;
+@@ -75,8 +79,8 @@ public class TrackerConfig {
+         /** Determines if item icons should be rendered next to the text. Default: true. */
+         public boolean showIcons = true;
+ 
+-        /** Text color for items (RGB). Default: White (0xFFFFFF). */
+-        public int textColor = 0xFFFFFF;
++        /** Text color for items (ARGB). Default: White (0xFFFFFFFF). */
++        public int textColor = 0xFFFFFFFF;
+ 
+         /** Text color for the list header (ARGB). Default: White (0xFFFFFFFF). */
+         public int nameColor = 0xFFFFFFFF;
+@@ -94,19 +98,44 @@ public class TrackerConfig {
+         public String itemId;
+         public int targetCount;
+ 
+-        /**
+-         * Cached count of items found in the player's inventory.
+-         * <p>
+-         * Marked as {@code transient} to exclude it from JSON serialization,
+-         * as this is a runtime value used for caching.
+-         * </p>
+-         */
+         public transient int cachedCount = -1;
++        private transient Item cachedItem = null;
++        private transient ItemStack cachedStack = null;
++        private transient String displayName = null;
+ 
+         public TrackedItem(String itemId, int targetCount) {
+             this.itemId = itemId;
+             this.targetCount = targetCount;
+         }
++
++        /** Returns the resolved Item, cached after first lookup. */
++        public Item getItem() {
++            if (cachedItem == null) {
++                cachedItem = Registries.ITEM.get(Identifier.of(this.itemId));
++            }
++            return cachedItem;
++        }
++
++        /** Returns a reusable display ItemStack (count=1), avoiding per-frame allocations. */
++        public ItemStack getStack() {
++            if (cachedStack == null) {
++                cachedStack = new ItemStack(getItem());
++            }
++            return cachedStack;
++        }
++
++        /** Returns the cached display name string. */
++        public String getDisplayName() {
++            if (displayName == null) {
++                displayName = getItem().getName().getString();
++            }
++            return displayName;
++        }
++
++        /** Returns true if this item ID resolves to a real item in the registry. */
++        public boolean isValid() {
++            return Registries.ITEM.containsId(Identifier.of(this.itemId));
++        }
+     }
+ 
+     /**
+@@ -119,8 +148,12 @@ public class TrackerConfig {
+     public static void load() {
+         if (CONFIG_FILE.exists()) {
+             try (FileReader reader = new FileReader(CONFIG_FILE)) {
+-                INSTANCE = GSON.fromJson(reader, TrackerConfig.class);
+-            } catch (IOException e) {
++                TrackerConfig loaded = GSON.fromJson(reader, TrackerConfig.class);
++                if (loaded != null) {
++                    if (loaded.lists == null) loaded.lists = new ArrayList<>();
++                    INSTANCE = loaded;
++                }
++            } catch (Exception e) {
+                 e.printStackTrace();
+             }
+         } else {
+diff --git a/src/main/java/net/fabricmc/resourcetracker/util/RenderUtils.java b/src/main/java/net/fabricmc/resourcetracker/util/RenderUtils.java
+new file mode 100644
+index 0000000..57c65d2
+--- /dev/null
++++ b/src/main/java/net/fabricmc/resourcetracker/util/RenderUtils.java
+@@ -0,0 +1,83 @@
++/*
++ * MIT License
++ *
++ * Copyright (c) 2026 vocheat
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in all
++ * copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ */
++
++package net.fabricmc.resourcetracker.util;
++
++import net.minecraft.client.font.TextRenderer;
++import net.minecraft.client.gui.DrawContext;
++import net.minecraft.text.Text;
++
++/**
++ * Shared rendering utilities used across GUI screens and HUD overlay.
++ */
++public class RenderUtils {
++
++    /**
++     * Draws a bordered box with a semi-transparent black background.
++     */
++    public static void drawBox(DrawContext context, int x, int y, int w, int h) {
++        context.fill(x, y, x + w, y + h, 0x80000000);
++        int color = 0xFFFFFFFF;
++        context.fill(x, y, x + w, y + 1, color);
++        context.fill(x, y + h - 1, x + w, y + h, color);
++        context.fill(x, y, x + 1, y + h, color);
++        context.fill(x + w - 1, y, x + w, y + h, color);
++    }
++
++    /**
++     * Draws a styled scrollbar track and thumb.
++     */
++    public static void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
++        if (contentH <= h) return;
++        context.fill(x, y, x + 5, y + h, 0xFF000000);
++        int barH = Math.max(20, (int) ((float) h / contentH * h));
++        int maxScroll = contentH - h;
++        int barY = y + (int) ((scroll / maxScroll) * (h - barH));
++        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
++    }
++
++    /**
++     * Trims text to fit within a specific pixel width, appending "..." if truncated.
++     */
++    public static String shortenText(TextRenderer textRenderer, String text, int maxWidth) {
++        if (textRenderer.getWidth(text) <= maxWidth) {
++            return text;
++        }
++        String suffix = "...";
++        int suffixWidth = textRenderer.getWidth(suffix);
++        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
++    }
++
++    /**
++     * Formats the count text based on current progress and display mode.
++     */
++    public static String getCountText(int current, int target, boolean showRemaining) {
++        if (current >= target) {
++            return "[\u2713] " + current + "/" + target;
++        }
++        return showRemaining
++                ? Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current)
++                : current + " / " + target;
++    }
++}
+diff --git a/src/main/resources/assets/resourcetracker/lang/en_us.json b/src/main/resources/assets/resourcetracker/lang/en_us.json
+index 387bbe9..53a26f5 100644
+--- a/src/main/resources/assets/resourcetracker/lang/en_us.json
++++ b/src/main/resources/assets/resourcetracker/lang/en_us.json
+@@ -23,6 +23,8 @@
+   "gui.resourcetracker.edit.search_hint": "Search for items",
+   "gui.resourcetracker.edit.tracked_items": "Tracked Items",
+   "gui.resourcetracker.edit.clear": "Clear List",
++  "gui.resourcetracker.edit.search": "Search",
++  "gui.resourcetracker.edit.count_field": "Target Count",
+   "gui.resourcetracker.overlay.done": "Done!",
+   "gui.resourcetracker.overlay.need": "Need: ",
+   "gui.resourcetracker.delete": "Delete",
+diff --git a/src/main/resources/assets/resourcetracker/lang/rpr.json b/src/main/resources/assets/resourcetracker/lang/rpr.json
+deleted file mode 100644
+index 6c188ea..0000000
+--- a/src/main/resources/assets/resourcetracker/lang/rpr.json
++++ /dev/null
+@@ -1,30 +0,0 @@
+-{
+-  "key.resourcetracker.open": "╨Ю╤В╨║╤А╤Л╤В╤М ╨╝╨╡╨╜╤О ╨╛╤В╤Б╨╗╨╡╨╢╨╕╨▓╨░╤В╨╡╨╗╤П",
+-  "gui.resourcetracker.title": "╨Ю╤В╤Б╨╗╨╡╨╢╨╕╨▓╨░╤В╨╡╨╗╤М ╤А╨╡╤Б╤Г╤А╤Б╨╛╨▓╤К",
+-  "gui.resourcetracker.move_hud": "╨Я╨╡╤А╨╡╨╝╤г╤Б╤В╨╕╤В╤М ╤Н╨╗╨╡╨╝╨╡╨╜╤В╤Л HUD╤К",
+-  "gui.resourcetracker.add_list": "+ ╨Ф╨╛╨▒╨░╨▓╨╕╤В╤М ╨╜╨╛╨▓╤Л╨╣ ╤Б╨┐╨╕╤Б╨╛╨║╤К",
+-  "gui.resourcetracker.close": "╨Ч╨░╨║╤А╤Л╤В╤М",
+-  "gui.resourcetracker.move.title": "╨Я╨╡╤А╨╡╨╝╤г╤Б╤В╨╕╤В╤М ╤Н╨╗╨╡╨╝╨╡╨╜╤В╤Л HUD╤К",
+-  "gui.resourcetracker.move.drag_hint": "╨Я╨╡╤А╨╡╤В╨░╤Б╨║╨╕╨▓╨░╨╣╤В╨╡ ╤Б╨┐╨╕╤Б╨║╨╕, ╤З╤В╨╛╨▒╤Л ╨┐╨╡╤А╨╡╨╝╤г╤Б╤В╨╕╤В╤М ╨╕╤Е╤К",
+-  "gui.resourcetracker.done": "╨У╨╛╤В╨╛╨▓╨╛",
+-  "gui.resourcetracker.edit.title": "╨Ш╨╖╨╝╤г╨╜╨╕╤В╤М ╤Б╨┐╨╕╤Б╨╛╨║╤К",
+-  "gui.resourcetracker.edit.list_name": "╨Э╨░╨╖╨▓╨░╨╜╤Ц╨╡ ╤Б╨┐╨╕╤Б╨║╨░",
+-  "gui.resourcetracker.edit.pos_x": "╨Я╨╛╨╖X",
+-  "gui.resourcetracker.edit.pos_y": "╨Я╨╛╨╖Y",
+-  "gui.resourcetracker.edit.scale": "╨Ь╨░╤Б╤И╤В╨░╨▒╤К",
+-  "gui.resourcetracker.edit.mode_need": "╨а╨╡╨╢╨╕╨╝╤К: ╨Э╤Г╨╢╨╜╨╛",
+-  "gui.resourcetracker.edit.mode_count": "╨а╨╡╨╢╨╕╨╝╤К: ╨б╤З╤С╤В╤К",
+-  "gui.resourcetracker.edit.icons_on": "╨Ш╨║╨╛╨╜╨║╨╕: ╨Т╨Ъ╨Ы╨к",
+-  "gui.resourcetracker.edit.icons_off": "╨Ш╨║╨╛╨╜╨║╨╕: ╨Т╨л╨Ъ╨Ы╨к",
+-  "gui.resourcetracker.edit.reset": "╨б╨▒╤А╨╛╤Б╨╕╤В╤М",
+-  "gui.resourcetracker.edit.color_text": "╨ж╨▓╤г╤В╤К ╤В╨╡╨║╤Б╤В╨░ (RGBA)",
+-  "gui.resourcetracker.edit.color_title": "╨ж╨▓╤г╤В╤К ╨╖╨░╨│╨╛╨╗╨╛╨▓╨║╨░ (RGBA)",
+-  "gui.resourcetracker.edit.color_bg": "╨д╨╛╨╜╤К (RGBA)",
+-  "gui.resourcetracker.edit.search_hint": "╨Я╨╛╨╕╤Б╨║╤К ╨┐╤А╨╡╨┤╨╝╨╡╤В╨╛╨▓╤К",
+-  "gui.resourcetracker.edit.tracked_items": "╨Ю╤В╤Б╨╗╨╡╨╢╨╕╨▓╨░╨╡╨╝╤Л╨╡ ╨┐╤А╨╡╨┤╨╝╨╡╤В╤Л",
+-  "gui.resourcetracker.edit.clear": "╨Ю╤З╨╕╤Б╤В╨╕╤В╤М ╤Б╨┐╨╕╤Б╨╛╨║╤К",
+-  "gui.resourcetracker.overlay.done": "╨У╨╛╤В╨╛╨▓╨╛!",
+-  "gui.resourcetracker.overlay.need": "╨Э╤Г╨╢╨╜╨╛: ",
+-  "gui.resourcetracker.delete": "╨г╨┤╨░╨╗╨╕╤В╤М",
+-  "gui.resourcetracker.hold_shift": "╨Ч╨░╨╢╨╝╨╕╤В╨╡ Shift ╨┤╨╗╤П ╤Г╨┤╨░╨╗╨╡╨╜╤Ц╤П"
+-}
+\ No newline at end of file
+diff --git a/src/main/resources/assets/resourcetracker/lang/ru_ru.json b/src/main/resources/assets/resourcetracker/lang/ru_ru.json
+index 57a23b1..126c442 100644
+--- a/src/main/resources/assets/resourcetracker/lang/ru_ru.json
++++ b/src/main/resources/assets/resourcetracker/lang/ru_ru.json
+@@ -23,6 +23,8 @@
+   "gui.resourcetracker.edit.search_hint": "╨Я╨╛╨╕╤Б╨║ ╨┐╤А╨╡╨┤╨╝╨╡╤В╨╛╨▓",
+   "gui.resourcetracker.edit.tracked_items": "╨Ю╤В╤Б╨╗╨╡╨╢╨╕╨▓╨░╨╡╨╝╨╛╨╡",
+   "gui.resourcetracker.edit.clear": "╨Ю╤З╨╕╤Б╤В╨╕╤В╤М",
++  "gui.resourcetracker.edit.search": "╨Я╨╛╨╕╤Б╨║",
++  "gui.resourcetracker.edit.count_field": "╨ж╨╡╨╗╨╡╨▓╨╛╨╡ ╨║╨╛╨╗╨╕╤З╨╡╤Б╤В╨▓╨╛",
+   "gui.resourcetracker.overlay.done": "╨У╨╛╤В╨╛╨▓╨╛!",
+   "gui.resourcetracker.overlay.need": "╨Э╤Г╨╢╨╜╨╛: ",
+   "gui.resourcetracker.delete": "╨г╨┤╨░╨╗╨╕╤В╤М",
+diff --git a/src/main/resources/fabric.mod.json b/src/main/resources/fabric.mod.json
+index 925a02d..ff4db20 100644
+--- a/src/main/resources/fabric.mod.json
++++ b/src/main/resources/fabric.mod.json
+@@ -8,13 +8,10 @@
+   "contact": {},
+   "license": "MIT",
+   "icon": "assets/resourcetracker/icon.png",
+-  "environment": "*",
++  "environment": "client",
+   "entrypoints": {
+     "client": [
+       "net.fabricmc.resourcetracker.client.ResourceTrackerClient"
+-    ],
+-    "main": [
+-      "net.fabricmc.resourcetracker.ResourceTracker"
+     ]
+   },
+   "mixins": [

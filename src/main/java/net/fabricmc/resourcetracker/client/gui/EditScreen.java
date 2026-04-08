@@ -59,15 +59,14 @@ public class EditScreen extends Screen {
     private final TrackerConfig.TrackingList list;
 
     // Settings Fields
-    private TextFieldWidget textR, textG, textB, textA;
-    private TextFieldWidget nameR, nameG, nameB, nameA;
-    private TextFieldWidget bgR, bgG, bgB, bgA;
     private TextFieldWidget xField, yField, scaleField;
 
     // Lists
     private final List<Item> availableItems = new ArrayList<>();
     private final List<Item> filteredItems = new ArrayList<>();
+    private final List<TrackerConfig.TrackedItem> filteredTrackedItems = new ArrayList<>();
     private TextFieldWidget searchField;
+    private TextFieldWidget trackedSearchField;
 
     // Cache for item count text fields
     private final Map<TrackerConfig.TrackedItem, TextFieldWidget> itemCountFields = new HashMap<>();
@@ -82,6 +81,8 @@ public class EditScreen extends Screen {
     private int listAreaY;
     private int leftBoxX, rightBoxX, boxWidth, boxHeight;
     private final int searchHeight = 18;
+    
+    private Text hoveredTooltipText = null;
 
     // Mouse State
     private boolean wasMouseDown = false;
@@ -92,6 +93,11 @@ public class EditScreen extends Screen {
     private final List<LabelData> labels = new ArrayList<>();
 
     private record LabelData(Text text, int x, int y, int color) {}
+
+    // Color Fields
+    private TextFieldWidget[] textRgbA = new TextFieldWidget[4];
+    private TextFieldWidget[] titleRgbA = new TextFieldWidget[4];
+    private TextFieldWidget[] bgRgbA = new TextFieldWidget[4];
 
     public EditScreen(Screen parent, TrackerConfig.TrackingList list) {
         super(Text.translatable("gui.resourcetracker.edit.title"));
@@ -105,7 +111,6 @@ public class EditScreen extends Screen {
         this.labels.clear();
         this.itemCountFields.clear();
 
-        // Populate available items if empty
         if (availableItems.isEmpty()) {
             Registries.ITEM.stream().forEach(availableItems::add);
         }
@@ -114,177 +119,183 @@ public class EditScreen extends Screen {
         int h = this.height;
         int centerX = w / 2;
 
-        int row1Y = 30;
-        int row1Width = 120 + 10 + 35 + 5 + 35 + 5 + 35 + 10 + 70 + 10 + 60;
+        // === Row 1: Name, PosX, PosY, Scale ===
+        int row1Y = 21; // Increased Y margin
+        int nameW = 120, fieldW = 30, gap = 5;
+        int row1Width = nameW + gap + fieldW + gap + fieldW + gap + fieldW;
         int startX = centerX - (row1Width / 2);
 
-        // Name Field
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.list_name"), startX, 120, row1Y - 12);
-        TextFieldWidget nameField = new TextFieldWidget(textRenderer, startX, row1Y, 120, 16, Text.translatable("gui.resourcetracker.edit.list_name"));
+        addLabel(Text.translatable("gui.resourcetracker.edit.list_name"), startX, nameW, row1Y - 12, 0xFFFFFFFF);
+        TextFieldWidget nameField = new TextFieldWidget(textRenderer, startX, row1Y, nameW, 14, Text.translatable("gui.resourcetracker.edit.list_name"));
         nameField.setText(list.name);
         nameField.setChangedListener(s -> list.name = s);
         this.addDrawableChild(nameField);
 
-        int curX = startX + 130;
+        int curX = startX + nameW + gap;
 
-        // Position X Field
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_x"), curX, 30, row1Y - 12);
-        xField = createSmallField(curX, row1Y, 30, list.x, s -> {
+        addLabel(Text.translatable("gui.resourcetracker.edit.pos_x"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
+        xField = createSmallField(curX, row1Y, fieldW, list.x, s -> {
             try { list.x = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(xField);
-        curX += 35;
+        curX += fieldW + gap;
 
-        // Position Y Field
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.pos_y"), curX, 30, row1Y - 12);
-        yField = createSmallField(curX, row1Y, 30, list.y, s -> {
+        addLabel(Text.translatable("gui.resourcetracker.edit.pos_y"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
+        yField = createSmallField(curX, row1Y, fieldW, list.y, s -> {
             try { list.y = Integer.parseInt(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(yField);
-        curX += 35;
+        curX += fieldW + gap;
 
-        // Scale Field
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.scale"), curX, 30, row1Y - 12);
-        scaleField = createSmallField(curX, row1Y, 30, String.valueOf(list.scale), s -> {
+        addLabel(Text.translatable("gui.resourcetracker.edit.scale"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
+        scaleField = createSmallField(curX, row1Y, fieldW, String.valueOf(list.scale), s -> {
             try { list.scale = Float.parseFloat(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(scaleField);
-        curX += 40;
 
-        // Mode Button (Count vs Needed)
+        // === Row 2: Buttons ===
+        int row2Y = row1Y + 21;
+        int btnW = 80, btnGap = 4, resetW = 60;
+        int row2Width = btnW + btnGap + btnW + btnGap + btnW + btnGap + resetW;
+        int btnStartX = centerX - (row2Width / 2);
+
         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"), b -> {
             list.showRemaining = !list.showRemaining;
             b.setMessage(Text.translatable(list.showRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count"));
-        }).dimensions(curX, row1Y, 70, 16).build());
-        curX += 75;
+        }).dimensions(btnStartX, row2Y, btnW, 20).build());
 
         this.addDrawableChild(ButtonWidget.builder(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"), b -> {
             list.showIcons = !list.showIcons;
             b.setMessage(Text.translatable(list.showIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off"));
-        }).dimensions(curX, row1Y, 70, 16).build());
-        curX += 75;
+        }).dimensions(btnStartX + btnW + btnGap, row2Y, btnW, 20).build());
 
-        // Reset Button
+        this.addDrawableChild(ButtonWidget.builder(getColumnsButtonText(list.columns), b -> {
+            list.columns = (list.columns + 1) % 6;
+            b.setMessage(getColumnsButtonText(list.columns));
+        }).dimensions(btnStartX + (btnW + btnGap) * 2, row2Y, btnW, 20).build());
+
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.edit.reset"), b -> resetSettings())
-                .dimensions(curX, row1Y, 60, 16).build());
+                .dimensions(btnStartX + (btnW + btnGap) * 3, row2Y, resetW, 20).build());
 
+        // === Row 3: Colors ===
+        int row3Y = row2Y + 37;
+        int groupW = 124; // 4 boxes + gaps
+        int groupGap = 20;
+        int row3Width = (groupW * 3) + (groupGap * 2);
+        int colorStartX = centerX - (row3Width / 2);
 
-        int row2Y = row1Y + 35;
-        int groupWidth = 110;
-        int row2Width = groupWidth + 20 + groupWidth + 20 + groupWidth;
-        int colorStartX = centerX - (row2Width / 2);
+        String[] headers = {"Text Color", "Title color", "Background color"};
+        String[] fLabels = {"R", "G", "B", "Alpha"};
+        int[] fColors = {0xFFFF4444, 0xFF44FF44, 0xFF4488FF, 0xFFCCCCCC};
+        int[] fWidths = {26, 26, 26, 34};
+        
+        for (int i = 0; i < 3; i++) {
+            int cx = colorStartX + i * (groupW + groupGap);
+            int labelW = textRenderer.getWidth(headers[i]);
+            labels.add(new LabelData(Text.literal(headers[i]), cx + (groupW - labelW) / 2, row3Y - 12, 0xFFFFFFFF));
+            
+            // Labels for R G B Alpha
+            int fStartX = cx;
+            for (int j = 0; j < 4; j++) {
+                int lw = textRenderer.getWidth(fLabels[j]);
+                labels.add(new LabelData(Text.literal(fLabels[j]), fStartX + (fWidths[j] - lw) / 2, row3Y, fColors[j]));
+                fStartX += fWidths[j] + 4;
+            }
 
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_text"), colorStartX, groupWidth, row2Y - 12);
-        textR = createColorField(colorStartX, row2Y, 0);
-        textG = createColorField(colorStartX + 28, row2Y, 0);
-        textB = createColorField(colorStartX + 56, row2Y, 0);
-        textA = createColorField(colorStartX + 84, row2Y, 0);
-        updateColorFields(textR, textG, textB, textA, list.textColor);
-        this.addDrawableChild(textR);
-        this.addDrawableChild(textG);
-        this.addDrawableChild(textB);
-        this.addDrawableChild(textA);
+            // Fields
+            TextFieldWidget[] fields = new TextFieldWidget[4];
+            int color = getColorForIndex(i);
+            int[] vals = { (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, getAlphaForIndex(i) };
+            
+            fStartX = cx;
+            for (int j = 0; j < 4; j++) {
+                TextFieldWidget f = new TextFieldWidget(textRenderer, fStartX, row3Y + 12, fWidths[j], 14, Text.empty());
+                f.setText(String.valueOf(vals[j]));
+                f.setMaxLength(3);
+                f.setEditableColor(0xFFFFFFFF);
+                int finalI = i; // capture group index
+                f.setChangedListener(s -> applyInlineColor(finalI));
+                this.addDrawableChild(f);
+                fields[j] = f;
+                fStartX += fWidths[j] + 4;
+            }
+            if (i == 0) textRgbA = fields;
+            else if (i == 1) titleRgbA = fields;
+            else bgRgbA = fields;
+        }
 
-        int titleX = colorStartX + 130;
-
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_title"), titleX, groupWidth, row2Y - 12);
-        nameR = createColorField(titleX, row2Y, 0);
-        nameG = createColorField(titleX + 28, row2Y, 0);
-        nameB = createColorField(titleX + 56, row2Y, 0);
-        nameA = createColorField(titleX + 84, row2Y, 0);
-        updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
-        this.addDrawableChild(nameR);
-        this.addDrawableChild(nameG);
-        this.addDrawableChild(nameB);
-        this.addDrawableChild(nameA);
-
-        int bgX = titleX + 130;
-
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.color_bg"), bgX, groupWidth, row2Y - 12);
-        bgR = createColorField(bgX, row2Y, 0);
-        bgG = createColorField(bgX + 28, row2Y, 0);
-        bgB = createColorField(bgX + 56, row2Y, 0);
-        bgA = createColorField(bgX + 84, row2Y, 0);
-        updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
-        this.addDrawableChild(bgR);
-        this.addDrawableChild(bgG);
-        this.addDrawableChild(bgB);
-        this.addDrawableChild(bgA);
-
-        // List Areas Calculation
-        listAreaY = row2Y + 45;
-        int bottomGap = 35;
+        // === List Areas ===
+        listAreaY = row3Y + 40;
+        int bottomGap = 44;
         boxWidth = 220;
-        boxHeight = h - listAreaY - bottomGap - 5;
+        boxHeight = h - listAreaY - bottomGap;
         int midGap = 15;
         int totalListsWidth = (boxWidth * 2) + midGap;
         leftBoxX = centerX - (totalListsWidth / 2);
         rightBoxX = leftBoxX + boxWidth + midGap;
 
-        // Search Field
-        searchField = new TextFieldWidget(textRenderer, leftBoxX + 2, listAreaY + 2, boxWidth - 18, 14, Text.translatable("gui.resourcetracker.edit.search"));
+        // Left Search Field
+        searchField = new TextFieldWidget(textRenderer, leftBoxX + 4, listAreaY + 5, boxWidth - 22, 16, Text.translatable("gui.resourcetracker.edit.search"));
         searchField.setChangedListener(this::updateSearch);
         searchField.setDrawsBackground(false);
         searchField.setEditableColor(0xFFFFFFFF);
         this.addDrawableChild(searchField);
 
-        // Headers
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.search_hint"), leftBoxX, boxWidth, listAreaY - 14);
-        addCenteredLabel(Text.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, listAreaY - 14);
+        // Right Search Field (tracked items)
+        trackedSearchField = new TextFieldWidget(textRenderer, rightBoxX + 4, listAreaY + 5, boxWidth - 22, 16, Text.translatable("gui.resourcetracker.edit.search"));
+        trackedSearchField.setChangedListener(this::updateTrackedSearch);
+        trackedSearchField.setDrawsBackground(false);
+        trackedSearchField.setEditableColor(0xFFFFFFFF);
+        this.addDrawableChild(trackedSearchField);
 
-        // Clear List Button
+        // Headers
+        addLabel(Text.translatable("gui.resourcetracker.edit.search_hint"), leftBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
+        addLabel(Text.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
+
+        // Bottom Buttons (Clear & Done)
+        int botBtnW = 100, botBtnGap = 15;
+        int botRowW = botBtnW + botBtnGap + botBtnW;
+        int botStartX = centerX - (botRowW / 2);
+
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.edit.clear"), b -> {
             list.items.clear();
             refreshCountWidgets();
-        }).dimensions(rightBoxX + boxWidth - 60, listAreaY - 19, 60, 15).build());
+            updateTrackedSearch(trackedSearchField.getText());
+        }).dimensions(botStartX, h - 30, botBtnW, 20).build());
 
-        // Done Button
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.done"), b -> client.setScreen(parent))
-                .dimensions(centerX - 50, h - 25, 100, 20).build());
+                .dimensions(botStartX + botBtnW + botBtnGap, h - 30, botBtnW, 20).build());
 
         refreshCountWidgets();
         updateSearch(searchField.getText());
-        updateColors();
+        updateTrackedSearch("");
     }
 
     /**
      * Resets the current list configuration to defaults.
      */
     private void resetSettings() {
-        // 1. Create a fresh list instance
-        // This automatically picks up default values from TrackerConfig class
         TrackerConfig.TrackingList defaultList = new TrackerConfig.TrackingList();
 
-        // 2. Copy settings from default list to current list
         list.x = defaultList.x;
         list.y = defaultList.y;
         list.scale = defaultList.scale;
         list.showRemaining = defaultList.showRemaining;
         list.showIcons = defaultList.showIcons;
+        list.columns = defaultList.columns;
 
-        // Copy colors
         list.textColor = defaultList.textColor;
         list.nameColor = defaultList.nameColor;
         list.backgroundColor = defaultList.backgroundColor;
 
-        // 3. Update UI text fields (coordinates, scale)
-        xField.setText(String.valueOf(list.x));
-        yField.setText(String.valueOf(list.y));
-        scaleField.setText(String.valueOf(list.scale));
-
-        // 4. Update color fields (extract ARGB components)
-        updateColorFields(textR, textG, textB, textA, list.textColor);
-        updateColorFields(nameR, nameG, nameB, nameA, list.nameColor);
-        updateColorFields(bgR, bgG, bgB, bgA, list.backgroundColor);
-
         client.setScreen(new EditScreen(parent, list));
     }
 
-    private void updateColorFields(TextFieldWidget r, TextFieldWidget g, TextFieldWidget b, TextFieldWidget a, int color) {
-        r.setText(String.valueOf((color >> 16) & 0xFF));
-        g.setText(String.valueOf((color >> 8) & 0xFF));
-        b.setText(String.valueOf(color & 0xFF));
-        a.setText(String.valueOf((color >> 24) & 0xFF));
+    private Text getColumnsButtonText(int columns) {
+        if (columns <= 0) {
+            return Text.translatable("gui.resourcetracker.edit.columns_auto");
+        }
+        return Text.translatable("gui.resourcetracker.edit.columns", columns);
     }
 
     private void refreshCountWidgets() {
@@ -335,6 +346,23 @@ public class EditScreen extends Screen {
         scrollLeft = 0;
     }
 
+    private void updateTrackedSearch(String query) {
+        filteredTrackedItems.clear();
+        String q = query.toLowerCase().trim();
+
+        if (q.isEmpty()) {
+            filteredTrackedItems.addAll(list.items);
+        } else {
+            for (TrackerConfig.TrackedItem ti : list.items) {
+                if (!ti.isValid()) continue;
+                if (ti.getDisplayName().toLowerCase().contains(q)) {
+                    filteredTrackedItems.add(ti);
+                }
+            }
+        }
+        scrollRight = 0;
+    }
+
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         // Dark background
@@ -342,21 +370,32 @@ public class EditScreen extends Screen {
 
         handleInput(mouseX, mouseY);
 
-        RenderUtils.drawBox(context, leftBoxX, listAreaY, boxWidth, boxHeight);
-        context.fill(leftBoxX, listAreaY + searchHeight, leftBoxX + boxWidth, listAreaY + searchHeight + 1, 0xFF555555);
-        drawMagnifyingGlass(context, leftBoxX + boxWidth - 14, listAreaY + 4);
+        // Left box background
+        RenderUtils.drawBoxFill(context, leftBoxX, listAreaY, boxWidth, boxHeight);
+        renderSearchBar(context, leftBoxX, listAreaY, boxWidth, searchField);
         renderItemList(context, mouseX, mouseY, leftBoxX, listAreaY, boxWidth, boxHeight, filteredItems, scrollLeft);
 
-        RenderUtils.drawBox(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+        // Right box background
+        RenderUtils.drawBoxFill(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+        renderSearchBar(context, rightBoxX, listAreaY, boxWidth, trackedSearchField);
         renderAddedList(context, mouseX, mouseY, rightBoxX, listAreaY, boxWidth, boxHeight);
 
         super.render(context, mouseX, mouseY, delta);
 
         // Draw Labels
         for (LabelData l : labels) {
-            int txtW = textRenderer.getWidth(l.text);
-            context.fill(l.x - 2, l.y - 2, l.x + txtW + 2, l.y + 10, 0xFF222222);
             context.drawText(textRenderer, l.text, l.x, l.y, l.color, true);
+        }
+
+        // Draw box outlines on top of everything (only tooltips and picker render above)
+        RenderUtils.drawBoxOutline(context, leftBoxX, listAreaY, boxWidth, boxHeight);
+        RenderUtils.drawBoxOutline(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+
+        // Inline fields render automatically
+
+        if (hoveredTooltipText != null) {
+            context.drawTooltip(textRenderer, hoveredTooltipText, mouseX, mouseY);
+            hoveredTooltipText = null;
         }
     }
 
@@ -364,11 +403,10 @@ public class EditScreen extends Screen {
         int startDisplayY = y + searchHeight + 1;
         int displayHeight = h - searchHeight - 1;
 
-        context.enableScissor(x, startDisplayY, x + w, y + h);
+        context.enableScissor(x + 1, startDisplayY, x + w - 1, y + h - 2);
         int itemH = 20;
         int startY = (int) (startDisplayY - scroll + 2);
 
-        // 1. Variable to store item under mouse
         Item hoveredItem = null;
 
         for (int i = 0; i < items.size(); i++) {
@@ -376,57 +414,57 @@ public class EditScreen extends Screen {
             if (cy + itemH < startDisplayY || cy > y + h) continue;
 
             Item item = items.get(i);
-            boolean hover = mx >= x && mx < x + w && my >= cy && my < cy + itemH;
+            boolean hover = mx >= x && mx < x + w && my >= cy && my < cy + itemH && my >= startDisplayY;
 
             if (hover) {
                 context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x30FFFFFF);
-                // 2. If hovered, store the item
                 hoveredItem = item;
             }
 
             context.drawItem(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 2);
 
-            // Shorten text using helper method
             String name = item.getName().getString();
-            // Text width = list width - left padding (24) - right padding (4)
             name = RenderUtils.shortenText(textRenderer, name, w - 28);
 
             context.drawText(textRenderer, Text.literal(name), x + 24, cy + 6, 0xFFFFFFFF, true);
         }
 
-        // 3. Disable scissor BEFORE drawing tooltip
         context.disableScissor();
 
-        RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH, scroll);
+        RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH + 6, scroll);
 
-        // 4. Draw tooltip on top of everything
         if (hoveredItem != null) {
-            context.drawTooltip(textRenderer, hoveredItem.getName(), mx, my);
+            hoveredTooltipText = hoveredItem.getName();
         }
     }
 
     private void renderAddedList(DrawContext context, int mx, int my, int x, int y, int w, int h) {
-        context.enableScissor(x, y, x + w, y + h);
-        int itemH = 20;
-        int startY = (int) (y - scrollRight + 2);
+        int startDisplayY = y + searchHeight + 1;
+        int displayHeight = h - searchHeight - 1;
 
-        // 1. Variable for item under cursor
+        context.enableScissor(x + 1, startDisplayY, x + w - 1, y + h - 2);
+        int itemH = 20;
+        int startY = (int) (startDisplayY - scrollRight + 2);
+
         TrackerConfig.TrackedItem hoveredTracked = null;
 
-        for (int i = 0; i < list.items.size(); i++) {
-            TrackerConfig.TrackedItem ti = list.items.get(i);
+        // Hide all widgets first, then show visible ones
+        for (TextFieldWidget widget : itemCountFields.values()) {
+            widget.setVisible(false);
+        }
+
+        for (int i = 0; i < filteredTrackedItems.size(); i++) {
+            TrackerConfig.TrackedItem ti = filteredTrackedItems.get(i);
             int cy = startY + (i * itemH);
 
             TextFieldWidget widget = itemCountFields.get(ti);
-            boolean isVisible = (cy + itemH >= y && cy <= y + h);
+            boolean isVisible = (cy >= startDisplayY && cy + itemH <= y + h - 2);
 
             if (widget != null) {
                 if (isVisible) {
                     widget.setVisible(true);
-                    widget.setX(x + w - 65);
+                    widget.setX(x + w - 75);
                     widget.setY(cy + 3);
-                } else {
-                    widget.setVisible(false);
                 }
             }
 
@@ -434,7 +472,7 @@ public class EditScreen extends Screen {
             if (!ti.isValid()) continue;
 
             // Hover zone (excluding buttons on the right)
-            boolean hover = mx >= x && mx < x + w - 45 && my >= cy && my < cy + itemH;
+            boolean hover = mx >= x && mx < x + w - 50 && my >= cy && my < cy + itemH && my >= startDisplayY;
 
             if (hover) {
                 context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x10FFFFFF);
@@ -444,25 +482,23 @@ public class EditScreen extends Screen {
             context.drawItem(ti.getStack(), x + 4, cy + 2);
 
             // Shorten text
-            String txt = RenderUtils.shortenText(textRenderer, ti.getDisplayName(), w - 85 - 24);
+            String txt = RenderUtils.shortenText(textRenderer, ti.getDisplayName(), w - 90 - 24);
             context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
 
-            // Delete Cross
-            int crossX = x + w - 20;
-            int crossY = cy + 6;
-            boolean crossHover = mx >= crossX - 2 && mx <= crossX + 7 && my >= crossY - 2 && my <= crossY + 7;
-            int crossColor = crossHover ? 0xFFFFFFFF : 0xFFA0A0A0;
-            drawPixelCross(context, crossX, crossY, crossColor);
+            // Delete button — larger hitbox, red on hover
+            int crossX = x + w - 25;
+            int crossY = cy + 4;
+            boolean crossHover = mx >= crossX - 4 && mx <= crossX + 9 && my >= crossY - 2 && my <= crossY + 9;
+            int crossColor = crossHover ? 0xFFFF5555 : 0xFF888888;
+            drawPixelCross(context, crossX, crossY + 2, crossColor);
         }
 
-        // 3. Disable scissor
         context.disableScissor();
 
-        RenderUtils.drawStyledScrollbar(context, x + w - 6, y, h, list.items.size() * itemH, scrollRight);
+        RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, filteredTrackedItems.size() * itemH + 6, scrollRight);
 
-        // 4. Draw tooltip on top
         if (hoveredTracked != null) {
-            context.drawTooltip(textRenderer, hoveredTracked.getItem().getName(), mx, my);
+            hoveredTooltipText = hoveredTracked.getItem().getName();
         }
     }
 
@@ -484,23 +520,28 @@ public class EditScreen extends Screen {
 
         if (down && !wasMouseDown) {
             int listContentY = listAreaY + searchHeight;
+            // Left list click -> add item
             if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= listContentY && my < listAreaY + boxHeight) {
                 int idx = (int) ((my - listContentY + scrollLeft) / itemH);
                 if (idx >= 0 && idx < filteredItems.size()) {
                     addItem(filteredItems.get(idx));
+                    updateTrackedSearch(trackedSearchField.getText());
                 }
             }
-            if (mx >= rightBoxX && mx < rightBoxX + boxWidth && my >= listAreaY && my < listAreaY + boxHeight) {
-                int idx = (int) ((my - listAreaY + scrollRight) / itemH);
-                if (idx >= 0 && idx < list.items.size()) {
-                    int itemY = listAreaY + (idx * itemH) - (int) scrollRight + 2;
-                    // Click zone for the delete cross
-                    int crossX = rightBoxX + boxWidth - 20;
-                    int crossY = itemY + 6;
+            // Right list click -> delete
+            int rightContentY = listAreaY + searchHeight;
+            if (mx >= rightBoxX && mx < rightBoxX + boxWidth && my >= rightContentY && my < listAreaY + boxHeight) {
+                int idx = (int) ((my - rightContentY + scrollRight) / itemH);
+                if (idx >= 0 && idx < filteredTrackedItems.size()) {
+                    int itemY = rightContentY + (idx * itemH) - (int) scrollRight + 2;
+                    int crossX = rightBoxX + boxWidth - 25;
+                    int crossY = itemY + 4;
 
-                    if (mx >= crossX - 3 && mx <= crossX + 8 && my >= crossY - 3 && my <= crossY + 8) {
-                        list.items.remove(idx);
+                    if (mx >= crossX - 4 && mx <= crossX + 9 && my >= crossY - 2 && my <= crossY + 9) {
+                        TrackerConfig.TrackedItem toRemove = filteredTrackedItems.get(idx);
+                        list.items.remove(toRemove);
                         refreshCountWidgets();
+                        updateTrackedSearch(trackedSearchField.getText());
                     }
                 }
             }
@@ -511,17 +552,17 @@ public class EditScreen extends Screen {
         if (down) {
             int listVisibleH = boxHeight - searchHeight;
             if (isDraggingScrollLeft) {
-                double contentH = filteredItems.size() * itemH;
+                double contentH = filteredItems.size() * itemH + 6;
                 if (contentH > listVisibleH) {
                     double pct = (my - (listAreaY + searchHeight)) / (double) listVisibleH;
                     scrollLeft = MathHelper.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
                 }
             }
             if (isDraggingScrollRight) {
-                double contentH = list.items.size() * itemH;
-                if (contentH > boxHeight) {
-                    double pct = (my - listAreaY) / (double) boxHeight;
-                    scrollRight = MathHelper.clamp(pct * contentH - (boxHeight / 2.0), 0, contentH - boxHeight);
+                double contentH = filteredTrackedItems.size() * itemH + 6;
+                if (contentH > listVisibleH) {
+                    double pct = (my - (listAreaY + searchHeight)) / (double) listVisibleH;
+                    scrollRight = MathHelper.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
                 }
             }
         } else {
@@ -531,53 +572,99 @@ public class EditScreen extends Screen {
         wasMouseDown = down;
     }
 
-    private void drawMagnifyingGlass(DrawContext context, int x, int y) {
-        int color = 0xFFAAAAAA;
-        context.fill(x + 2, y + 2, x + 7, y + 3, color);
-        context.fill(x + 2, y + 6, x + 7, y + 7, color);
-        context.fill(x + 2, y + 3, x + 3, y + 6, color);
-        context.fill(x + 6, y + 3, x + 7, y + 6, color);
-        context.fill(x + 7, y + 7, x + 9, y + 9, color);
+    private void renderSearchBar(DrawContext context, int x, int y, int w, TextFieldWidget field) {
+        // Subtle darker background for search area
+        context.fill(x + 1, y + 1, x + w - 1, y + searchHeight - 1, 0x40000000);
+
+        // Separator line
+        context.fill(x, y + searchHeight, x + w, y + searchHeight + 1, 0xFF555555);
+
+        // Magnifying glass icon
+        int iconX = x + w - 14;
+        int iconY = y + (searchHeight - 9) / 2;
+        int ic = 0xFF888888;
+        // Circle
+        context.fill(iconX + 1, iconY,     iconX + 5, iconY + 1, ic);
+        context.fill(iconX,     iconY + 1, iconX + 1, iconY + 5, ic);
+        context.fill(iconX + 5, iconY + 1, iconX + 6, iconY + 5, ic);
+        context.fill(iconX + 1, iconY + 5, iconX + 5, iconY + 6, ic);
+        // Handle
+        context.fill(iconX + 5, iconY + 5, iconX + 7, iconY + 6, ic);
+        context.fill(iconX + 6, iconY + 6, iconX + 8, iconY + 7, ic);
+
+        // Placeholder text "Search..." when field is empty
+        if (field.getText().isEmpty() && !field.isFocused()) {
+            int textY = y + (searchHeight - 8) / 2;
+            context.drawText(textRenderer, Text.literal("Search..."), x + 6, textY, 0xFF666666, false);
+        }
     }
 
-    private void addCenteredLabel(Text text, int x, int width, int y) {
+    private void addLabel(Text text, int areaX, int areaW, int y, int color) {
         int textWidth = textRenderer.getWidth(text);
-        int centeredX = x + (width - textWidth) / 2;
-        labels.add(new LabelData(text, centeredX, y, 0xFFFFFFFF));
+        int centeredX = areaX + (areaW - textWidth) / 2;
+        labels.add(new LabelData(text, centeredX, y, color));
     }
 
     private TextFieldWidget createSmallField(int x, int y, int w, Object val, java.util.function.Consumer<String> onChange) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 16, Text.empty());
+        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 14, Text.empty());
         f.setText(String.valueOf(val));
         f.setChangedListener(onChange);
         return f;
     }
 
-    private TextFieldWidget createColorField(int x, int y, int value) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, 26, 16, Text.empty());
-        f.setText(String.valueOf(value));
-        f.setMaxLength(3);
-        f.setChangedListener(s -> updateColors());
-        return f;
+
+    private int getAlphaForIndex(int index) {
+        return switch (index) {
+            case 0 -> (list.textColor >> 24) & 0xFF;
+            case 1 -> (list.nameColor >> 24) & 0xFF;
+            case 2 -> (list.backgroundColor >> 24) & 0xFF;
+            default -> 255;
+        };
     }
 
-    private void updateColors() {
+    private void setAlphaForIndex(int index, int alpha) {
+        int rgb;
+        switch (index) {
+            case 0 -> { rgb = list.textColor & 0xFFFFFF; list.textColor = (alpha << 24) | rgb; }
+            case 1 -> { rgb = list.nameColor & 0xFFFFFF; list.nameColor = (alpha << 24) | rgb; }
+            case 2 -> { rgb = list.backgroundColor & 0xFFFFFF; list.backgroundColor = (alpha << 24) | rgb; }
+        }
+    }
+
+
+    private int getColorForIndex(int index) {
+        return switch (index) {
+            case 0 -> list.textColor;
+            case 1 -> list.nameColor;
+            case 2 -> list.backgroundColor;
+            default -> 0xFFFFFF;
+        };
+    }
+
+    private void setColorForIndex(int index, int rgb) {
+        int alpha;
+        switch (index) {
+            case 0 -> { alpha = (list.textColor >> 24) & 0xFF; list.textColor = (alpha << 24) | (rgb & 0xFFFFFF); }
+            case 1 -> { alpha = (list.nameColor >> 24) & 0xFF; list.nameColor = (alpha << 24) | (rgb & 0xFFFFFF); }
+            case 2 -> { alpha = (list.backgroundColor >> 24) & 0xFF; list.backgroundColor = (alpha << 24) | (rgb & 0xFFFFFF); }
+        }
+    }
+
+    private void applyInlineColor(int index) {
+        TextFieldWidget[] fields = index == 0 ? textRgbA : index == 1 ? titleRgbA : bgRgbA;
+        if (fields == null || fields[0] == null) return;
         try {
-            list.textColor = packColor(textR, textG, textB, textA);
-            list.nameColor = packColor(nameR, nameG, nameB, nameA);
-            list.backgroundColor = packColor(bgR, bgG, bgB, bgA);
-        } catch (Exception ignored) {}
+            int r = clamp(Integer.parseInt(fields[0].getText()));
+            int g = clamp(Integer.parseInt(fields[1].getText()));
+            int b = clamp(Integer.parseInt(fields[2].getText()));
+            int a = clamp(Integer.parseInt(fields[3].getText()));
+            int rgb = (r << 16) | (g << 8) | b;
+            setColorForIndex(index, rgb);
+            setAlphaForIndex(index, a);
+        } catch (NumberFormatException ignored) {}
     }
 
-    private int packColor(TextFieldWidget r, TextFieldWidget g, TextFieldWidget b, TextFieldWidget a) {
-        int rv = clamp(parse(r));
-        int gv = clamp(parse(g));
-        int bv = clamp(parse(b));
-        int av = clamp(parse(a));
-        return (av << 24) | (rv << 16) | (gv << 8) | bv;
-    }
-
-    private int parse(TextFieldWidget w) {
+    private int parseNum(TextFieldWidget w) {
         try {
             return Integer.parseInt(w.getText());
         } catch (Exception e) {
@@ -603,21 +690,22 @@ public class EditScreen extends Screen {
         int listVisibleH = boxHeight - searchHeight - 2;
 
         if (mouseX >= leftBoxX && mouseX <= leftBoxX + boxWidth && mouseY >= listContentY && mouseY <= listAreaY + boxHeight) {
-            double contentH = filteredItems.size() * itemH;
+            double contentH = filteredItems.size() * itemH + 6;
             if (contentH > listVisibleH) {
                 scrollLeft = MathHelper.clamp(scrollLeft - (amount * itemH), 0, contentH - listVisibleH);
                 return true;
             }
         }
-        if (mouseX >= rightBoxX && mouseX <= rightBoxX + boxWidth && mouseY >= listAreaY && mouseY <= listAreaY + boxHeight) {
-            double contentH = list.items.size() * itemH;
-            if (contentH > boxHeight) {
-                scrollRight = MathHelper.clamp(scrollRight - (amount * itemH), 0, contentH - boxHeight);
+        if (mouseX >= rightBoxX && mouseX <= rightBoxX + boxWidth && mouseY >= listContentY && mouseY <= listAreaY + boxHeight) {
+            double contentH = filteredTrackedItems.size() * itemH + 6;
+            if (contentH > listVisibleH) {
+                scrollRight = MathHelper.clamp(scrollRight - (amount * itemH), 0, contentH - listVisibleH);
                 return true;
             }
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
+
 
     private void addItem(Item item) {
         String id = Registries.ITEM.getId(item).toString();
@@ -633,5 +721,4 @@ public class EditScreen extends Screen {
             refreshCountWidgets();
         }
     }
-
 }

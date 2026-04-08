@@ -43,8 +43,7 @@ import net.minecraft.client.render.RenderTickCounter;
  */
 public class HudOverlay implements HudRenderCallback {
 
-    private static final int ITEM_ROW_HEIGHT = 24;
-    private static final int MAX_TEXT_WIDTH = 200;
+
 
     @Override
     public void onHudRender(DrawContext context, RenderTickCounter tickCounter) {
@@ -69,6 +68,8 @@ public class HudOverlay implements HudRenderCallback {
         int headerHeight = 14;
         int itemCount = list.items.size();
 
+        int itemRowHeight = list.showIcons ? 24 : 12;
+
         if (itemCount == 0) {
             int boxWidth = client.textRenderer.getWidth(list.name) + (padding * 2);
             int boxHeight = headerHeight + padding;
@@ -88,9 +89,16 @@ public class HudOverlay implements HudRenderCallback {
             }
 
             String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
-            int nameWidth = client.textRenderer.getWidth(trackedItem.getDisplayName());
-            int countWidth = client.textRenderer.getWidth(countText);
-            int entryWidth = iconOffset + Math.min(Math.max(nameWidth, countWidth), MAX_TEXT_WIDTH);
+            
+            int entryWidth;
+            if (list.showIcons) {
+                int nameWidth = client.textRenderer.getWidth(trackedItem.getDisplayName());
+                int countWidth = client.textRenderer.getWidth(countText);
+                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
+            } else {
+                String combined = trackedItem.getDisplayName() + ": " + countText;
+                entryWidth = iconOffset + client.textRenderer.getWidth(combined);
+            }
 
             if (entryWidth > maxTextWidth) {
                 maxTextWidth = entryWidth;
@@ -98,24 +106,31 @@ public class HudOverlay implements HudRenderCallback {
         }
 
         int columnWidth = maxTextWidth + (padding * 2);
-        int singleColumnHeight = headerHeight + (itemCount * ITEM_ROW_HEIGHT) + padding;
 
-        int screenHeight = client.getWindow().getScaledHeight();
-        boolean useDoubleColumn = (list.y + (int) (singleColumnHeight * list.scale)) > screenHeight;
-
+        int numColumns;
         int itemsPerColumn;
-        int totalWidth;
-        int boxHeight;
 
-        if (useDoubleColumn) {
-            itemsPerColumn = (itemCount + 1) / 2;
-            totalWidth = (columnWidth * 2) + padding;
-            boxHeight = headerHeight + (itemsPerColumn * ITEM_ROW_HEIGHT) + padding;
+        if (list.columns > 0) {
+            // User-specified fixed column count
+            numColumns = list.columns;
+            itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
         } else {
-            itemsPerColumn = itemCount;
-            totalWidth = columnWidth;
-            boxHeight = singleColumnHeight;
+            // Auto: fit to available screen height
+            int screenHeight = client.getWindow().getScaledHeight();
+            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
+
+            if (itemCount <= maxItemsPerColumn) {
+                numColumns = 1;
+                itemsPerColumn = itemCount;
+            } else {
+                numColumns = (int) Math.ceil((double) itemCount / maxItemsPerColumn);
+                itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
+            }
         }
+
+        int totalWidth = (columnWidth * numColumns) + (padding * (numColumns - 1));
+        int boxHeight = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
 
         context.fill(-padding, -padding, totalWidth - padding, boxHeight - padding, list.backgroundColor);
         context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor);
@@ -134,27 +149,34 @@ public class HudOverlay implements HudRenderCallback {
             int currentCount = trackedItem.cachedCount;
             boolean isDone = currentCount >= trackedItem.targetCount;
 
-            if (useDoubleColumn && i >= itemsPerColumn && currentColumn == 0) {
-                columnOffsetX = columnWidth + padding;
+            if (i > 0 && i % itemsPerColumn == 0) {
+                currentColumn++;
+                columnOffsetX = currentColumn * (columnWidth + padding);
                 currentY = headerHeight;
-                currentColumn = 1;
             }
+
+            int itemColor = list.textColor;
+            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
 
             if (list.showIcons) {
                 context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
+                
+                int availableWidth = maxTextWidth - iconOffset;
+                String itemName = RenderUtils.shortenText(client.textRenderer, trackedItem.getDisplayName(), availableWidth);
+                context.drawTextWithShadow(client.textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
+                
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
+            } else {
+                String namePart = trackedItem.getDisplayName() + ": ";
+                int nw = client.textRenderer.getWidth(namePart);
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                
+                context.drawTextWithShadow(client.textRenderer, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
+                context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
             }
 
-            int availableWidth = maxTextWidth - iconOffset;
-            String itemName = RenderUtils.shortenText(client.textRenderer, trackedItem.getDisplayName(), availableWidth);
-
-            int itemColor = list.textColor;
-            context.drawTextWithShadow(client.textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
-
-            String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
-            context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
-
-            currentY += ITEM_ROW_HEIGHT;
+            currentY += itemRowHeight;
         }
     }
 }
