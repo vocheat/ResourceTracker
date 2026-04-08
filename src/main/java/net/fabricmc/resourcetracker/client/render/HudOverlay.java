@@ -27,14 +27,10 @@ package net.fabricmc.resourcetracker.client.render;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.InventoryUtils;
+import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 
 /**
  * Handles the rendering of the Resource Tracker overlay on the in-game HUD.
@@ -47,9 +43,7 @@ import net.minecraft.util.Identifier;
  */
 public class HudOverlay implements HudRenderCallback {
 
-    private static final int ITEM_ROW_HEIGHT = 24; // Fixed height per row, matches EditScreen layout
-    private static final boolean USE_COMPACT_DONE = true; // Compact mode for completed items
-    private static final int MAX_TEXT_WIDTH = 200; // Maximum text width before truncation
+
 
     @Override
     public void onHudRender(DrawContext context, RenderTickCounter tickCounter) {
@@ -59,65 +53,51 @@ public class HudOverlay implements HudRenderCallback {
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
 
-            // Save the current matrix state
             context.getMatrices().pushMatrix();
-            // Apply translation and scaling based on config
             context.getMatrices().translate((float) list.x, (float) list.y);
             context.getMatrices().scale(list.scale, list.scale);
 
             renderListContent(context, client, list);
 
-            // Restore the matrix state
             context.getMatrices().popMatrix();
         }
     }
 
-    /**
-     * Calculates dimensions and renders the content of a single tracking list.
-     */
     private void renderListContent(DrawContext context, MinecraftClient client, TrackerConfig.TrackingList list) {
         int padding = 4;
         int headerHeight = 14;
         int itemCount = list.items.size();
 
-        // Handle empty list case - just draw the header
+        int itemRowHeight = list.showIcons ? 24 : 12;
+
         if (itemCount == 0) {
             int boxWidth = client.textRenderer.getWidth(list.name) + (padding * 2);
             int boxHeight = headerHeight + padding;
-
             context.fill(-padding, -padding, boxWidth - padding, boxHeight - padding, list.backgroundColor);
-            context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
+            context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor);
             return;
         }
 
-        // --- Step 1: Pre-calculate layout and maximum width ---
         int maxTextWidth = client.textRenderer.getWidth(list.name);
-
-        // Determine offset: 20 pixels if icons are shown, 2 pixels if not
         int iconOffset = list.showIcons ? 20 : 2;
 
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
-            if (item == null) continue;
+            if (!trackedItem.isValid()) continue;
 
-            // Update cache if necessary for width calculation
             if (trackedItem.cachedCount == -1) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
+                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
             }
-            int currentCount = trackedItem.cachedCount;
 
-            String itemName = item.getName().getString();
-            String countText = getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-
-            int nameWidth = client.textRenderer.getWidth(itemName);
-            int countWidth = client.textRenderer.getWidth(countText);
-
-            // Calculate total width for this entry
-            int entryWidth = iconOffset + Math.max(nameWidth, countWidth);
-
-            // Cap the width to the maximum allowed
-            if (entryWidth > MAX_TEXT_WIDTH + iconOffset) {
-                entryWidth = MAX_TEXT_WIDTH + iconOffset;
+            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
+            
+            int entryWidth;
+            if (list.showIcons) {
+                int nameWidth = client.textRenderer.getWidth(trackedItem.getDisplayName());
+                int countWidth = client.textRenderer.getWidth(countText);
+                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
+            } else {
+                String combined = trackedItem.getDisplayName() + ": " + countText;
+                entryWidth = iconOffset + client.textRenderer.getWidth(combined);
             }
 
             if (entryWidth > maxTextWidth) {
@@ -125,128 +105,78 @@ public class HudOverlay implements HudRenderCallback {
             }
         }
 
-        // Calculate single column dimensions
         int columnWidth = maxTextWidth + (padding * 2);
-        int singleColumnHeight = headerHeight + (itemCount * ITEM_ROW_HEIGHT) + padding;
 
-        // --- Step 2: Check if the list fits on the screen vertically ---
-        int screenHeight = client.getWindow().getScaledHeight();
-        int scaledHeight = (int) (singleColumnHeight * list.scale);
-        int actualBottomY = (int) (list.y + scaledHeight);
-
-        // Use double columns if the list extends beyond the screen height
-        boolean useDoubleColumn = actualBottomY > screenHeight;
-
+        int numColumns;
         int itemsPerColumn;
-        int totalWidth;
-        int boxHeight;
 
-        if (useDoubleColumn) {
-            itemsPerColumn = (itemCount + 1) / 2;
-            totalWidth = (columnWidth * 2) + padding;
-            boxHeight = headerHeight + (itemsPerColumn * ITEM_ROW_HEIGHT) + padding;
+        if (list.columns > 0) {
+            // User-specified fixed column count
+            numColumns = list.columns;
+            itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
         } else {
-            itemsPerColumn = itemCount;
-            totalWidth = columnWidth;
-            boxHeight = singleColumnHeight;
+            // Auto: fit to available screen height
+            int screenHeight = client.getWindow().getScaledHeight();
+            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
+
+            if (itemCount <= maxItemsPerColumn) {
+                numColumns = 1;
+                itemsPerColumn = itemCount;
+            } else {
+                numColumns = (int) Math.ceil((double) itemCount / maxItemsPerColumn);
+                itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
+            }
         }
 
-        // Draw background panel
+        int totalWidth = (columnWidth * numColumns) + (padding * (numColumns - 1));
+        int boxHeight = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
+
         context.fill(-padding, -padding, totalWidth - padding, boxHeight - padding, list.backgroundColor);
+        context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor);
 
-        // Draw header text
-        context.drawTextWithShadow(client.textRenderer, list.name, 0, 0, list.nameColor | 0xFF000000);
-
-        // --- Step 3: Render Items ---
         int currentY = headerHeight;
         int currentColumn = 0;
         int columnOffsetX = 0;
 
         for (int i = 0; i < list.items.size(); i++) {
             TrackerConfig.TrackedItem trackedItem = list.items.get(i);
-            Item item = Registries.ITEM.get(Identifier.of(trackedItem.itemId));
-            if (item == null) continue;
+            if (!trackedItem.isValid()) continue;
 
-            // Use cached count (likely calculated in Step 1)
             if (trackedItem.cachedCount == -1) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, item);
+                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
             }
             int currentCount = trackedItem.cachedCount;
+            boolean isDone = currentCount >= trackedItem.targetCount;
 
-            int target = trackedItem.targetCount;
-            boolean isDone = currentCount >= target;
-
-            // Handle column switching
-            if (useDoubleColumn && i >= itemsPerColumn) {
-                if (currentColumn == 0) {
-                    columnOffsetX = columnWidth + padding;
-                    currentY = headerHeight;
-                    currentColumn = 1;
-                }
+            if (i > 0 && i % itemsPerColumn == 0) {
+                currentColumn++;
+                columnOffsetX = currentColumn * (columnWidth + padding);
+                currentY = headerHeight;
             }
 
-            // Draw Item Icon (only if enabled)
+            int itemColor = list.textColor;
+            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
+
             if (list.showIcons) {
-                int iconY = currentY + 1;
-                context.drawItem(new ItemStack(item), columnOffsetX, iconY);
+                context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
+                
+                int availableWidth = maxTextWidth - iconOffset;
+                String itemName = RenderUtils.shortenText(client.textRenderer, trackedItem.getDisplayName(), availableWidth);
+                context.drawTextWithShadow(client.textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
+                
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
+            } else {
+                String namePart = trackedItem.getDisplayName() + ": ";
+                int nw = client.textRenderer.getWidth(namePart);
+                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
+                
+                context.drawTextWithShadow(client.textRenderer, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
+                context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
             }
 
-            // Prepare Item Name
-            String itemName = item.getName().getString();
-
-            // Calculate available width for text (total width - icon offset)
-            int availableWidth = maxTextWidth - iconOffset;
-
-            // Smartly trim text if it's too long
-            itemName = shortenText(client.textRenderer, itemName, availableWidth);
-
-            // Draw Item Name
-            int itemColor = list.textColor | 0xFF000000;
-            context.drawTextWithShadow(client.textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
-
-            // Draw Item Count
-            String countLine = getCountText(currentCount, target, list.showRemaining);
-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF); // Green if done, else slightly transparent
-            context.drawTextWithShadow(client.textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
-
-            currentY += ITEM_ROW_HEIGHT;
+            currentY += itemRowHeight;
         }
-    }
-
-    /**
-     * Formats the count text based on current progress and settings.
-     */
-    private String getCountText(int current, int target, boolean showRemaining) {
-        boolean isDone = current >= target;
-
-        if (USE_COMPACT_DONE && isDone) {
-            return "[✓] " + current + "/" + target;
-        }
-
-        if (isDone) {
-            return Text.translatable("gui.resourcetracker.overlay.done").getString() + " (" + current + "/" + target + ")";
-        }
-
-        return showRemaining ?
-                Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current) :
-                current + " / " + target;
-    }
-
-    /**
-     * Trims text to fit within a specific width, appending "..." if truncated.
-     *
-     * @param textRenderer The text renderer instance.
-     * @param text         The string to potentially shorten.
-     * @param maxWidth     The maximum allowed width in pixels.
-     * @return The original text if it fits, or a shortened version ending in "..."
-     */
-    private String shortenText(net.minecraft.client.font.TextRenderer textRenderer, String text, int maxWidth) {
-        if (textRenderer.getWidth(text) <= maxWidth) {
-            return text;
-        }
-        String suffix = "...";
-        int suffixWidth = textRenderer.getWidth(suffix);
-        // trimToWidth cuts text to (width - suffix_width) to ensure the suffix fits
-        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
     }
 }

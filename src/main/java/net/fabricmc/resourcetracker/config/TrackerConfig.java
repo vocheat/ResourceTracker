@@ -27,6 +27,10 @@ package net.fabricmc.resourcetracker.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
+import net.minecraft.util.Identifier;
 
 import java.io.File;
 import java.io.FileReader;
@@ -75,8 +79,11 @@ public class TrackerConfig {
         /** Determines if item icons should be rendered next to the text. Default: true. */
         public boolean showIcons = true;
 
-        /** Text color for items (RGB). Default: White (0xFFFFFF). */
-        public int textColor = 0xFFFFFF;
+        /** Number of columns for the list display. 0 = auto (fit screen height), 1+ = fixed. Default: 0. */
+        public int columns = 0;
+
+        /** Text color for items (ARGB). Default: White (0xFFFFFFFF). */
+        public int textColor = 0xFFFFFFFF;
 
         /** Text color for the list header (ARGB). Default: White (0xFFFFFFFF). */
         public int nameColor = 0xFFFFFFFF;
@@ -94,18 +101,43 @@ public class TrackerConfig {
         public String itemId;
         public int targetCount;
 
-        /**
-         * Cached count of items found in the player's inventory.
-         * <p>
-         * Marked as {@code transient} to exclude it from JSON serialization,
-         * as this is a runtime value used for caching.
-         * </p>
-         */
         public transient int cachedCount = -1;
+        private transient Item cachedItem = null;
+        private transient ItemStack cachedStack = null;
+        private transient String displayName = null;
 
         public TrackedItem(String itemId, int targetCount) {
             this.itemId = itemId;
             this.targetCount = targetCount;
+        }
+
+        /** Returns the resolved Item, cached after first lookup. */
+        public Item getItem() {
+            if (cachedItem == null) {
+                cachedItem = Registries.ITEM.get(Identifier.of(this.itemId));
+            }
+            return cachedItem;
+        }
+
+        /** Returns a reusable display ItemStack (count=1), avoiding per-frame allocations. */
+        public ItemStack getStack() {
+            if (cachedStack == null) {
+                cachedStack = new ItemStack(getItem());
+            }
+            return cachedStack;
+        }
+
+        /** Returns the cached display name string. */
+        public String getDisplayName() {
+            if (displayName == null) {
+                displayName = getItem().getName().getString();
+            }
+            return displayName;
+        }
+
+        /** Returns true if this item ID resolves to a real item in the registry. */
+        public boolean isValid() {
+            return Registries.ITEM.containsId(Identifier.of(this.itemId));
         }
     }
 
@@ -119,8 +151,12 @@ public class TrackerConfig {
     public static void load() {
         if (CONFIG_FILE.exists()) {
             try (FileReader reader = new FileReader(CONFIG_FILE)) {
-                INSTANCE = GSON.fromJson(reader, TrackerConfig.class);
-            } catch (IOException e) {
+                TrackerConfig loaded = GSON.fromJson(reader, TrackerConfig.class);
+                if (loaded != null) {
+                    if (loaded.lists == null) loaded.lists = new ArrayList<>();
+                    INSTANCE = loaded;
+                }
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         } else {
