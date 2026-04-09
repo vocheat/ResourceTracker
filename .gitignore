@@ -14,8 +14,15 @@ out/
 *.ipr
 *.iws
 
+# VSCode
+.vscode/
+
 # MacOS
 .DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
 
 # Fabric/Minecraft run folders
 run/
@@ -25,6 +32,30 @@ run*/
 logs/
 *.log
 
-*.py
 # Patch files
 *.patch
+
+# AI assistants — Claude Code
+.claude/
+CLAUDE.md
+review.md
+
+# AI assistants — Gemini / Google
+.gemini/
+.googleai/
+gemini_output/
+gemini-context.json
+
+# AI assistants — GitHub Copilot
+.github/copilot-instructions.md
+
+# AI assistants — Cursor
+.cursor/
+.cursorignore
+.cursorules
+
+# AI assistants — general
+*.ai-context
+*.ai-notes
+.aider*
+.continue/

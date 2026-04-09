@@ -101,7 +101,7 @@ public class TrackerConfig {
         public String itemId;
         public int targetCount;
 
-        public transient int cachedCount = -1;
+        public transient int cachedCount = 0;
         private transient Item cachedItem = null;
         private transient ItemStack cachedStack = null;
         private transient String displayName = null;

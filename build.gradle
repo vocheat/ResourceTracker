@@ -6,6 +6,23 @@ plugins {
 version = project.mod_version
 group = project.maven_group
 
+// Select the correct compatibility source set based on the Minecraft version:
+//   profile=legacy     → 1.21.5            (old MatrixStack, String KeyBinding)
+//   profile=transition → 1.21.6–1.21.8     (new Matrix3x2fStack, String KeyBinding)
+//   profile=modern     → 1.21.9–1.21.11    (new Matrix3x2fStack, KeyBinding.Category enum)
+// Legacy (modernApi=false) is kept as an alias for backwards compatibility.
+def profile = project.hasProperty('profile') ? project.profile
+        : (project.hasProperty('modernApi') && project.modernApi == 'true') ? 'modern'
+        : 'legacy'
+
+sourceSets {
+    main {
+        java {
+            srcDir "src/compat/${profile}"
+        }
+    }
+}
+
 base {
     archivesName = project.archives_base_name
 }
