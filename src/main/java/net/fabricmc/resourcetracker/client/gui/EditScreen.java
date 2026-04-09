@@ -364,6 +364,11 @@ public class EditScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // No-op: we draw our own semi-transparent background in render()
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         // Dark background
         context.fill(0, 0, width, height, 0xA0000000);

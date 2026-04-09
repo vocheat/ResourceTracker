@@ -25,8 +25,8 @@
 package net.fabricmc.resourcetracker.client.render;
 
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.InventoryUtils;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -53,13 +53,13 @@ public class HudOverlay implements HudRenderCallback {
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
 
-            context.getMatrices().pushMatrix();
-            context.getMatrices().translate((float) list.x, (float) list.y);
-            context.getMatrices().scale(list.scale, list.scale);
+            VersionCompat.push(context);
+            VersionCompat.translate(context, (float) list.x, (float) list.y);
+            VersionCompat.scale(context, list.scale, list.scale);
 
             renderListContent(context, client, list);
 
-            context.getMatrices().popMatrix();
+            VersionCompat.pop(context);
         }
     }
 
@@ -83,10 +83,6 @@ public class HudOverlay implements HudRenderCallback {
 
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
             if (!trackedItem.isValid()) continue;
-
-            if (trackedItem.cachedCount == -1) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
-            }
 
             String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
             
@@ -143,9 +139,6 @@ public class HudOverlay implements HudRenderCallback {
             TrackerConfig.TrackedItem trackedItem = list.items.get(i);
             if (!trackedItem.isValid()) continue;
 
-            if (trackedItem.cachedCount == -1) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
-            }
             int currentCount = trackedItem.cachedCount;
             boolean isDone = currentCount >= trackedItem.targetCount;
 

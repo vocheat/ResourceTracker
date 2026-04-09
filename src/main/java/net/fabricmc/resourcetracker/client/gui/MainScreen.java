@@ -125,6 +125,11 @@ public class MainScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // No-op: we draw our own semi-transparent background in render()
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, this.width, this.height, 0xA0000000);
 

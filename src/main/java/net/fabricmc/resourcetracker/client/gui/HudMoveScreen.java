@@ -24,8 +24,8 @@
 
 package net.fabricmc.resourcetracker.client.gui;
 
+import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.InventoryUtils;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -65,6 +65,11 @@ public class HudMoveScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // No-op: we draw our own semi-transparent background in render()
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         // Render a darkened background
         context.fill(0, 0, this.width, this.height, 0xA0000000);
@@ -83,15 +88,15 @@ public class HudMoveScreen extends Screen {
     }
 
     private void renderScaledList(DrawContext context, TrackerConfig.TrackingList list) {
-        context.getMatrices().pushMatrix();
-        context.getMatrices().translate((float) list.x, (float) list.y);
-        context.getMatrices().scale(list.scale, list.scale);
+        VersionCompat.push(context);
+        VersionCompat.translate(context, (float) list.x, (float) list.y);
+        VersionCompat.scale(context, list.scale, list.scale);
 
         BoxSize baseSize = calculateBaseSize(list);
         int borderColor = (list == draggingList) ? 0xFF00FF00 : 0xFFFFFFFF;
         int padding = 4;
 
-        renderBorder(context, -padding - 2, -padding - 2, baseSize.width + 4, baseSize.height + 4, borderColor);
+        renderBorder(context, -padding - 1, -padding - 1, baseSize.width + 2, baseSize.height + 2, borderColor);
         context.fill(-padding, -padding, baseSize.width - padding, baseSize.height - padding, list.backgroundColor);
         context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor);
 
@@ -145,9 +150,6 @@ public class HudMoveScreen extends Screen {
                 context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
             }
 
-            if (trackedItem.cachedCount == -1 && client.player != null) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
-            }
             int currentCount = trackedItem.cachedCount;
             boolean isDone = currentCount >= trackedItem.targetCount;
             
@@ -174,7 +176,7 @@ public class HudMoveScreen extends Screen {
             drawn++;
         }
 
-        context.getMatrices().popMatrix();
+        VersionCompat.pop(context);
     }
 
     private BoxSize calculateBaseSize(TrackerConfig.TrackingList list) {
@@ -189,10 +191,6 @@ public class HudMoveScreen extends Screen {
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
             if (!trackedItem.isValid()) continue;
             validItems++;
-
-            if (trackedItem.cachedCount == -1 && client.player != null) {
-                trackedItem.cachedCount = InventoryUtils.countItems(client.player, trackedItem.getItem());
-            }
 
             String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
             
@@ -260,12 +258,17 @@ public class HudMoveScreen extends Screen {
 
                 BoxSize baseSize = calculateBaseSize(list);
 
-                // Apply scale to the hitbox dimensions
-                int scaledWidth = (int) (baseSize.width * list.scale);
-                int scaledHeight = (int) (baseSize.height * list.scale);
+                // The box is rendered at translate(list.x, list.y) with fill starting at -padding,
+                // so the actual screen rect starts at list.x - padding*scale.
+                // Width/height remain baseSize * scale (padding is absorbed into both sides).
+                int padding = 4;
+                int hitX = list.x - (int) (padding * list.scale);
+                int hitY = list.y - (int) (padding * list.scale);
+                int hitW = (int) (baseSize.width * list.scale);
+                int hitH = (int) (baseSize.height * list.scale);
 
-                if (mouseX >= list.x && mouseX <= list.x + scaledWidth &&
-                        mouseY >= list.y && mouseY <= list.y + scaledHeight) {
+                if (mouseX >= hitX && mouseX <= hitX + hitW &&
+                        mouseY >= hitY && mouseY <= hitY + hitH) {
                     this.draggingList = list;
                     this.dragOffsetX = mouseX - list.x;
                     this.dragOffsetY = mouseY - list.y;
