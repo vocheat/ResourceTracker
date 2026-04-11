@@ -59,8 +59,3 @@ gemini-context.json
 *.ai-notes
 .aider*
 .continue/
-
-# Graphify (knowledge graph analysis artifacts)
-.graphify_*
-graphify-out/
-filter_detect.py

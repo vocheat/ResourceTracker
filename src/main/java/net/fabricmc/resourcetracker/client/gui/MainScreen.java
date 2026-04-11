@@ -100,7 +100,9 @@ public class MainScreen extends Screen {
                                     TrackerConfig.save();
                                     // Scroll to bottom to show the new list
                                     this.scrollOffset = Double.MAX_VALUE;
-                                    this.init();
+                                    if (this.client != null) {
+                                        this.client.setScreen(new MainScreen(this.parent));
+                                    }
                                 }
                         )
                         .dimensions(this.width / 2 + 5, topBtnY, 150, 20)
@@ -208,7 +210,7 @@ public class MainScreen extends Screen {
                 isHoveringTrash = true;
             }
 
-            boolean canDelete = trashHovered && shiftPressed();
+            boolean canDelete = trashHovered && isShiftDown();
             drawPixelTrash(context, trashX, trashY, trashHovered, canDelete);
         }
 
@@ -220,7 +222,7 @@ public class MainScreen extends Screen {
 
         // Render Tooltip ABOVE the scissor cut (after disableScissor)
         if (isHoveringTrash) {
-            if (shiftPressed()) {
+            if (isShiftDown()) {
                 // Red text "Delete"
                 context.drawTooltip(textRenderer, Text.translatable("gui.resourcetracker.delete").formatted(Formatting.RED), mouseX, mouseY);
             } else {
@@ -256,7 +258,7 @@ public class MainScreen extends Screen {
                             TrackerConfig.save();
                             playClickSound();
                         } else if (mouseX >= trashX && mouseX < trashX + 16) {
-                            if (shiftPressed()) {
+                            if (isShiftDown()) {
                                 lists.remove(list);
                                 TrackerConfig.save();
                                 playClickSound();
@@ -403,7 +405,7 @@ public class MainScreen extends Screen {
         }
     }
 
-    private boolean shiftPressed() {
+    private boolean isShiftDown() {
         if (this.client == null) return false;
         long handle = this.client.getWindow().getHandle();
         return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS

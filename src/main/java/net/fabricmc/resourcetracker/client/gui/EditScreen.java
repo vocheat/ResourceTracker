@@ -27,9 +27,7 @@ package net.fabricmc.resourcetracker.client.gui;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.sound.SoundEvents;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
@@ -76,9 +74,6 @@ public class EditScreen extends Screen {
     // Cache for ItemStacks used in search list rendering (avoids per-frame allocations)
     private final Map<Item, ItemStack> searchStackCache = new HashMap<>();
 
-    // Pre-computed display names for all items (populated once at init, avoids per-keystroke getString())
-    private final Map<Item, String> itemDisplayNames = new HashMap<>();
-
     private double scrollLeft = 0;
     private double scrollRight = 0;
 
@@ -115,15 +110,9 @@ public class EditScreen extends Screen {
         this.clearChildren();
         this.labels.clear();
         this.itemCountFields.clear();
-        // Prevent click-through from ConfirmScreen or other parent screens
-        this.wasMouseDown = client != null && GLFW.glfwGetMouseButton(client.getWindow().getHandle(), 0) == GLFW.GLFW_PRESS;
 
         if (availableItems.isEmpty()) {
-            Registries.ITEM.stream().forEach(item -> {
-                availableItems.add(item);
-                itemDisplayNames.put(item, item.getName().getString());
-            });
-            availableItems.sort(Comparator.comparing(itemDisplayNames::get));
+            Registries.ITEM.stream().forEach(availableItems::add);
         }
 
         int w = this.width;
@@ -160,10 +149,7 @@ public class EditScreen extends Screen {
 
         addLabel(Text.translatable("gui.resourcetracker.edit.scale"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
         scaleField = createSmallField(curX, row1Y, fieldW, String.valueOf(list.scale), s -> {
-            try {
-                float v = Float.parseFloat(s);
-                list.scale = Math.max(0.25f, Math.min(4.0f, v));
-            } catch (NumberFormatException ignored) {}
+            try { list.scale = Float.parseFloat(s); } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(scaleField);
 
@@ -198,11 +184,7 @@ public class EditScreen extends Screen {
         int row3Width = (groupW * 3) + (groupGap * 2);
         int colorStartX = centerX - (row3Width / 2);
 
-        Text[] headers = {
-            Text.translatable("gui.resourcetracker.edit.color_text"),
-            Text.translatable("gui.resourcetracker.edit.color_title"),
-            Text.translatable("gui.resourcetracker.edit.color_bg")
-        };
+        String[] headers = {"Text Color", "Title color", "Background color"};
         String[] fLabels = {"R", "G", "B", "Alpha"};
         int[] fColors = {0xFFFF4444, 0xFF44FF44, 0xFF4488FF, 0xFFCCCCCC};
         int[] fWidths = {26, 26, 26, 34};
@@ -210,7 +192,7 @@ public class EditScreen extends Screen {
         for (int i = 0; i < 3; i++) {
             int cx = colorStartX + i * (groupW + groupGap);
             int labelW = textRenderer.getWidth(headers[i]);
-            labels.add(new LabelData(headers[i], cx + (groupW - labelW) / 2, row3Y - 12, 0xFFFFFFFF));
+            labels.add(new LabelData(Text.literal(headers[i]), cx + (groupW - labelW) / 2, row3Y - 12, 0xFFFFFFFF));
             
             // Labels for R G B Alpha
             int fStartX = cx;
@@ -276,21 +258,9 @@ public class EditScreen extends Screen {
         int botStartX = centerX - (botRowW / 2);
 
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.edit.clear"), b -> {
-            if (this.client != null) {
-                this.client.setScreen(new ConfirmScreen(
-                    confirmed -> {
-                        if (confirmed) {
-                            list.items.clear();
-                            refreshCountWidgets();
-                            updateTrackedSearch(trackedSearchField.getText());
-                            TrackerConfig.save();
-                        }
-                        this.client.setScreen(EditScreen.this);
-                    },
-                    Text.translatable("gui.resourcetracker.edit.clear"),
-                    Text.translatable("gui.resourcetracker.edit.clear_confirm")
-                ));
-            }
+            list.items.clear();
+            refreshCountWidgets();
+            updateTrackedSearch(trackedSearchField.getText());
         }).dimensions(botStartX, h - 30, botBtnW, 20).build());
 
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.done"), b -> client.setScreen(parent))
@@ -339,10 +309,7 @@ public class EditScreen extends Screen {
                 w.setText(String.valueOf(item.targetCount));
                 w.setEditableColor(0xFFFFFFFF);
                 w.setChangedListener(val -> {
-                    try {
-                        int v = Integer.parseInt(val);
-                        item.targetCount = Math.max(1, Math.min(99999, v));
-                    } catch (NumberFormatException ignored) {}
+                    try { item.targetCount = Integer.parseInt(val); } catch (NumberFormatException ignored) {}
                 });
             }
             newMap.put(item, w);
@@ -363,14 +330,16 @@ public class EditScreen extends Screen {
             List<Item> contains = new ArrayList<>();
 
             for (Item item : availableItems) {
-                String name = itemDisplayNames.getOrDefault(item, "").toLowerCase();
+                String name = item.getName().getString().toLowerCase();
                 if (name.startsWith(q)) {
                     startsWith.add(item);
                 } else if (name.contains(q)) {
                     contains.add(item);
                 }
             }
-            // availableItems is pre-sorted alphabetically, so sublists are already in order
+            startsWith.sort(Comparator.comparing(i -> i.getName().getString()));
+            contains.sort(Comparator.comparing(i -> i.getName().getString()));
+
             filteredItems.addAll(startsWith);
             filteredItems.addAll(contains);
         }
@@ -496,25 +465,32 @@ public class EditScreen extends Screen {
             TextFieldWidget widget = itemCountFields.get(ti);
             boolean isVisible = (cy >= startDisplayY && cy + itemH <= y + h - 2);
 
-            if (widget != null && isVisible) {
-                widget.setVisible(true);
-                widget.setX(x + w - 75);
-                widget.setY(cy + 3);
+            if (widget != null) {
+                if (isVisible) {
+                    widget.setVisible(true);
+                    widget.setX(x + w - 75);
+                    widget.setY(cy + 3);
+                }
             }
 
             if (!isVisible) continue;
             if (!ti.isValid()) continue;
 
+            // Hover zone (excluding buttons on the right)
             boolean hover = mx >= x && mx < x + w - 50 && my >= cy && my < cy + itemH && my >= startDisplayY;
+
             if (hover) {
                 context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x10FFFFFF);
                 hoveredTracked = ti;
             }
 
             context.drawItem(ti.getStack(), x + 4, cy + 2);
+
+            // Shorten text
             String txt = RenderUtils.shortenText(textRenderer, ti.getDisplayName(), w - 90 - 24);
             context.drawText(textRenderer, Text.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
 
+            // Delete button — larger hitbox, red on hover
             int crossX = x + w - 25;
             int crossY = cy + 4;
             boolean crossHover = mx >= crossX - 4 && mx <= crossX + 9 && my >= crossY - 2 && my <= crossY + 9;
@@ -559,7 +535,7 @@ public class EditScreen extends Screen {
             }
             // Right list click -> delete
             int rightContentY = listAreaY + searchHeight;
-            if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= rightContentY && my < listAreaY + boxHeight) {
+            if (mx >= rightBoxX && mx < rightBoxX + boxWidth && my >= rightContentY && my < listAreaY + boxHeight) {
                 int idx = (int) ((my - rightContentY + scrollRight) / itemH);
                 if (idx >= 0 && idx < filteredTrackedItems.size()) {
                     int itemY = rightContentY + (idx * itemH) - (int) scrollRight + 2;
@@ -624,7 +600,7 @@ public class EditScreen extends Screen {
         // Placeholder text "Search..." when field is empty
         if (field.getText().isEmpty() && !field.isFocused()) {
             int textY = y + (searchHeight - 8) / 2;
-            context.drawText(textRenderer, Text.translatable("gui.resourcetracker.edit.search_hint"), x + 6, textY, 0xFF666666, false);
+            context.drawText(textRenderer, Text.literal("Search..."), x + 6, textY, 0xFF666666, false);
         }
     }
 
@@ -693,6 +669,14 @@ public class EditScreen extends Screen {
         } catch (NumberFormatException ignored) {}
     }
 
+    private int parseNum(TextFieldWidget w) {
+        try {
+            return Integer.parseInt(w.getText());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private int clamp(int val) {
         return Math.max(0, Math.min(255, val));
     }
@@ -738,10 +722,7 @@ public class EditScreen extends Screen {
             }
         }
         if (!found) {
-            list.items.add(new TrackerConfig.TrackedItem(id, 1));
-            if (this.client != null && this.client.player != null) {
-                this.client.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 1.0f);
-            }
+            list.items.add(new TrackerConfig.TrackedItem(id, 0));
             refreshCountWidgets();
         }
     }
