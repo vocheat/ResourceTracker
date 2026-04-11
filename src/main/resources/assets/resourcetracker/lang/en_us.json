@@ -1,6 +1,5 @@
 {
   "key.resourcetracker.open": "Open Tracker Menu",
-  "key.resourcetracker.toggle_hud": "Toggle HUD Visibility",
   "gui.resourcetracker.title": "Resource Tracker",
   "gui.resourcetracker.move_hud": "Move HUD Elements",
   "gui.resourcetracker.add_list": "+ Add New List",
@@ -26,7 +25,6 @@
   "gui.resourcetracker.edit.search_hint": "Search for items",
   "gui.resourcetracker.edit.tracked_items": "Tracked Items",
   "gui.resourcetracker.edit.clear": "Clear List",
-  "gui.resourcetracker.edit.clear_confirm": "All tracked items will be removed.",
   "gui.resourcetracker.edit.search": "Search",
   "gui.resourcetracker.edit.count_field": "Target Count",
   "gui.resourcetracker.overlay.done": "Done!",
