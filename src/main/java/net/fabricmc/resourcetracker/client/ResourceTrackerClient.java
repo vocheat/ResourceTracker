@@ -56,18 +56,31 @@ public class ResourceTrackerClient implements ClientModInitializer {
      */
     public static KeyBinding openMenuKey;
 
+    /**
+     * Key binding to toggle global HUD visibility (all tracking lists at once).
+     * No default key — configurable in MC Controls settings.
+     */
+    public static KeyBinding toggleHudKey;
+
     @Override
     public void onInitializeClient() {
         TrackerConfig.load();
 
-        // Register the keybinding (Default: M) — via VersionCompat for cross-version support
+        // Register keybindings — via VersionCompat for cross-version support
         openMenuKey = VersionCompat.registerOpenKey();
+        toggleHudKey = VersionCompat.registerToggleHudKey();
 
         // Register the client tick event to handle input and update inventory counts
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Check for menu key press
             while (openMenuKey.wasPressed()) {
                 client.setScreen(new MainScreen(null));
+            }
+
+            // Toggle global HUD visibility
+            while (toggleHudKey.wasPressed()) {
+                TrackerConfig.INSTANCE.hudVisible = !TrackerConfig.INSTANCE.hudVisible;
+                TrackerConfig.save();
             }
 
             if (client.player != null && client.world != null && client.player.age % 10 == 0) {

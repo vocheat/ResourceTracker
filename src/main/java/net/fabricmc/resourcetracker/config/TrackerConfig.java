@@ -64,6 +64,11 @@ public class TrackerConfig {
     public List<TrackingList> lists = new ArrayList<>();
 
     /**
+     * Global HUD visibility toggle. When false, no tracking lists are rendered.
+     */
+    public boolean hudVisible = true;
+
+    /**
      * Represents a grouping of items to be tracked and displayed on the UI.
      * Contains visual settings (position, colors) and the list of items.
      */
