@@ -24,6 +24,7 @@
 
 package net.fabricmc.resourcetracker.util;
 
+import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
@@ -94,12 +95,39 @@ public class RenderUtils {
     /**
      * Formats the count text based on current progress and display mode.
      */
+    private static String cachedNeedPrefix = null;
+
     public static String getCountText(int current, int target, boolean showRemaining) {
         if (current >= target) {
             return "[\u2713] " + current + "/" + target;
         }
-        return showRemaining
-                ? Text.translatable("gui.resourcetracker.overlay.need").getString() + (target - current)
-                : current + " / " + target;
+        if (showRemaining) {
+            if (cachedNeedPrefix == null) {
+                cachedNeedPrefix = Text.translatable("gui.resourcetracker.overlay.need").getString();
+            }
+            return cachedNeedPrefix + (target - current);
+        }
+        return current + " / " + target;
+    }
+
+    /**
+     * Calculates the number of columns and items-per-column for a tracking list.
+     * Returns int[]{numColumns, itemsPerColumn}.
+     */
+    public static int[] calculateColumnLayout(TrackerConfig.TrackingList list, int itemCount,
+            int screenHeight, int headerHeight, int padding, int itemRowHeight) {
+        if (list.columns > 0) {
+            int numColumns = list.columns;
+            int itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
+            return new int[]{numColumns, itemsPerColumn};
+        }
+        int availH = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+        int maxPerCol = Math.max(1, availH / itemRowHeight);
+        if (itemCount <= maxPerCol) {
+            return new int[]{1, itemCount};
+        }
+        int numColumns = (int) Math.ceil((double) itemCount / maxPerCol);
+        int itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
+        return new int[]{numColumns, itemsPerColumn};
     }
 }

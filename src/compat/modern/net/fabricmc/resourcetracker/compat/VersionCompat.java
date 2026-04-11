@@ -37,4 +37,13 @@ public class VersionCompat {
                 KeyBinding.Category.MISC
         ));
     }
+
+    public static KeyBinding registerToggleHudKey() {
+        return KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.resourcetracker.toggle_hud",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_UNKNOWN,
+                KeyBinding.Category.MISC
+        ));
+    }
 }
