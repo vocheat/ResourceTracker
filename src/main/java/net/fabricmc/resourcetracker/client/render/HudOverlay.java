@@ -49,6 +49,7 @@ public class HudOverlay implements HudRenderCallback {
     public void onHudRender(DrawContext context, RenderTickCounter tickCounter) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null || client.options.hudHidden) return;
+        if (!TrackerConfig.INSTANCE.hudVisible) return;
 
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
@@ -103,27 +104,10 @@ public class HudOverlay implements HudRenderCallback {
 
         int columnWidth = maxTextWidth + (padding * 2);
 
-        int numColumns;
-        int itemsPerColumn;
-
-        if (list.columns > 0) {
-            // User-specified fixed column count
-            numColumns = list.columns;
-            itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
-        } else {
-            // Auto: fit to available screen height
-            int screenHeight = client.getWindow().getScaledHeight();
-            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
-            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
-
-            if (itemCount <= maxItemsPerColumn) {
-                numColumns = 1;
-                itemsPerColumn = itemCount;
-            } else {
-                numColumns = (int) Math.ceil((double) itemCount / maxItemsPerColumn);
-                itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
-            }
-        }
+        int[] layout = RenderUtils.calculateColumnLayout(list, itemCount,
+                client.getWindow().getScaledHeight(), headerHeight, padding, itemRowHeight);
+        int numColumns = layout[0];
+        int itemsPerColumn = layout[1];
 
         int totalWidth = (columnWidth * numColumns) + (padding * (numColumns - 1));
         int boxHeight = headerHeight + (itemsPerColumn * itemRowHeight) + padding;

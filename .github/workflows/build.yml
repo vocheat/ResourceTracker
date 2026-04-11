@@ -1,0 +1,81 @@
+name: Build
+
+on:
+  push:
+    branches: [master, v1.1-beta]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - profile: legacy
+            mc: "1.21.5"
+            mc_range: "1.21.5"
+            yarn: "1.21.5+build.1"
+            fabric_api: "0.119.2+1.21.5"
+          - profile: transition
+            mc: "1.21.8"
+            mc_range: "1.21.6-1.21.8"
+            yarn: "1.21.8+build.1"
+            fabric_api: "0.136.1+1.21.8"
+          - profile: modern
+            mc: "1.21.11"
+            mc_range: "1.21.9-1.21.11"
+            yarn: "1.21.11+build.4"
+            fabric_api: "0.141.3+1.21.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant gradlew execute permission
+        run: chmod +x gradlew
+
+      - name: Build (${{ matrix.profile }}, MC ${{ matrix.mc }})
+        run: |
+          ./gradlew build \
+            -Pprofile=${{ matrix.profile }} \
+            -Pminecraft_version=${{ matrix.mc }} \
+            -Pyarn_mappings="${{ matrix.yarn }}" \
+            -Pfabric_version="${{ matrix.fabric_api }}"
+
+      - name: Rename JAR (add MC version range suffix)
+        run: |
+          JAR=$(ls build/libs/resourcetracker-*.jar | grep -v '\-sources\.' | grep -v '\-dev\.' | head -1)
+          NEWNAME="$(dirname "$JAR")/$(basename "$JAR" .jar)+mc${{ matrix.mc_range }}.jar"
+          mv "$JAR" "$NEWNAME"
+          echo "JAR_PATH=$NEWNAME" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resourcetracker-mc${{ matrix.mc_range }}
+          path: ${{ env.JAR_PATH }}
+          if-no-files-found: error
+
+  attach-to-release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Attach JARs to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.jar
