@@ -12,12 +12,12 @@
   "entrypoints": {
     "client": [
       "net.fabricmc.resourcetracker.client.ResourceTrackerClient"
+    ],
+    "modmenu": [
+      "net.fabricmc.resourcetracker.client.ModMenuIntegration"
     ]
   },
-  "mixins": [
-    "resourcetracker.mixins.json"
-  ],
-  "depends": {
+"depends": {
     "fabricloader": ">=0.16.0",
     "minecraft": ">=1.21.5",
     "java": ">=21",

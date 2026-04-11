@@ -1,5 +1,6 @@
 {
   "key.resourcetracker.open": "Открыть меню трекера",
+  "key.resourcetracker.toggle_hud": "Скрыть/показать HUD",
   "gui.resourcetracker.title": "Трекер Ресурсов",
   "gui.resourcetracker.move_hud": "Переместить интерфейс",
   "gui.resourcetracker.add_list": "+ Создать список",
@@ -25,6 +26,7 @@
   "gui.resourcetracker.edit.search_hint": "Поиск предметов",
   "gui.resourcetracker.edit.tracked_items": "Отслеживаемое",
   "gui.resourcetracker.edit.clear": "Очистить",
+  "gui.resourcetracker.edit.clear_confirm": "Все отслеживаемые предметы будут удалены.",
   "gui.resourcetracker.edit.search": "Поиск",
   "gui.resourcetracker.edit.count_field": "Целевое количество",
   "gui.resourcetracker.overlay.done": "Готово!",

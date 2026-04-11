@@ -110,25 +110,10 @@ public class HudMoveScreen extends Screen {
             if (ti.isValid()) validItems++;
         }
 
-        int numColumns;
-        int itemsPerColumn;
-
-        if (list.columns > 0) {
-            numColumns = list.columns;
-            itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
-        } else {
-            int screenHeight = client.getWindow().getScaledHeight();
-            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
-            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
-
-            if (validItems <= maxItemsPerColumn) {
-                numColumns = 1;
-                itemsPerColumn = validItems;
-            } else {
-                numColumns = (int) Math.ceil((double) validItems / maxItemsPerColumn);
-                itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
-            }
-        }
+        int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
+                client.getWindow().getScaledHeight(), headerHeight, padding, itemRowHeight);
+        int numColumns = layout[0];
+        int itemsPerColumn = layout[1];
 
         int colWidth = (baseSize.width - (padding * (numColumns - 1))) / numColumns;
         if (numColumns == 1) colWidth = baseSize.width;
@@ -211,25 +196,10 @@ public class HudMoveScreen extends Screen {
 
         int columnWidth = maxTextWidth + (padding * 2);
 
-        int numColumns;
-        int itemsPerColumn;
-
-        if (list.columns > 0) {
-            numColumns = list.columns;
-            itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
-        } else {
-            int screenHeight = client.getWindow().getScaledHeight();
-            int availableHeight = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
-            int maxItemsPerColumn = Math.max(1, availableHeight / itemRowHeight);
-
-            if (validItems <= maxItemsPerColumn) {
-                numColumns = 1;
-                itemsPerColumn = validItems;
-            } else {
-                numColumns = (int) Math.ceil((double) validItems / maxItemsPerColumn);
-                itemsPerColumn = (int) Math.ceil((double) validItems / numColumns);
-            }
-        }
+        int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
+                client.getWindow().getScaledHeight(), headerHeight, padding, itemRowHeight);
+        int numColumns = layout[0];
+        int itemsPerColumn = layout[1];
 
         int width = (columnWidth * numColumns) + (padding * (numColumns - 1));
         int height = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
