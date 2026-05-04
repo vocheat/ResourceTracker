@@ -1,19 +1,35 @@
-plugins {
-    id 'fabric-loom' version '1.14-SNAPSHOT'
-    id 'maven-publish'
-}
-
-version = project.mod_version
-group = project.maven_group
-
-// Select the correct compatibility source set based on the Minecraft version:
-//   profile=legacy     → 1.21.5            (old MatrixStack, String KeyBinding)
-//   profile=transition → 1.21.6–1.21.8     (new Matrix3x2fStack, String KeyBinding)
-//   profile=modern     → 1.21.9–1.21.11    (new Matrix3x2fStack, KeyBinding.Category enum)
-// Legacy (modernApi=false) is kept as an alias for backwards compatibility.
+// Determine profile early — needed for plugin resolution
 def profile = project.hasProperty('profile') ? project.profile
         : (project.hasProperty('modernApi') && project.modernApi == 'true') ? 'modern'
         : 'legacy'
+def isNextgen = profile == 'nextgen'
+
+buildscript {
+    repositories {
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        def nextgen = gradle.startParameter.projectProperties.get('profile') == 'nextgen'
+        classpath nextgen
+                ? "net.fabricmc:fabric-loom:1.16.1"
+                : "net.fabricmc:fabric-loom:1.14-SNAPSHOT"
+    }
+}
+
+if (isNextgen) {
+    apply plugin: 'net.fabricmc.fabric-loom'
+} else {
+    apply plugin: 'fabric-loom'
+}
+apply plugin: 'maven-publish'
+
+version = project.mod_version
+group = project.maven_group
 
 sourceSets {
     main {
@@ -27,46 +43,68 @@ base {
     archivesName = project.archives_base_name
 }
 
-
 repositories {
     mavenLocal()
     maven { url "https://maven.terraformersmc.com/releases/" }
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
 }
 
 dependencies {
-    // To change the versions see the gradle.properties file
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    if (!isNextgen) {
+        // Yarn mappings — only for obfuscated MC versions (≤1.21.11)
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    }
+    // No mappings for nextgen — MC 26.1 is fully unobfuscated, Loom reads names from JAR
 
-    def modmenuVersion = project.hasProperty("modmenu_version_${profile}")
-            ? project.property("modmenu_version_${profile}")
-            : "14.0.2"
-    modCompileOnly "com.terraformersmc:modmenu:${modmenuVersion}"
-    modLocalRuntime "com.terraformersmc:modmenu:${modmenuVersion}"
+    if (isNextgen) {
+        def loaderVer = project.hasProperty('loader_version') ? project.loader_version : project.loader_version_nextgen
+        def fabricVer  = project.hasProperty('fabric_version') ? project.fabric_version : project.fabric_version_nextgen
+
+        implementation "net.fabricmc:fabric-loader:${loaderVer}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${fabricVer}"
+
+        if (project.hasProperty('modmenu_version_nextgen') && project.modmenu_version_nextgen) {
+            compileOnly  "maven.modrinth:modmenu:${project.modmenu_version_nextgen}"
+            localRuntime "maven.modrinth:modmenu:${project.modmenu_version_nextgen}"
+        }
+    } else {
+        modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+        def modmenuVersion = project.hasProperty("modmenu_version_${profile}")
+                ? project.property("modmenu_version_${profile}")
+                : "14.0.2"
+        modCompileOnly "com.terraformersmc:modmenu:${modmenuVersion}"
+        modLocalRuntime "com.terraformersmc:modmenu:${modmenuVersion}"
+    }
 }
 
 processResources {
     inputs.property "version", project.version
     inputs.property "minecraft_version", project.minecraft_version
-    inputs.property "loader_version", project.loader_version
     filteringCharset "UTF-8"
+
+    def loaderVer = isNextgen
+            ? (project.hasProperty('loader_version') ? project.loader_version : project.loader_version_nextgen)
+            : project.loader_version
 
     filesMatching("fabric.mod.json") {
         expand "version": project.version,
                 "minecraft_version": project.minecraft_version,
-                "loader_version": project.loader_version
+                "loader_version": loaderVer,
+                "java_min_version": isNextgen ? "25" : "21",
+                "minecraft_min_version": isNextgen ? "26.1" : "1.21.5"
     }
 }
 
-def targetJavaVersion = 21
+def targetJavaVersion = isNextgen ? 25 : 21
 tasks.withType(JavaCompile).configureEach {
-    // ensure that the encoding is set to UTF-8, no matter what the system default is
-    // this fixes some edge cases with special characters not displaying correctly
-    // see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
-    // If Javadoc is generated, this must be specified in that task too.
     it.options.encoding = "UTF-8"
     if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
         it.options.release.set(targetJavaVersion)
@@ -78,9 +116,6 @@ java {
     if (JavaVersion.current() < javaVersion) {
         toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
     }
-    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-    // if it is present.
-    // If you remove this line, sources will not be generated.
     withSourcesJar()
 }
 
@@ -90,7 +125,6 @@ jar {
     }
 }
 
-// configure the maven publication
 publishing {
     publications {
         create("mavenJava", MavenPublication) {
@@ -98,12 +132,5 @@ publishing {
             from components.java
         }
     }
-
-    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
-    repositories {
-        // Add repositories to publish to here.
-        // Notice: This block does NOT have the same function as the block in the top level.
-        // The repositories here will be used for publishing your artifact, not for
-        // retrieving dependencies.
-    }
+    repositories {}
 }

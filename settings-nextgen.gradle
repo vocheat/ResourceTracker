@@ -8,3 +8,6 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+println ">>> NEXTGEN SETTINGS LOADED <<<"
+rootProject.buildFileName = 'build-nextgen.gradle'
