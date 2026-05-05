@@ -25,19 +25,37 @@
 package net.fabricmc.resourcetracker.util;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 
 /**
  * Shared rendering utilities used across GUI screens and HUD overlay.
  */
 public class RenderUtils {
+    public static final int PIXEL_ICON_SIZE = 16;
+
+    public static void drawPixelIcon24(GuiGraphics context, int x, int y, int color, int[] pixels) {
+        if (pixels == null) return;
+        for (int pixel : pixels) {
+            int px = (pixel >> 8) & 0xFF;
+            int py = pixel & 0xFF;
+            if (px >= 0 && px < PIXEL_ICON_SIZE && py >= 0 && py < PIXEL_ICON_SIZE) {
+                context.fill(x + px, y + py, x + px + 1, y + py + 1, color);
+            }
+        }
+    }
+
+    public static void drawPixelIcon24InBox(GuiGraphics context, int[] pixels, int boxX, int boxY, int boxW, int boxH, int color) {
+        int iconX = boxX + (boxW - PIXEL_ICON_SIZE) / 2;
+        int iconY = boxY + (boxH - PIXEL_ICON_SIZE) / 2;
+        drawPixelIcon24(context, iconX, iconY, color, pixels);
+    }
 
     /**
      * Draws a bordered box with a semi-transparent black background.
      */
-    public static void drawBox(DrawContext context, int x, int y, int w, int h) {
+    public static void drawBox(GuiGraphics context, int x, int y, int w, int h) {
         context.fill(x, y, x + w, y + h, 0x80000000);
         int color = 0xFFFFFFFF;
         context.fill(x, y, x + w, y + 1, color);
@@ -49,14 +67,14 @@ public class RenderUtils {
     /**
      * Draws only a semi-transparent dark background fill (no border).
      */
-    public static void drawBoxFill(DrawContext context, int x, int y, int w, int h) {
+    public static void drawBoxFill(GuiGraphics context, int x, int y, int w, int h) {
         context.fill(x, y, x + w, y + h, 0x80000000);
     }
 
     /**
      * Draws a box outline only (no background fill) with a uniform gray border.
      */
-    public static void drawBoxOutline(DrawContext context, int x, int y, int w, int h) {
+    public static void drawBoxOutline(GuiGraphics context, int x, int y, int w, int h) {
         int color = 0xFF6B6B6B;
         // Top edge
         context.fill(x, y, x + w, y + 1, color);
@@ -71,7 +89,7 @@ public class RenderUtils {
     /**
      * Draws a styled scrollbar track and thumb.
      */
-    public static void drawStyledScrollbar(DrawContext context, int x, int y, int h, int contentH, double scroll) {
+    public static void drawStyledScrollbar(GuiGraphics context, int x, int y, int h, int contentH, double scroll) {
         if (contentH <= h) return;
         context.fill(x, y, x + 5, y + h, 0xFF000000);
         int barH = Math.max(20, (int) ((float) h / contentH * h));
@@ -83,13 +101,13 @@ public class RenderUtils {
     /**
      * Trims text to fit within a specific pixel width, appending "..." if truncated.
      */
-    public static String shortenText(TextRenderer textRenderer, String text, int maxWidth) {
-        if (textRenderer.getWidth(text) <= maxWidth) {
+    public static String shortenText(Font textRenderer, String text, int maxWidth) {
+        if (textRenderer.width(text) <= maxWidth) {
             return text;
         }
         String suffix = "...";
-        int suffixWidth = textRenderer.getWidth(suffix);
-        return textRenderer.trimToWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
+        int suffixWidth = textRenderer.width(suffix);
+        return textRenderer.plainSubstrByWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
     }
 
     /**
@@ -103,7 +121,7 @@ public class RenderUtils {
         }
         if (showRemaining) {
             if (cachedNeedPrefix == null) {
-                cachedNeedPrefix = Text.translatable("gui.resourcetracker.overlay.need").getString();
+                cachedNeedPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
             }
             return cachedNeedPrefix + (target - current);
         }
@@ -116,6 +134,9 @@ public class RenderUtils {
      */
     public static int[] calculateColumnLayout(TrackerConfig.TrackingList list, int itemCount,
             int screenHeight, int headerHeight, int padding, int itemRowHeight) {
+        if (itemCount <= 0) {
+            return new int[]{1, 0};
+        }
         if (list.columns > 0) {
             int numColumns = list.columns;
             int itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);

@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "mcmodding": {
-      "command": "npx",
-      "args": ["-y", "mcmodding-mcp@latest"],
-      "description": "Minecraft modding docs: Fabric API, Parchment mappings, mod examples"
-    }
-  }
-}

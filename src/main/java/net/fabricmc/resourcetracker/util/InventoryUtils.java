@@ -24,18 +24,22 @@
 
 package net.fabricmc.resourcetracker.util;
 
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.BundleContentsComponent;
-import net.minecraft.component.type.ContainerComponent;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.BundleContents;
+import net.minecraft.world.item.component.ItemContainerContents;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Utility class for analyzing and counting items within a player's inventory.
  * <p>
  * This class provides methods to traverse complex inventory structures, including
- * nested containers like Shulker Boxes and Bundles, relying on modern DataComponent types.
+ * nested containers like Shulker Boxes and Bundles, relying on DataComponent types.
  * </p>
  *
  * @author vocheat
@@ -53,16 +57,24 @@ public class InventoryUtils {
      * @param targetItem The specific Item type to count.
      * @return The total count of the item found, including nested items. Returns 0 if player or item is null.
      */
-    public static int countItems(PlayerEntity player, Item targetItem) {
+    public static int countItems(Player player, Item targetItem) {
         if (player == null || targetItem == null) return 0;
+        return countItems(player, Set.of(targetItem)).getOrDefault(targetItem, 0);
+    }
 
-        int totalCount = 0;
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
+    /**
+     * Counts all target items with one inventory traversal.
+     */
+    public static Map<Item, Integer> countItems(Player player, Set<Item> targetItems) {
+        Map<Item, Integer> counts = new HashMap<>();
+        if (player == null || targetItems == null || targetItems.isEmpty()) return counts;
+
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
             if (stack.isEmpty()) continue;
-            totalCount += getRecursiveCount(stack, targetItem);
+            addRecursiveCounts(stack, targetItems, counts);
         }
-        return totalCount;
+        return counts;
     }
 
     /**
@@ -78,30 +90,24 @@ public class InventoryUtils {
      * @param targetItem The item type to look for.
      * @return The count of the target item found within this stack hierarchy.
      */
-    private static int getRecursiveCount(ItemStack stack, Item targetItem) {
-        int count = 0;
-
-        // 1. Check if the item itself is a direct match
-        if (stack.getItem() == targetItem) {
-            count += stack.getCount();
+    private static void addRecursiveCounts(ItemStack stack, Set<Item> targetItems, Map<Item, Integer> counts) {
+        Item item = stack.getItem();
+        if (targetItems.contains(item)) {
+            counts.merge(item, stack.getCount(), Integer::sum);
         }
 
-        // 2. Check content inside Containers (e.g., Shulker Boxes)
-        // Uses the DataComponent API compatible with modern Minecraft versions.
-        ContainerComponent containerData = stack.get(DataComponentTypes.CONTAINER);
+        ItemContainerContents containerData = stack.get(DataComponents.CONTAINER);
         if (containerData != null) {
-            for (ItemStack subStack : containerData.iterateNonEmpty()) {
-                count += getRecursiveCount(subStack, targetItem);
+            for (ItemStack subStack : containerData.nonEmptyItems()) {
+                addRecursiveCounts(subStack, targetItems, counts);
             }
         }
 
-        // 3. Check content inside Bundles
-        BundleContentsComponent bundleData = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
+        BundleContents bundleData = stack.get(DataComponents.BUNDLE_CONTENTS);
         if (bundleData != null) {
-            for (ItemStack subStack : bundleData.iterate()) {
-                count += getRecursiveCount(subStack, targetItem);
+            for (ItemStack subStack : bundleData.items()) {
+                addRecursiveCounts(subStack, targetItems, counts);
             }
         }
-        return count;
     }
 }

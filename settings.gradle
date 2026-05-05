@@ -4,6 +4,12 @@ pluginManagement {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
         }
+        mavenCentral()
         gradlePluginPortal()
     }
+}
+
+def selectedBuildFile = startParameter.projectProperties.get('profileBuild')
+if (selectedBuildFile != null && !selectedBuildFile.isBlank()) {
+    rootProject.buildFileName = selectedBuildFile
 }

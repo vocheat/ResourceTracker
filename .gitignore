@@ -1,4 +1,4 @@
-# Gradle files
+﻿# Gradle files
 .gradle/
 build/
 out/
@@ -35,26 +35,29 @@ logs/
 # Patch files
 *.patch
 
-# AI assistants — Claude Code
+
+# Local AI/Codex working files
 .claude/
 CLAUDE.md
 review.md
+Workflow/
+workflow/
 
-# AI assistants — Gemini / Google
+# AI assistants вЂ” Gemini / Google
 .gemini/
 .googleai/
 gemini_output/
 gemini-context.json
 
-# AI assistants — GitHub Copilot
+# AI assistants вЂ” GitHub Copilot
 .github/copilot-instructions.md
 
-# AI assistants — Cursor
+# AI assistants вЂ” Cursor
 .cursor/
 .cursorignore
 .cursorules
 
-# AI assistants — general
+# AI assistants вЂ” general
 *.ai-context
 *.ai-notes
 .aider*

@@ -27,10 +27,10 @@ package net.fabricmc.resourcetracker.client.gui;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -52,29 +52,29 @@ public class HudMoveScreen extends Screen {
     private boolean wasMouseDown = false;
 
     public HudMoveScreen(Screen parent) {
-        super(Text.translatable("gui.resourcetracker.move.title"));
+        super(Component.translatable("gui.resourcetracker.move.title"));
         this.parent = parent;
     }
 
     @Override
     protected void init() {
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.resourcetracker.done"), b -> {
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
             TrackerConfig.save();
-            client.setScreen(parent);
-        }).dimensions(width / 2 - 50, height - 30, 100, 20).build());
+            minecraft.setScreen(parent);
+        }).bounds(width / 2 - 50, height - 30, 100, 20).build());
     }
 
     @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {
         // No-op: we draw our own semi-transparent background in render()
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         // Render a darkened background
         context.fill(0, 0, this.width, this.height, 0xA0000000);
 
-        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFFFF);
+        context.drawCenteredString(font, Component.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFFFF);
 
         handleMouseInput(mouseX, mouseY);
 
@@ -87,7 +87,7 @@ public class HudMoveScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
     }
 
-    private void renderScaledList(DrawContext context, TrackerConfig.TrackingList list) {
+    private void renderScaledList(GuiGraphics context, TrackerConfig.TrackingList list) {
         VersionCompat.push(context);
         VersionCompat.translate(context, (float) list.x, (float) list.y);
         VersionCompat.scale(context, list.scale, list.scale);
@@ -98,7 +98,7 @@ public class HudMoveScreen extends Screen {
 
         renderBorder(context, -padding - 1, -padding - 1, baseSize.width + 2, baseSize.height + 2, borderColor);
         context.fill(-padding, -padding, baseSize.width - padding, baseSize.height - padding, list.backgroundColor);
-        context.drawTextWithShadow(textRenderer, list.name, 0, 0, list.nameColor);
+        context.drawString(font, list.name, 0, 0, list.nameColor);
 
         int headerHeight = 14;
         int itemRowHeight = list.showIcons ? 24 : 12;
@@ -111,7 +111,7 @@ public class HudMoveScreen extends Screen {
         }
 
         int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
-                client.getWindow().getScaledHeight(), headerHeight, padding, itemRowHeight);
+                minecraft.getWindow().getGuiScaledHeight(), headerHeight, padding, itemRowHeight);
         int numColumns = layout[0];
         int itemsPerColumn = layout[1];
 
@@ -132,7 +132,7 @@ public class HudMoveScreen extends Screen {
             }
 
             if (list.showIcons) {
-                context.drawItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
+                context.renderItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
             }
 
             int currentCount = trackedItem.cachedCount;
@@ -143,18 +143,18 @@ public class HudMoveScreen extends Screen {
 
             if (list.showIcons) {
                 int availableWidth = colWidth - iconOffset;
-                String itemName = RenderUtils.shortenText(textRenderer, trackedItem.getDisplayName(), availableWidth);
-                context.drawTextWithShadow(textRenderer, itemName, columnOffsetX + iconOffset, currentY, itemColor);
+                String itemName = RenderUtils.shortenText(font, trackedItem.getDisplayName(), availableWidth);
+                context.drawString(font, itemName, columnOffsetX + iconOffset, currentY, itemColor);
 
                 String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-                context.drawTextWithShadow(textRenderer, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
+                context.drawString(font, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
             } else {
                 String namePart = trackedItem.getDisplayName() + ": ";
-                int nw = textRenderer.getWidth(namePart);
+                int nw = font.width(namePart);
                 String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
                 
-                context.drawTextWithShadow(textRenderer, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
-                context.drawTextWithShadow(textRenderer, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
+                context.drawString(font, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
+                context.drawString(font, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
             }
 
             currentY += itemRowHeight;
@@ -168,7 +168,7 @@ public class HudMoveScreen extends Screen {
         int padding = 4;
         int headerHeight = 14;
         int itemRowHeight = list.showIcons ? 24 : 12;
-        int maxTextWidth = textRenderer.getWidth(list.name);
+        int maxTextWidth = font.width(list.name);
         int iconOffset = list.showIcons ? 20 : 2;
 
         int validItems = 0;
@@ -181,12 +181,12 @@ public class HudMoveScreen extends Screen {
             
             int entryWidth;
             if (list.showIcons) {
-                int nameWidth = textRenderer.getWidth(trackedItem.getDisplayName());
-                int countWidth = textRenderer.getWidth(countText);
+                int nameWidth = font.width(trackedItem.getDisplayName());
+                int countWidth = font.width(countText);
                 entryWidth = iconOffset + Math.max(nameWidth, countWidth);
             } else {
                 String combined = trackedItem.getDisplayName() + ": " + countText;
-                entryWidth = iconOffset + textRenderer.getWidth(combined);
+                entryWidth = iconOffset + font.width(combined);
             }
 
             if (entryWidth > maxTextWidth) {
@@ -197,7 +197,7 @@ public class HudMoveScreen extends Screen {
         int columnWidth = maxTextWidth + (padding * 2);
 
         int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
-                client.getWindow().getScaledHeight(), headerHeight, padding, itemRowHeight);
+                minecraft.getWindow().getGuiScaledHeight(), headerHeight, padding, itemRowHeight);
         int numColumns = layout[0];
         int itemsPerColumn = layout[1];
 
@@ -207,7 +207,7 @@ public class HudMoveScreen extends Screen {
         return new BoxSize(width, height);
     }
 
-    private void renderBorder(DrawContext context, int x, int y, int width, int height, int color) {
+    private void renderBorder(GuiGraphics context, int x, int y, int width, int height, int color) {
         context.fill(x, y, x + width, y + 1, color);
         context.fill(x, y + height - 1, x + width, y + height, color);
         context.fill(x, y + 1, x + 1, y + height - 1, color);
@@ -218,27 +218,29 @@ public class HudMoveScreen extends Screen {
      * Handles mouse input to detect clicks on lists and manage dragging logic.
      */
     private void handleMouseInput(int mouseX, int mouseY) {
-        long windowHandle = client.getWindow().getHandle();
+        long windowHandle = VersionCompat.getWindowHandle(minecraft.getWindow());
         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
         if (isMouseDown && !wasMouseDown) {
-            // Mouse Clicked: Check if any list was hit
-            for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (mouseY >= this.height - 34 && mouseX >= this.width / 2 - 55 && mouseX <= this.width / 2 + 55) {
+                this.wasMouseDown = true;
+                return;
+            }
+
+            // Mouse Clicked: Check topmost lists first.
+            for (int index = TrackerConfig.INSTANCE.lists.size() - 1; index >= 0; index--) {
+                TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(index);
                 if (!list.isVisible) continue;
 
                 BoxSize baseSize = calculateBaseSize(list);
+                VisualBounds bounds = calculateVisualBounds(baseSize, list.scale);
+                double hitX = list.x + bounds.left;
+                double hitY = list.y + bounds.top;
+                double hitRight = list.x + bounds.right;
+                double hitBottom = list.y + bounds.bottom;
 
-                // The box is rendered at translate(list.x, list.y) with fill starting at -padding,
-                // so the actual screen rect starts at list.x - padding*scale.
-                // Width/height remain baseSize * scale (padding is absorbed into both sides).
-                int padding = 4;
-                int hitX = list.x - (int) (padding * list.scale);
-                int hitY = list.y - (int) (padding * list.scale);
-                int hitW = (int) (baseSize.width * list.scale);
-                int hitH = (int) (baseSize.height * list.scale);
-
-                if (mouseX >= hitX && mouseX <= hitX + hitW &&
-                        mouseY >= hitY && mouseY <= hitY + hitH) {
+                if (mouseX >= hitX && mouseX <= hitRight &&
+                        mouseY >= hitY && mouseY <= hitBottom) {
                     this.draggingList = list;
                     this.dragOffsetX = mouseX - list.x;
                     this.dragOffsetY = mouseY - list.y;
@@ -252,11 +254,15 @@ public class HudMoveScreen extends Screen {
                 int newY = mouseY - dragOffsetY;
 
                 BoxSize baseSize = calculateBaseSize(draggingList);
-                int scaledWidth = (int) (baseSize.width * draggingList.scale);
-                int scaledHeight = (int) (baseSize.height * draggingList.scale);
+                VisualBounds bounds = calculateVisualBounds(baseSize, draggingList.scale);
 
-                draggingList.x = Math.max(0, Math.min(newX, this.width - scaledWidth));
-                draggingList.y = Math.max(0, Math.min(newY, this.height - scaledHeight));
+                int minX = (int) Math.ceil(-bounds.left);
+                int maxX = (int) Math.floor(this.width - bounds.right);
+                int minY = (int) Math.ceil(-bounds.top);
+                int maxY = (int) Math.floor(this.height - bounds.bottom);
+
+                draggingList.x = clamp(newX, minX, maxX);
+                draggingList.y = clamp(newY, minY, maxY);
             }
         } else if (!isMouseDown && wasMouseDown) {
             // Mouse Released: Stop dragging and save
@@ -268,8 +274,23 @@ public class HudMoveScreen extends Screen {
         this.wasMouseDown = isMouseDown;
     }
 
+    private VisualBounds calculateVisualBounds(BoxSize baseSize, float scale) {
+        int padding = 4;
+        double left = (-padding - 1) * scale;
+        double top = (-padding - 1) * scale;
+        double right = (baseSize.width - padding + 1) * scale;
+        double bottom = (baseSize.height - padding + 1) * scale;
+        return new VisualBounds(left, top, right, bottom);
+    }
+
+    private int clamp(int value, int min, int max) {
+        if (max < min) return min;
+        return Math.max(min, Math.min(value, max));
+    }
+
     /**
      * Helper record to store calculated dimensions.
      */
     private record BoxSize(int width, int height) {}
+    private record VisualBounds(double left, double top, double right, double bottom) {}
 }
