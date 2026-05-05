@@ -1,0 +1,129 @@
+version = "${project.mod_version}+${profile_suffix}"
+group = project.maven_group
+
+layout.buildDirectory.set(layout.projectDirectory.dir("build/${profile_id}"))
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ["src/main/java", "src/compat/${profile_id}/java"]
+            destinationDirectory.set(layout.buildDirectory.dir("classes/java/main"))
+        }
+        output.resourcesDir = layout.buildDirectory.dir("resources/main").get().asFile
+    }
+}
+
+base {
+    archivesName = "${project.archives_base_name}-${profile_suffix}"
+}
+
+repositories {
+    mavenLocal()
+    maven { url 'https://maven.terraformersmc.com/releases/' }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+    modCompileOnly "maven.modrinth:modmenu:${modmenu_version}"
+    modLocalRuntime "maven.modrinth:modmenu:${modmenu_version}"
+}
+
+loom {
+    runs {
+        client {
+            runDir "run/${profile_id}"
+        }
+    }
+}
+
+
+tasks.named('compileJava', JavaCompile) {
+    source = files(
+            fileTree('src/main/java') {
+                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
+            },
+            fileTree("src/compat/${profile_id}/java")
+    )
+}
+
+processResources {
+    destinationDir = layout.buildDirectory.dir("resources/main").get().asFile
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_min_version', minecraft_min_version
+    inputs.property 'minecraft_max_version', minecraft_max_version
+    inputs.property 'loader_version', loader_version
+    inputs.property 'java_min_version', java_version.toString()
+    filteringCharset 'UTF-8'
+
+    filesMatching('fabric.mod.json') {
+        expand version: project.version,
+                minecraft_min_version: minecraft_min_version,
+                minecraft_max_version: minecraft_max_version,
+                loader_version: loader_version,
+                java_min_version: java_version.toString()
+    }
+}
+
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = java_version
+    doLast {
+        def profileClassesDir = layout.buildDirectory.dir("classes/java/main").get().asFile
+        def actualClassesDir = destinationDirectory.get().asFile
+        if (actualClassesDir != profileClassesDir && actualClassesDir.exists()) {
+            copy {
+                from actualClassesDir
+                into profileClassesDir
+            }
+        }
+    }
+}
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(java_version)
+    }
+}
+
+java {
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(java_version)
+    }
+    sourceCompatibility = JavaVersion.toVersion(java_version)
+    targetCompatibility = JavaVersion.toVersion(java_version)
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.archives_base_name}" }
+    }
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            artifactId = "${project.archives_base_name}-${profile_suffix}"
+            from components.java
+        }
+    }
+    repositories {}
+}

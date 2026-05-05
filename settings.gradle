@@ -8,3 +8,8 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+def selectedBuildFile = startParameter.projectProperties.get('profileBuild')
+if (selectedBuildFile != null && !selectedBuildFile.isBlank()) {
+    rootProject.buildFileName = selectedBuildFile
+}

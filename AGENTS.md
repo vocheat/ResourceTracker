@@ -4,49 +4,50 @@ These instructions apply to `C:\Stuff\Projects\ResourceTracker`.
 
 ## Project
 
-ResourceTracker is a client-side Minecraft Fabric mod for tracking resource collection progress on the HUD.
+ResourceTracker is a client-side Minecraft Fabric mod for tracking resource
+collection progress on the HUD.
 
 - Java package root: `net.fabricmc.resourcetracker`
 - Default target: Minecraft `1.21.11`
-- Java: JDK 21 for normal builds
-- Mapping set: Fabric Yarn
-- Current profile: `modern`
+- Default build profile: `mc1_21_9_to_1_21_11`
+- Java: JDK 21 for 1.21.x builds, JDK 25 for MC 26.1
+- Mapping set: Mojang official mappings for 1.21.x; MC 26.1 has no `mappings` dependency
 - No test suite exists; compilation is the primary automated verification.
 
 ## Build And Verify
 
-Run the fastest compile check after every code change:
+Fast default compile check:
 
 ```powershell
 .\gradlew.bat compileJava
 ```
 
-Full build:
+The default `build.gradle` mirrors `build-mc1.21.9-1.21.11.gradle`.
 
-```powershell
-.\gradlew.bat build
+Profile build files:
+
+```text
+build-mc1.21.0-1.21.4.gradle
+build-mc1.21.5.gradle
+build-mc1.21.6-1.21.8.gradle
+build-mc1.21.9-1.21.11.gradle
+build-mc26.1.gradle
 ```
 
-Manual runtime check:
+Gradle 9.4.1 does not accept the old `-b` short option. Use the `profileBuild`
+selector instead:
 
 ```powershell
-.\gradlew.bat runClient
-```
-
-Multi-profile compile checks:
-
-```powershell
-.\gradlew.bat compileJava -Pprofile=legacy -Pminecraft_version=1.21.5 -Pyarn_mappings="1.21.5+build.1" -Pfabric_version="0.119.2+1.21.5"
-.\gradlew.bat compileJava -Pprofile=transition -Pminecraft_version=1.21.8 -Pyarn_mappings="1.21.8+build.1" -Pfabric_version="0.136.1+1.21.8"
-.\gradlew.bat compileJava -Pprofile=modern -Pminecraft_version=1.21.11 -Pyarn_mappings="1.21.11+build.4" -Pfabric_version="0.141.3+1.21.11"
-```
-
-MC 26.1 / nextgen uses Java 25 and `build-nextgen.gradle`:
-
-```powershell
+.\gradlew.bat "-PprofileBuild=build-mc1.21.0-1.21.4.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot"
-.\gradlew.bat compileJava -b build-nextgen.gradle -Pminecraft_version=26.1 -Pfabric_version="0.144.4+26.1" -Pfabric.loom.disableObfuscation=true
+.\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
 ```
+
+Quote the `-PprofileBuild=...` argument in PowerShell because the build file
+names contain dots.
 
 Installed Java paths noted by the previous project setup:
 
@@ -58,14 +59,13 @@ Installed Java paths noted by the previous project setup:
 ```text
 config/
   TrackerConfig
-    TrackingList
-      TrackedItem
 
 client/
   ResourceTrackerClient
   render/HudOverlay
   gui/MainScreen
   gui/EditScreen
+  gui/SettingsScreen
   gui/HudMoveScreen
 
 util/
@@ -73,49 +73,32 @@ util/
   RenderUtils
 
 compat/
-  legacy/VersionCompat
-  transition/VersionCompat
-  modern/VersionCompat
+  mc1_21_0_to_1_21_4/java/.../VersionCompat + HudCompat
+  mc1_21_5/java/.../VersionCompat + HudCompat
+  mc1_21_6_to_1_21_8/java/.../VersionCompat + HudCompat
+  mc1_21_9_to_1_21_11/java/.../VersionCompat + HudCompat
+  mc26_1/java/.../VersionCompat + HudCompat
 ```
 
 Key flow:
 
-- `ResourceTrackerClient` loads config, registers the M keybind, and updates item counts every 10 ticks.
+- `ResourceTrackerClient` loads config, registers keys, updates cached counts, and delegates HUD registration to `HudCompat`.
 - `HudOverlay` renders cached counts only.
 - `TrackerConfig` persists `resourcetracker.json` with GSON.
 - `InventoryUtils` recursively counts inventory contents, containers, and bundles.
-- `RenderUtils` owns shared drawing helpers and text formatting.
+- `VersionCompat` owns key mapping registration, matrix operations, and registry id lookup differences.
+- ModMenu is resolved from Modrinth Maven as `maven.modrinth:modmenu:<version>`.
+- MC 26.1 compiles with profile-specific minimal `GuiGraphicsExtractor` screens/HUD.
+  Full UI parity with 1.21.x is still pending.
 
 ## Non-Obvious Rules
 
-- `Registries.ITEM.get()` returns `Items.AIR` for unknown IDs, not `null`. Use `TrackedItem.isValid()` for validation.
-- In render paths, use `TrackedItem.getItem()`, `getStack()`, and `getDisplayName()` so lazy caches are respected.
 - Never call `InventoryUtils.countItems()` from render code; counting happens in the tick handler.
-- All stored colors are ARGB `0xAARRGGBB`. Plain RGB values like `0xFFFFFF` render fully transparent because alpha is missing.
-- `EditScreen.close()` is the save point for that screen. Do not add save calls to text field listeners.
-- `MainScreen` saves immediately for discrete actions such as toggle, delete, and reorder.
-- Custom list interactions use GLFW polling plus the `wasMouseDown` edge-detection pattern. Avoid replacing that with `mouseClicked` for these lists.
-- Matrix transforms in HUD rendering go through `VersionCompat`; do not call `DrawContext.getMatrices().push()` or related matrix APIs directly.
+- All stored colors are ARGB `0xAARRGGBB`.
+- `EditScreen.close()` is the save point for that screen.
 - `columns = 0` means auto-layout. Fixed user-selected columns are `1` through `5`.
-
-## Localization
-
-Localization files must have matching keys:
-
-- `src/main/resources/assets/resourcetracker/lang/en_us.json`
-- `src/main/resources/assets/resourcetracker/lang/ru_ru.json`
-
-When adding UI text:
-
-- Add the key to both files.
-- Use `Text.translatable("gui.resourcetracker.<key>")` for UI strings.
-- Use `Text.literal(...)` for user-defined content like list names.
-
-## Exploration
-
-- Prefer source and docs over generated files.
-- Read `CODEBASE_MEMORY.md` for the current local/GitHub comparison and MC 26.1 migration snapshot.
-- Keep `CODEBASE_MEMORY.md` current. Update it when work changes architecture, build commands, migration status, important blockers, GitHub/local comparison, required tool/JDK versions, or non-obvious project rules.
-- Read `CLAUDE.md`, `CONTRIBUTING.md`, and relevant Java files before changing behavior.
-- `graphify-out/` is generated knowledge-graph output. It can help with orientation, but do not treat it as source code.
-- After meaningful structural changes, rebuild Graphify only if the tool is available and the user expects it.
+- Keep all Codex and local workflow files in `Workflow/`. Create new plans, scratch notes, session reports, inventories, and progress logs only in that directory.
+- Keep `Workflow/` ignored in `.gitignore` so local work does not reach GitHub.
+- Do not delete working files when a task finishes. If every item in a plan file is complete, rename that file inside `Workflow/` to include `done` and the completion date, for example `Workflow/PLAN_1_21_X_BUGFIXES.done-2026-05-04.md`.
+- Before reporting completion, check for new working files outside `Workflow/`. Move them into `Workflow/` or explain why the file belongs in the project.
+- Do not add generated analysis, cache, assistant settings, or local tool output to GitHub unless the user asks for that artifact.

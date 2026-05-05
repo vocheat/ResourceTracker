@@ -33,6 +33,24 @@ import net.minecraft.network.chat.Component;
  * Shared rendering utilities used across GUI screens and HUD overlay.
  */
 public class RenderUtils {
+    public static final int PIXEL_ICON_SIZE = 16;
+
+    public static void drawPixelIcon24(GuiGraphics context, int x, int y, int color, int[] pixels) {
+        if (pixels == null) return;
+        for (int pixel : pixels) {
+            int px = (pixel >> 8) & 0xFF;
+            int py = pixel & 0xFF;
+            if (px >= 0 && px < PIXEL_ICON_SIZE && py >= 0 && py < PIXEL_ICON_SIZE) {
+                context.fill(x + px, y + py, x + px + 1, y + py + 1, color);
+            }
+        }
+    }
+
+    public static void drawPixelIcon24InBox(GuiGraphics context, int[] pixels, int boxX, int boxY, int boxW, int boxH, int color) {
+        int iconX = boxX + (boxW - PIXEL_ICON_SIZE) / 2;
+        int iconY = boxY + (boxH - PIXEL_ICON_SIZE) / 2;
+        drawPixelIcon24(context, iconX, iconY, color, pixels);
+    }
 
     /**
      * Draws a bordered box with a semi-transparent black background.
@@ -116,6 +134,9 @@ public class RenderUtils {
      */
     public static int[] calculateColumnLayout(TrackerConfig.TrackingList list, int itemCount,
             int screenHeight, int headerHeight, int padding, int itemRowHeight) {
+        if (itemCount <= 0) {
+            return new int[]{1, 0};
+        }
         if (list.columns > 0) {
             int numColumns = list.columns;
             int itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);

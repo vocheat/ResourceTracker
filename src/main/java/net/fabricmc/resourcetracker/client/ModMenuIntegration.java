@@ -26,7 +26,7 @@ package net.fabricmc.resourcetracker.client;
 
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import net.fabricmc.resourcetracker.client.gui.MainScreen;
+import net.fabricmc.resourcetracker.client.gui.SettingsScreen;
 
 /**
  * ModMenu integration — exposes the Resource Tracker config screen
@@ -36,6 +36,6 @@ public class ModMenuIntegration implements ModMenuApi {
 
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
-        return parent -> new MainScreen(parent);
+        return parent -> new SettingsScreen(parent);
     }
 }

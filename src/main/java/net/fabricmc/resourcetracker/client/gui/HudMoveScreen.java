@@ -218,27 +218,29 @@ public class HudMoveScreen extends Screen {
      * Handles mouse input to detect clicks on lists and manage dragging logic.
      */
     private void handleMouseInput(int mouseX, int mouseY) {
-        long windowHandle = minecraft.getWindow().handle();
+        long windowHandle = VersionCompat.getWindowHandle(minecraft.getWindow());
         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
         if (isMouseDown && !wasMouseDown) {
-            // Mouse Clicked: Check if any list was hit
-            for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (mouseY >= this.height - 34 && mouseX >= this.width / 2 - 55 && mouseX <= this.width / 2 + 55) {
+                this.wasMouseDown = true;
+                return;
+            }
+
+            // Mouse Clicked: Check topmost lists first.
+            for (int index = TrackerConfig.INSTANCE.lists.size() - 1; index >= 0; index--) {
+                TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(index);
                 if (!list.isVisible) continue;
 
                 BoxSize baseSize = calculateBaseSize(list);
+                VisualBounds bounds = calculateVisualBounds(baseSize, list.scale);
+                double hitX = list.x + bounds.left;
+                double hitY = list.y + bounds.top;
+                double hitRight = list.x + bounds.right;
+                double hitBottom = list.y + bounds.bottom;
 
-                // The box is rendered at translate(list.x, list.y) with fill starting at -padding,
-                // so the actual screen rect starts at list.x - padding*scale.
-                // Width/height remain baseSize * scale (padding is absorbed into both sides).
-                int padding = 4;
-                int hitX = list.x - (int) (padding * list.scale);
-                int hitY = list.y - (int) (padding * list.scale);
-                int hitW = (int) (baseSize.width * list.scale);
-                int hitH = (int) (baseSize.height * list.scale);
-
-                if (mouseX >= hitX && mouseX <= hitX + hitW &&
-                        mouseY >= hitY && mouseY <= hitY + hitH) {
+                if (mouseX >= hitX && mouseX <= hitRight &&
+                        mouseY >= hitY && mouseY <= hitBottom) {
                     this.draggingList = list;
                     this.dragOffsetX = mouseX - list.x;
                     this.dragOffsetY = mouseY - list.y;
@@ -252,11 +254,15 @@ public class HudMoveScreen extends Screen {
                 int newY = mouseY - dragOffsetY;
 
                 BoxSize baseSize = calculateBaseSize(draggingList);
-                int scaledWidth = (int) (baseSize.width * draggingList.scale);
-                int scaledHeight = (int) (baseSize.height * draggingList.scale);
+                VisualBounds bounds = calculateVisualBounds(baseSize, draggingList.scale);
 
-                draggingList.x = Math.max(0, Math.min(newX, this.width - scaledWidth));
-                draggingList.y = Math.max(0, Math.min(newY, this.height - scaledHeight));
+                int minX = (int) Math.ceil(-bounds.left);
+                int maxX = (int) Math.floor(this.width - bounds.right);
+                int minY = (int) Math.ceil(-bounds.top);
+                int maxY = (int) Math.floor(this.height - bounds.bottom);
+
+                draggingList.x = clamp(newX, minX, maxX);
+                draggingList.y = clamp(newY, minY, maxY);
             }
         } else if (!isMouseDown && wasMouseDown) {
             // Mouse Released: Stop dragging and save
@@ -268,8 +274,23 @@ public class HudMoveScreen extends Screen {
         this.wasMouseDown = isMouseDown;
     }
 
+    private VisualBounds calculateVisualBounds(BoxSize baseSize, float scale) {
+        int padding = 4;
+        double left = (-padding - 1) * scale;
+        double top = (-padding - 1) * scale;
+        double right = (baseSize.width - padding + 1) * scale;
+        double bottom = (baseSize.height - padding + 1) * scale;
+        return new VisualBounds(left, top, right, bottom);
+    }
+
+    private int clamp(int value, int min, int max) {
+        if (max < min) return min;
+        return Math.max(min, Math.min(value, max));
+    }
+
     /**
      * Helper record to store calculated dimensions.
      */
     private record BoxSize(int width, int height) {}
+    private record VisualBounds(double left, double top, double right, double bottom) {}
 }

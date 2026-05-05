@@ -24,13 +24,15 @@
 
 package net.fabricmc.resourcetracker.client.render;
 
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Handles the rendering of the Resource Tracker overlay on the in-game HUD.
@@ -41,12 +43,11 @@ import net.minecraft.client.gui.GuiGraphics;
  *
  * @author vocheat
  */
-public class HudOverlay implements HudRenderCallback {
+public class HudOverlay {
 
 
 
-    @Override
-    public void onHudRender(GuiGraphics context, DeltaTracker tickCounter) {
+    public void render(GuiGraphics context, DeltaTracker tickCounter) {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.options.hideGui) return;
         if (!TrackerConfig.INSTANCE.hudVisible) return;
@@ -67,10 +68,14 @@ public class HudOverlay implements HudRenderCallback {
     private void renderListContent(GuiGraphics context, Minecraft client, TrackerConfig.TrackingList list) {
         int padding = 4;
         int headerHeight = 14;
-        int itemCount = list.items.size();
-
         int itemRowHeight = list.showIcons ? 24 : 12;
 
+        List<TrackerConfig.TrackedItem> validItems = new ArrayList<>();
+        for (TrackerConfig.TrackedItem trackedItem : list.items) {
+            if (trackedItem.isValid()) validItems.add(trackedItem);
+        }
+
+        int itemCount = validItems.size();
         if (itemCount == 0) {
             int boxWidth = client.font.width(list.name) + (padding * 2);
             int boxHeight = headerHeight + padding;
@@ -82,11 +87,9 @@ public class HudOverlay implements HudRenderCallback {
         int maxTextWidth = client.font.width(list.name);
         int iconOffset = list.showIcons ? 20 : 2;
 
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) continue;
-
+        for (TrackerConfig.TrackedItem trackedItem : validItems) {
             String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
-            
+
             int entryWidth;
             if (list.showIcons) {
                 int nameWidth = client.font.width(trackedItem.getDisplayName());
@@ -119,14 +122,12 @@ public class HudOverlay implements HudRenderCallback {
         int currentColumn = 0;
         int columnOffsetX = 0;
 
-        for (int i = 0; i < list.items.size(); i++) {
-            TrackerConfig.TrackedItem trackedItem = list.items.get(i);
-            if (!trackedItem.isValid()) continue;
-
+        for (int i = 0; i < validItems.size(); i++) {
+            TrackerConfig.TrackedItem trackedItem = validItems.get(i);
             int currentCount = trackedItem.cachedCount;
             boolean isDone = currentCount >= trackedItem.targetCount;
 
-            if (i > 0 && i % itemsPerColumn == 0) {
+            if (i > 0 && itemsPerColumn > 0 && i % itemsPerColumn == 0) {
                 currentColumn++;
                 columnOffsetX = currentColumn * (columnWidth + padding);
                 currentY = headerHeight;
@@ -137,18 +138,18 @@ public class HudOverlay implements HudRenderCallback {
 
             if (list.showIcons) {
                 context.renderItem(trackedItem.getStack(), columnOffsetX, currentY + 1);
-                
+
                 int availableWidth = maxTextWidth - iconOffset;
                 String itemName = RenderUtils.shortenText(client.font, trackedItem.getDisplayName(), availableWidth);
                 context.drawString(client.font, itemName, columnOffsetX + iconOffset, currentY, itemColor);
-                
+
                 String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
                 context.drawString(client.font, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
             } else {
                 String namePart = trackedItem.getDisplayName() + ": ";
                 int nw = client.font.width(namePart);
                 String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-                
+
                 context.drawString(client.font, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
                 context.drawString(client.font, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
             }

@@ -25,6 +25,8 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.fabricmc.resourcetracker.util.PixelIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -85,7 +87,8 @@ public class EditScreen extends Screen {
     // Layout
     private int listAreaY;
     private int leftBoxX, rightBoxX, boxWidth, boxHeight;
-    private final int searchHeight = 18;
+    private static final int SEARCH_HEIGHT = 26;
+    private static final int ITEM_ROW_HEIGHT = 28;
     
     private Component hoveredTooltipText = null;
 
@@ -116,7 +119,7 @@ public class EditScreen extends Screen {
         this.labels.clear();
         this.itemCountFields.clear();
         // Prevent click-through from ConfirmScreen or other parent screens
-        this.wasMouseDown = minecraft != null && GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), 0) == GLFW.GLFW_PRESS;
+        this.wasMouseDown = minecraft != null && GLFW.glfwGetMouseButton(VersionCompat.getWindowHandle(minecraft.getWindow()), 0) == GLFW.GLFW_PRESS;
 
         if (availableItems.isEmpty()) {
             BuiltInRegistries.ITEM.stream().forEach(item -> {
@@ -253,21 +256,21 @@ public class EditScreen extends Screen {
         rightBoxX = leftBoxX + boxWidth + midGap;
 
         // Left Search Field
-        searchField = new EditBox(font, leftBoxX + 4, listAreaY + 5, boxWidth - 22, 16, Component.translatable("gui.resourcetracker.edit.search"));
+        searchField = new EditBox(font, leftBoxX + 6, listAreaY + 7, boxWidth - 38, 16, Component.translatable("gui.resourcetracker.edit.search"));
         searchField.setResponder(this::updateSearch);
         searchField.setBordered(false);
         searchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(searchField);
 
         // Right Search Field (tracked items)
-        trackedSearchField = new EditBox(font, rightBoxX + 4, listAreaY + 5, boxWidth - 22, 16, Component.translatable("gui.resourcetracker.edit.search"));
+        trackedSearchField = new EditBox(font, rightBoxX + 6, listAreaY + 7, boxWidth - 38, 16, Component.translatable("gui.resourcetracker.edit.search"));
         trackedSearchField.setResponder(this::updateTrackedSearch);
         trackedSearchField.setBordered(false);
         trackedSearchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(trackedSearchField);
 
         // Headers
-        addLabel(Component.translatable("gui.resourcetracker.edit.search_hint"), leftBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
+        addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
         addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
 
         // Bottom Buttons (Clear & Done)
@@ -293,7 +296,7 @@ public class EditScreen extends Screen {
             }
         }).bounds(botStartX, h - 30, botBtnW, 20).build());
 
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> minecraft.setScreen(parent))
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
                 .bounds(botStartX + botBtnW + botBtnGap, h - 30, botBtnW, 20).build());
 
         refreshCountWidgets();
@@ -305,19 +308,7 @@ public class EditScreen extends Screen {
      * Resets the current list configuration to defaults.
      */
     private void resetSettings() {
-        TrackerConfig.TrackingList defaultList = new TrackerConfig.TrackingList();
-
-        list.x = defaultList.x;
-        list.y = defaultList.y;
-        list.scale = defaultList.scale;
-        list.showRemaining = defaultList.showRemaining;
-        list.showIcons = defaultList.showIcons;
-        list.columns = defaultList.columns;
-
-        list.textColor = defaultList.textColor;
-        list.nameColor = defaultList.nameColor;
-        list.backgroundColor = defaultList.backgroundColor;
-
+        TrackerConfig.applyDefaults(list);
         minecraft.setScreen(new EditScreen(parent, list));
     }
 
@@ -364,9 +355,10 @@ public class EditScreen extends Screen {
 
             for (Item item : availableItems) {
                 String name = itemDisplayNames.getOrDefault(item, "").toLowerCase();
-                if (name.startsWith(q)) {
+                String id = VersionCompat.getItemId(item).toLowerCase();
+                if (name.startsWith(q) || id.startsWith(q) || id.startsWith("minecraft:" + q)) {
                     startsWith.add(item);
-                } else if (name.contains(q)) {
+                } else if (name.contains(q) || id.contains(q)) {
                     contains.add(item);
                 }
             }
@@ -401,8 +393,8 @@ public class EditScreen extends Screen {
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        // Dark background
         context.fill(0, 0, width, height, 0xA0000000);
+        context.drawCenteredString(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
 
         handleInput(mouseX, mouseY);
 
@@ -430,17 +422,17 @@ public class EditScreen extends Screen {
         // Inline fields render automatically
 
         if (hoveredTooltipText != null) {
-            context.setTooltipForNextFrame(font, hoveredTooltipText, mouseX, mouseY);
+            VersionCompat.setTooltip(context, font, hoveredTooltipText, mouseX, mouseY);
             hoveredTooltipText = null;
         }
     }
 
     private void renderItemList(GuiGraphics context, int mx, int my, int x, int y, int w, int h, List<Item> items, double scroll) {
-        int startDisplayY = y + searchHeight + 1;
-        int displayHeight = h - searchHeight - 1;
+        int startDisplayY = y + SEARCH_HEIGHT + 1;
+        int displayHeight = h - SEARCH_HEIGHT - 1;
 
         context.enableScissor(x + 1, startDisplayY, x + w - 1, y + h - 2);
-        int itemH = 20;
+        int itemH = ITEM_ROW_HEIGHT;
         int startY = (int) (startDisplayY - scroll + 2);
 
         Item hoveredItem = null;
@@ -457,12 +449,12 @@ public class EditScreen extends Screen {
                 hoveredItem = item;
             }
 
-            context.renderItem(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 2);
+            context.renderItem(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 6);
 
             String name = item.getName().getString();
             name = RenderUtils.shortenText(font, name, w - 28);
 
-            context.drawString(font, Component.literal(name), x + 24, cy + 6, 0xFFFFFFFF, true);
+            context.drawString(font, Component.literal(name), x + 24, cy + 10, 0xFFFFFFFF, true);
         }
 
         context.disableScissor();
@@ -475,16 +467,15 @@ public class EditScreen extends Screen {
     }
 
     private void renderAddedList(GuiGraphics context, int mx, int my, int x, int y, int w, int h) {
-        int startDisplayY = y + searchHeight + 1;
-        int displayHeight = h - searchHeight - 1;
+        int startDisplayY = y + SEARCH_HEIGHT + 1;
+        int displayHeight = h - SEARCH_HEIGHT - 1;
 
         context.enableScissor(x + 1, startDisplayY, x + w - 1, y + h - 2);
-        int itemH = 20;
+        int itemH = ITEM_ROW_HEIGHT;
         int startY = (int) (startDisplayY - scrollRight + 2);
 
         TrackerConfig.TrackedItem hoveredTracked = null;
 
-        // Hide all widgets first, then show visible ones
         for (EditBox widget : itemCountFields.values()) {
             widget.setVisible(false);
         }
@@ -499,27 +490,32 @@ public class EditScreen extends Screen {
             if (widget != null && isVisible) {
                 widget.setVisible(true);
                 widget.setX(x + w - 75);
-                widget.setY(cy + 3);
+                widget.setY(cy + 7);
             }
 
             if (!isVisible) continue;
-            if (!ti.isValid()) continue;
 
+            boolean valid = ti.isValid();
             boolean hover = mx >= x && mx < x + w - 50 && my >= cy && my < cy + itemH && my >= startDisplayY;
             if (hover) {
-                context.fill(x + 1, cy, x + w - 1, cy + itemH, 0x10FFFFFF);
+                context.fill(x + 1, cy, x + w - 1, cy + itemH, valid ? 0x10FFFFFF : 0x20FF5555);
                 hoveredTracked = ti;
             }
 
-            context.renderItem(ti.getStack(), x + 4, cy + 2);
-            String txt = RenderUtils.shortenText(font, ti.getDisplayName(), w - 90 - 24);
-            context.drawString(font, Component.literal(txt), x + 24, cy + 6, 0xFFFFFFFF, true);
+            if (valid) {
+                context.renderItem(ti.getStack(), x + 4, cy + 6);
+            } else {
+                context.drawString(font, Component.literal("!"), x + 9, cy + 10, 0xFFFF5555, true);
+            }
+            String display = valid ? ti.getDisplayName() : "Invalid: " + ti.itemId;
+            String txt = RenderUtils.shortenText(font, display, w - 90 - 24);
+            context.drawString(font, Component.literal(txt), x + 24, cy + 10, valid ? 0xFFFFFFFF : 0xFFFF7777, true);
 
-            int crossX = x + w - 25;
-            int crossY = cy + 4;
-            boolean crossHover = mx >= crossX - 4 && mx <= crossX + 9 && my >= crossY - 2 && my <= crossY + 9;
+            int crossX = x + w - 29;
+            int crossY = cy + 2;
+            boolean crossHover = mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24;
             int crossColor = crossHover ? 0xFFFF5555 : 0xFF888888;
-            drawPixelCross(context, crossX, crossY + 2, crossColor);
+            RenderUtils.drawPixelIcon24(context, crossX, crossY, crossColor, PixelIcons.CROSS);
         }
 
         context.disableScissor();
@@ -527,28 +523,16 @@ public class EditScreen extends Screen {
         RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, filteredTrackedItems.size() * itemH + 6, scrollRight);
 
         if (hoveredTracked != null) {
-            hoveredTooltipText = hoveredTracked.getItem().getName();
+            hoveredTooltipText = hoveredTracked.isValid() ? hoveredTracked.getItem().getName() : Component.literal(hoveredTracked.itemId);
         }
     }
 
-    private void drawPixelCross(GuiGraphics context, int x, int y, int color) {
-        context.fill(x, y, x + 1, y + 1, color);
-        context.fill(x + 4, y, x + 5, y + 1, color);
-        context.fill(x + 1, y + 1, x + 2, y + 2, color);
-        context.fill(x + 3, y + 1, x + 4, y + 2, color);
-        context.fill(x + 2, y + 2, x + 3, y + 3, color);
-        context.fill(x + 1, y + 3, x + 2, y + 4, color);
-        context.fill(x + 3, y + 3, x + 4, y + 4, color);
-        context.fill(x, y + 4, x + 1, y + 5, color);
-        context.fill(x + 4, y + 4, x + 5, y + 5, color);
-    }
-
     private void handleInput(int mx, int my) {
-        boolean down = GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), 0) == GLFW.GLFW_PRESS;
-        int itemH = 20;
+        boolean down = GLFW.glfwGetMouseButton(VersionCompat.getWindowHandle(minecraft.getWindow()), 0) == GLFW.GLFW_PRESS;
+        int itemH = ITEM_ROW_HEIGHT;
 
         if (down && !wasMouseDown) {
-            int listContentY = listAreaY + searchHeight;
+            int listContentY = listAreaY + SEARCH_HEIGHT;
             // Left list click -> add item
             if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= listContentY && my < listAreaY + boxHeight) {
                 int idx = (int) ((my - listContentY + scrollLeft) / itemH);
@@ -558,15 +542,15 @@ public class EditScreen extends Screen {
                 }
             }
             // Right list click -> delete
-            int rightContentY = listAreaY + searchHeight;
+            int rightContentY = listAreaY + SEARCH_HEIGHT;
             if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= rightContentY && my < listAreaY + boxHeight) {
                 int idx = (int) ((my - rightContentY + scrollRight) / itemH);
                 if (idx >= 0 && idx < filteredTrackedItems.size()) {
                     int itemY = rightContentY + (idx * itemH) - (int) scrollRight + 2;
-                    int crossX = rightBoxX + boxWidth - 25;
-                    int crossY = itemY + 4;
+                    int crossX = rightBoxX + boxWidth - 29;
+                    int crossY = itemY + 2;
 
-                    if (mx >= crossX - 4 && mx <= crossX + 9 && my >= crossY - 2 && my <= crossY + 9) {
+                    if (mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24) {
                         TrackerConfig.TrackedItem toRemove = filteredTrackedItems.get(idx);
                         list.items.remove(toRemove);
                         refreshCountWidgets();
@@ -579,18 +563,18 @@ public class EditScreen extends Screen {
         }
 
         if (down) {
-            int listVisibleH = boxHeight - searchHeight;
+            int listVisibleH = boxHeight - SEARCH_HEIGHT;
             if (isDraggingScrollLeft) {
                 double contentH = filteredItems.size() * itemH + 6;
                 if (contentH > listVisibleH) {
-                    double pct = (my - (listAreaY + searchHeight)) / (double) listVisibleH;
+                    double pct = (my - (listAreaY + SEARCH_HEIGHT)) / (double) listVisibleH;
                     scrollLeft = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
                 }
             }
             if (isDraggingScrollRight) {
                 double contentH = filteredTrackedItems.size() * itemH + 6;
                 if (contentH > listVisibleH) {
-                    double pct = (my - (listAreaY + searchHeight)) / (double) listVisibleH;
+                    double pct = (my - (listAreaY + SEARCH_HEIGHT)) / (double) listVisibleH;
                     scrollRight = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
                 }
             }
@@ -603,27 +587,16 @@ public class EditScreen extends Screen {
 
     private void renderSearchBar(GuiGraphics context, int x, int y, int w, EditBox field) {
         // Subtle darker background for search area
-        context.fill(x + 1, y + 1, x + w - 1, y + searchHeight - 1, 0x40000000);
+        context.fill(x + 1, y + 1, x + w - 1, y + SEARCH_HEIGHT - 1, 0x40000000);
 
         // Separator line
-        context.fill(x, y + searchHeight, x + w, y + searchHeight + 1, 0xFF555555);
+        context.fill(x, y + SEARCH_HEIGHT, x + w, y + SEARCH_HEIGHT + 1, 0xFF555555);
 
-        // Magnifying glass icon
-        int iconX = x + w - 14;
-        int iconY = y + (searchHeight - 9) / 2;
-        int ic = 0xFF888888;
-        // Circle
-        context.fill(iconX + 1, iconY,     iconX + 5, iconY + 1, ic);
-        context.fill(iconX,     iconY + 1, iconX + 1, iconY + 5, ic);
-        context.fill(iconX + 5, iconY + 1, iconX + 6, iconY + 5, ic);
-        context.fill(iconX + 1, iconY + 5, iconX + 5, iconY + 6, ic);
-        // Handle
-        context.fill(iconX + 5, iconY + 5, iconX + 7, iconY + 6, ic);
-        context.fill(iconX + 6, iconY + 6, iconX + 8, iconY + 7, ic);
+        RenderUtils.drawPixelIcon24(context, x + w - 25, y + ((SEARCH_HEIGHT - RenderUtils.PIXEL_ICON_SIZE) / 2), 0xFF888888, PixelIcons.SEARCH);
 
         // Placeholder text "Search..." when field is empty
         if (field.getValue().isEmpty() && !field.isFocused()) {
-            int textY = y + (searchHeight - 8) / 2;
+            int textY = y + (SEARCH_HEIGHT - 8) / 2;
             context.drawString(font, Component.translatable("gui.resourcetracker.edit.search_hint"), x + 6, textY, 0xFF666666, false);
         }
     }
@@ -700,15 +673,17 @@ public class EditScreen extends Screen {
     @Override
     public void onClose() {
         TrackerConfig.save();
-        super.onClose();
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(parent);
+        }
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         double amount = verticalAmount;
-        int itemH = 20;
-        int listContentY = listAreaY + searchHeight + 2;
-        int listVisibleH = boxHeight - searchHeight - 2;
+        int itemH = ITEM_ROW_HEIGHT;
+        int listContentY = listAreaY + SEARCH_HEIGHT + 2;
+        int listVisibleH = boxHeight - SEARCH_HEIGHT - 2;
 
         if (mouseX >= leftBoxX && mouseX <= leftBoxX + boxWidth && mouseY >= listContentY && mouseY <= listAreaY + boxHeight) {
             double contentH = filteredItems.size() * itemH + 6;
@@ -729,7 +704,7 @@ public class EditScreen extends Screen {
 
 
     private void addItem(Item item) {
-        String id = BuiltInRegistries.ITEM.getKey(item).toString();
+        String id = VersionCompat.getItemId(item);
         boolean found = false;
         for (TrackerConfig.TrackedItem ti : list.items) {
             if (ti.itemId.equals(id)) {
