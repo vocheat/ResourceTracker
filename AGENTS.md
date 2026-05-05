@@ -88,8 +88,8 @@ Key flow:
 - `InventoryUtils` recursively counts inventory contents, containers, and bundles.
 - `VersionCompat` owns key mapping registration, matrix operations, and registry id lookup differences.
 - ModMenu is resolved from Modrinth Maven as `maven.modrinth:modmenu:<version>`.
-- MC 26.1 compiles with profile-specific minimal `GuiGraphicsExtractor` screens/HUD.
-  Full UI parity with 1.21.x is still pending.
+- MC 26.1 uses profile-specific `GuiGraphicsExtractor` screens/HUD with UI parity
+  against the 1.21.x screens where the 26.1 client API allows it.
 
 ## Non-Obvious Rules
 
