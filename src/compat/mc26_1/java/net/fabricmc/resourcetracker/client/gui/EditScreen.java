@@ -304,6 +304,7 @@ public class EditScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, width, height, 0xA0000000);
+        context.centeredText(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
 
         RenderUtils.drawBoxFill(context, leftBoxX, listAreaY, boxWidth, boxHeight);
         renderSearchBar(context, leftBoxX, listAreaY, boxWidth, searchField);

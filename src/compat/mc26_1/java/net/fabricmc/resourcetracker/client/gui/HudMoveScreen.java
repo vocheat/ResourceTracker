@@ -41,8 +41,7 @@ public class HudMoveScreen extends Screen {
 
         handleMouseInput(mouseX, mouseY);
 
-        for (int index = TrackerConfig.INSTANCE.lists.size() - 1; index >= 0; index--) {
-            TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(index);
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
             renderScaledList(context, list);
         }
