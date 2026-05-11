@@ -27,7 +27,7 @@ package net.fabricmc.resourcetracker.client.gui;
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
-import net.fabricmc.resourcetracker.util.PixelIcons;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -57,14 +57,13 @@ import java.util.List;
  * @author vocheat
  */
 public class MainScreen extends Screen {
-    private static final int PIXEL_ICON_SIZE = 16;
 
     private final Screen parent;
 
     private double scrollOffset = 0;
     private int listTop = 60;
     private int listBottom;
-    private final int itemHeight = 28;
+    private final int itemHeight = 25;
     private boolean wasMouseDown = false;
     private boolean leftShiftDown = false;
     private boolean rightShiftDown = false;
@@ -98,7 +97,7 @@ public class MainScreen extends Screen {
         int centerX = this.width / 2;
         int boxWidth = 280;
         int boxX = centerX - (boxWidth / 2);
-        int toolY = this.listTop - 24;
+        int toolY = this.listTop - 21;
         int sideX = boxX + boxWidth + 12;
         if (sideX + 150 > this.width - 8) {
             sideX = Math.max(8, boxX - 162);
@@ -108,12 +107,12 @@ public class MainScreen extends Screen {
         this.gearIconY = 25;
         this.addIconX = boxX;
         this.addIconY = toolY;
-        this.reloadIconX = boxX + boxWidth - 24;
+        this.reloadIconX = boxX + boxWidth - 21;
         this.reloadIconY = toolY;
         this.worldFolderIconX = sideX;
         this.worldFolderIconY = this.listTop;
         this.allFolderIconX = sideX;
-        this.allFolderIconY = this.listTop + 28;
+        this.allFolderIconY = this.listTop + 25;
 
         this.settingsButton = this.addRenderableWidget(
                 Button.builder(
@@ -124,7 +123,7 @@ public class MainScreen extends Screen {
                                     }
                                 }
                         )
-                        .bounds(this.gearIconX, this.gearIconY, 24, 24)
+                        .bounds(this.gearIconX, this.gearIconY, 21, 21)
                         .build()
         );
 
@@ -140,7 +139,7 @@ public class MainScreen extends Screen {
                                     this.init();
                                 }
                         )
-                        .bounds(this.addIconX, this.addIconY, 24, 24)
+                        .bounds(this.addIconX, this.addIconY, 21, 21)
                         .build()
         );
         this.addListButton.active = TrackerConfig.hasActiveContext();
@@ -153,7 +152,7 @@ public class MainScreen extends Screen {
                             this.init();
                         }
                 )
-                .bounds(this.reloadIconX, this.reloadIconY, 24, 24)
+                .bounds(this.reloadIconX, this.reloadIconY, 21, 21)
                 .build();
         this.reloadListsButton.active = TrackerConfig.hasActiveContext();
         this.addRenderableWidget(this.reloadListsButton);
@@ -167,7 +166,7 @@ public class MainScreen extends Screen {
                                     }
                                 }
                         )
-                        .bounds(boxX + 32, toolY, boxWidth - 64, 24)
+                        .bounds(boxX + 29, toolY, boxWidth - 58, 21)
                         .build()
         );
 
@@ -175,7 +174,7 @@ public class MainScreen extends Screen {
                         Component.literal("   ").append(Component.translatable("gui.resourcetracker.open_world_lists")),
                         button -> TrackerConfig.openActiveListsFolder()
                 )
-                .bounds(sideX, this.listTop, 150, 24)
+                .bounds(sideX, this.listTop, 150, 21)
                 .build();
         this.openWorldFolderButton.active = TrackerConfig.hasActiveContext();
         this.addRenderableWidget(this.openWorldFolderButton);
@@ -185,7 +184,7 @@ public class MainScreen extends Screen {
                                 Component.literal("   ").append(Component.translatable("gui.resourcetracker.open_all_lists")),
                                 button -> TrackerConfig.openListsRootFolder()
                         )
-                        .bounds(sideX, this.listTop + 28, 150, 24)
+                        .bounds(sideX, this.listTop + 25, 150, 21)
                         .build()
         );
 
@@ -230,11 +229,11 @@ public class MainScreen extends Screen {
         renderScrollableList(context, mouseX, mouseY);
 
         super.extractRenderState(context, mouseX, mouseY, delta);
-        drawButtonIcon(context, Icon.PLUS, this.addIconX, this.addIconY, 24, 24, iconColor(this.addListButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.RELOAD, this.reloadIconX, this.reloadIconY, 24, 24, iconColor(this.reloadListsButton, 0xFFDDDDDD));
-        drawButtonIcon(context, Icon.GEAR, this.gearIconX, this.gearIconY, 24, 24, iconColor(this.settingsButton, 0xFFDDDDDD));
-        drawButtonIcon(context, Icon.FOLDER, this.worldFolderIconX, this.worldFolderIconY, 24, 24, iconColor(this.openWorldFolderButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.FOLDER, this.allFolderIconX, this.allFolderIconY, 24, 24, 0xFFFFFFFF);
+        drawButtonIcon(context, Icon.PLUS, this.addIconX, this.addIconY, 21, 21, iconColor(this.addListButton, 0xFFFFFFFF));
+        drawButtonIcon(context, Icon.RELOAD, this.reloadIconX, this.reloadIconY, 21, 21, iconColor(this.reloadListsButton, 0xFFFFFFFF));
+        drawButtonIcon(context, Icon.GEAR, this.gearIconX, this.gearIconY, 21, 21, iconColor(this.settingsButton, 0xFFFFFFFF));
+        drawButtonIcon(context, Icon.FOLDER, this.worldFolderIconX, this.worldFolderIconY, 21, 21, iconColor(this.openWorldFolderButton, 0xFFFFFFFF));
+        drawButtonIcon(context, Icon.FOLDER, this.allFolderIconX, this.allFolderIconY, 21, 21, 0xFFFFFFFF);
     }
 
     /**
@@ -287,23 +286,23 @@ public class MainScreen extends Screen {
             // Eye Icon (Visibility Toggle)
             int eyeX = x + 4;
             int eyeY = y + 2;
-            boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 24 && mouseY >= eyeY && mouseY < eyeY + 24);
+            boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 21 && mouseY >= eyeY && mouseY < eyeY + 21);
             drawPixelEye(context, eyeX, eyeY, list.isVisible, eyeHovered);
 
-            String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 72);
-            context.text(this.font, Component.literal(nameText), x + 34, y + 10, 0xFFFFFFFF, true);
+            String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 66);
+            context.text(this.font, Component.literal(nameText), x + 31, y + 8, 0xFFFFFFFF, true);
 
             // Trash Icon (Delete)
-            int trashX = x + boxWidth - 28;
+            int trashX = x + boxWidth - 25;
             int trashY = y + 2;
-            boolean trashHovered = (mouseX >= trashX && mouseX < trashX + 24 && mouseY >= trashY && mouseY < trashY + 24);
+            boolean trashHovered = (mouseX >= trashX && mouseX < trashX + 21 && mouseY >= trashY && mouseY < trashY + 21);
 
             if (trashHovered) {
                 isHoveringTrash = true;
             }
 
             boolean canDelete = trashHovered && shiftPressed();
-            drawPixelTrash(context, trashX, trashY, trashHovered, canDelete);
+            drawPixelDeleteIcon(context, trashX, trashY, trashHovered, canDelete);
         }
 
         context.disableScissor();
@@ -343,18 +342,18 @@ public class MainScreen extends Screen {
                         TrackerConfig.TrackingList list = lists.get(index);
 
                         int eyeX = boxX + 4;
-                        int trashX = boxX + boxWidth - 28;
+                        int trashX = boxX + boxWidth - 25;
 
-                        if (mouseX >= eyeX && mouseX < eyeX + 28) {
+                        if (mouseX >= eyeX && mouseX < eyeX + 25) {
                             list.isVisible = !list.isVisible;
                             TrackerConfig.save();
                             playClickSound();
-                        } else if (mouseX >= trashX && mouseX < trashX + 24) {
+                        } else if (mouseX >= trashX && mouseX < trashX + 21) {
                             if (shiftPressed()) {
                                 TrackerConfig.deleteList(list);
                                 playClickSound();
                             }
-                        } else if (mouseX > boxX + 34 && mouseX < trashX - 4) {
+                        } else if (mouseX > boxX + 31 && mouseX < trashX - 4) {
                             if (this.minecraft != null) {
                                 this.minecraft.setScreen(new EditScreen(this, list));
                             }
@@ -407,15 +406,15 @@ public class MainScreen extends Screen {
     }
 
     private enum Icon {
-        PLUS(PixelIcons.PLUS),
-        RELOAD(PixelIcons.RELOAD),
-        FOLDER(PixelIcons.FOLDER),
-        GEAR(PixelIcons.GEAR);
+        PLUS(PngIcons.Icon.PLUS),
+        RELOAD(PngIcons.Icon.RELOAD),
+        FOLDER(PngIcons.Icon.FOLDER),
+        GEAR(PngIcons.Icon.SETTINGS);
 
-        private final int[] pixels;
+        private final PngIcons.Icon texture;
 
-        Icon(int[] pixels) {
-            this.pixels = pixels;
+        Icon(PngIcons.Icon texture) {
+            this.texture = texture;
         }
     }
 
@@ -424,36 +423,24 @@ public class MainScreen extends Screen {
     }
 
     private void drawButtonIcon(GuiGraphicsExtractor context, Icon icon, int buttonX, int buttonY, int buttonW, int buttonH, int color) {
-        int iconX = buttonX + (buttonW - PIXEL_ICON_SIZE) / 2;
-        int iconY = buttonY + (buttonH - PIXEL_ICON_SIZE) / 2;
-        drawPixelIcon24(context, iconX, iconY, color, icon.pixels);
+        RenderUtils.drawPngIconInBox(context, icon.texture, buttonX, buttonY, buttonW, buttonH, color);
     }
 
     private void drawPixelEye(GuiGraphicsExtractor context, int x, int y, boolean isVisible, boolean isHovered) {
         int color = isHovered ? 0xFFCCCCCC : 0xFF888888;
-        drawPixelIcon24(context, x, y, isVisible ? color : 0xFFFF5555, isVisible ? PixelIcons.EYE_OPEN : PixelIcons.EYE_CLOSED);
+        RenderUtils.drawPngIconInBox(context, isVisible ? PngIcons.Icon.EYE : PngIcons.Icon.EYE_CROSSED, x, y, 21, 21, isVisible ? color : 0xFFFF5555);
     }
 
-    private void drawPixelTrash(GuiGraphicsExtractor context, int x, int y, boolean isHovered, boolean isDanger) {
+    private void drawPixelDeleteIcon(GuiGraphicsExtractor context, int x, int y, boolean isHovered, boolean isDanger) {
         int mainColor;
         if (isDanger) {
             mainColor = 0xFFFF5555;
         } else {
             mainColor = isHovered ? 0xFFCCCCCC : 0xFF888888;
         }
-        drawPixelIcon24(context, x, y, mainColor, PixelIcons.TRASH);
+        RenderUtils.drawPngIconInBox(context, PngIcons.Icon.TRASH, x, y, 21, 21, mainColor);
     }
 
-    private void drawPixelIcon24(GuiGraphicsExtractor context, int x, int y, int color, int[] pixels) {
-        if (pixels == null) return;
-        for (int pixel : pixels) {
-            int px = (pixel >> 8) & 0xFF;
-            int py = pixel & 0xFF;
-            if (px >= 0 && px < PIXEL_ICON_SIZE && py >= 0 && py < PIXEL_ICON_SIZE) {
-                context.fill(x + px, y + py, x + px + 1, y + py + 1, color);
-            }
-        }
-    }
 
     @Override
     public void onClose() {
@@ -466,3 +453,5 @@ public class MainScreen extends Screen {
         return leftShiftDown || rightShiftDown;
     }
 }
+
+

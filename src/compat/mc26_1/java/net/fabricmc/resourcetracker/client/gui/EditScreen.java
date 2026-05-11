@@ -26,7 +26,7 @@ package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.PixelIcons;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -52,7 +52,6 @@ import java.util.function.Consumer;
 public class EditScreen extends Screen {
     private static final int SEARCH_HEIGHT = 26;
     private static final int ITEM_ROW_HEIGHT = 28;
-    private static final int PIXEL_ICON_SIZE = 16;
 
     private final Screen parent;
     private final TrackerConfig.TrackingList list;
@@ -81,6 +80,18 @@ public class EditScreen extends Screen {
     private Component hoveredTooltipText = null;
     private boolean isDraggingScrollLeft = false;
     private boolean isDraggingScrollRight = false;
+
+    private int listContentTop() {
+        return listAreaY + SEARCH_HEIGHT + 1;
+    }
+
+    private int listContentBottom() {
+        return listAreaY + boxHeight - 2;
+    }
+
+    private int rowIndexAt(double mouseY, double scroll) {
+        return (int) ((mouseY - listContentTop() - 2 + scroll) / ITEM_ROW_HEIGHT);
+    }
 
     private EditBox[] textRgbA = new EditBox[4];
     private EditBox[] titleRgbA = new EditBox[4];
@@ -149,7 +160,7 @@ public class EditScreen extends Screen {
         scaleField = createSmallField(curX, row1Y, fieldW, String.valueOf(list.scale), s -> {
             try {
                 float v = Float.parseFloat(s);
-                list.scale = Math.max(0.25f, Math.min(4.0f, v));
+                list.scale = TrackerConfig.clampScale(v);
             } catch (NumberFormatException ignored) {
             }
         });
@@ -356,7 +367,7 @@ public class EditScreen extends Screen {
                 widget.setResponder(val -> {
                     try {
                         int v = Integer.parseInt(val);
-                        item.targetCount = Math.max(1, Math.min(99999, v));
+                        item.targetCount = TrackerConfig.clampTargetCount(v);
                     } catch (NumberFormatException ignored) {
                     }
                 });
@@ -497,7 +508,7 @@ public class EditScreen extends Screen {
             int crossY = cy + 2;
             boolean crossHover = mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24;
             int crossColor = crossHover ? 0xFFFF5555 : 0xFF888888;
-            drawPixelIcon24(context, crossX, crossY, crossColor, PixelIcons.CROSS);
+            RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CROSS, crossX, crossY, 24, 24, crossColor);
         }
 
         context.disableScissor();
@@ -513,7 +524,7 @@ public class EditScreen extends Screen {
     private void renderSearchBar(GuiGraphicsExtractor context, int x, int y, int w, EditBox field) {
         context.fill(x + 1, y + 1, x + w - 1, y + SEARCH_HEIGHT - 1, 0x40000000);
         context.fill(x, y + SEARCH_HEIGHT, x + w, y + SEARCH_HEIGHT + 1, 0xFF555555);
-        drawPixelIcon24(context, x + w - 25, y + ((SEARCH_HEIGHT - PIXEL_ICON_SIZE) / 2), 0xFF888888, PixelIcons.SEARCH);
+        RenderUtils.drawPngIcon(context, PngIcons.Icon.SEARCH, x + w - 25, y + ((SEARCH_HEIGHT - PngIcons.ICON_SIZE) / 2), 0xFF888888);
 
         if (field.getValue().isEmpty() && !field.isFocused()) {
             int textY = y + (SEARCH_HEIGHT - 8) / 2;
@@ -532,22 +543,23 @@ public class EditScreen extends Screen {
 
         double mx = event.x();
         double my = event.y();
-        int listContentY = listAreaY + SEARCH_HEIGHT;
+        int listContentY = listContentTop();
+        int listContentBottom = listContentBottom();
 
         if (mx > leftBoxX + boxWidth - 10 && mx < leftBoxX + boxWidth
-                && my >= listContentY && my < listAreaY + boxHeight) {
+                && my >= listContentY && my < listContentBottom) {
             isDraggingScrollLeft = true;
             return true;
         }
 
         if (mx > rightBoxX + boxWidth - 10 && mx < rightBoxX + boxWidth
-                && my >= listContentY && my < listAreaY + boxHeight) {
+                && my >= listContentY && my < listContentBottom) {
             isDraggingScrollRight = true;
             return true;
         }
 
-        if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= listContentY && my < listAreaY + boxHeight) {
-            int idx = (int) ((my - listContentY + scrollLeft) / ITEM_ROW_HEIGHT);
+        if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= listContentY && my < listContentBottom) {
+            int idx = rowIndexAt(my, scrollLeft);
             if (idx >= 0 && idx < filteredItems.size()) {
                 addItem(filteredItems.get(idx));
                 updateTrackedSearch(trackedSearchField.getValue());
@@ -555,8 +567,8 @@ public class EditScreen extends Screen {
             }
         }
 
-        if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= listContentY && my < listAreaY + boxHeight) {
-            int idx = (int) ((my - listContentY + scrollRight) / ITEM_ROW_HEIGHT);
+        if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= listContentY && my < listContentBottom) {
+            int idx = rowIndexAt(my, scrollRight);
             if (idx >= 0 && idx < filteredTrackedItems.size()) {
                 int itemY = listContentY + (idx * ITEM_ROW_HEIGHT) - (int) scrollRight + 2;
                 int crossX = rightBoxX + boxWidth - 29;
@@ -567,6 +579,7 @@ public class EditScreen extends Screen {
                     list.items.remove(toRemove);
                     refreshCountWidgets();
                     updateTrackedSearch(trackedSearchField.getValue());
+                    playClickSound();
                 }
                 return true;
             }
@@ -619,18 +632,18 @@ public class EditScreen extends Screen {
     }
 
     private void updateScrollbarDrag(double mouseY) {
-        int listVisibleH = boxHeight - SEARCH_HEIGHT;
+        int listVisibleH = boxHeight - SEARCH_HEIGHT - 1;
         if (isDraggingScrollLeft) {
             double contentH = filteredItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
-                double pct = (mouseY - (listAreaY + SEARCH_HEIGHT)) / (double) listVisibleH;
+                double pct = (mouseY - listContentTop()) / (double) listVisibleH;
                 scrollLeft = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
             }
         }
         if (isDraggingScrollRight) {
             double contentH = filteredTrackedItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
-                double pct = (mouseY - (listAreaY + SEARCH_HEIGHT)) / (double) listVisibleH;
+                double pct = (mouseY - listContentTop()) / (double) listVisibleH;
                 scrollRight = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
             }
         }
@@ -738,19 +751,15 @@ public class EditScreen extends Screen {
 
         list.items.add(new TrackerConfig.TrackedItem(id, 1));
         if (this.minecraft != null && this.minecraft.player != null) {
-            this.minecraft.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 1.0f);
+            playClickSound();
         }
         refreshCountWidgets();
     }
 
-    private static void drawPixelIcon24(GuiGraphicsExtractor context, int x, int y, int color, int[] pixels) {
-        if (pixels == null) return;
-        for (int pixel : pixels) {
-            int px = (pixel >> 8) & 0xFF;
-            int py = pixel & 0xFF;
-            if (px >= 0 && px < PIXEL_ICON_SIZE && py >= 0 && py < PIXEL_ICON_SIZE) {
-                context.fill(x + px, y + py, x + px + 1, y + py + 1, color);
-            }
+    private void playClickSound() {
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 1.0f);
         }
     }
+
 }

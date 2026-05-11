@@ -21,7 +21,6 @@ base {
 }
 
 repositories {
-    mavenLocal()
     maven { url 'https://maven.terraformersmc.com/releases/' }
     maven {
         name = 'Modrinth'

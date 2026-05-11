@@ -26,7 +26,7 @@ package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
-import net.fabricmc.resourcetracker.util.PixelIcons;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -165,7 +165,7 @@ public class EditScreen extends Screen {
         scaleField = createSmallField(curX, row1Y, fieldW, String.valueOf(list.scale), s -> {
             try {
                 float v = Float.parseFloat(s);
-                list.scale = Math.max(0.25f, Math.min(4.0f, v));
+                list.scale = TrackerConfig.clampScale(v);
             } catch (NumberFormatException ignored) {}
         });
         this.addRenderableWidget(scaleField);
@@ -332,7 +332,7 @@ public class EditScreen extends Screen {
                 w.setResponder(val -> {
                     try {
                         int v = Integer.parseInt(val);
-                        item.targetCount = Math.max(1, Math.min(99999, v));
+                        item.targetCount = TrackerConfig.clampTargetCount(v);
                     } catch (NumberFormatException ignored) {}
                 });
             }
@@ -515,7 +515,7 @@ public class EditScreen extends Screen {
             int crossY = cy + 2;
             boolean crossHover = mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24;
             int crossColor = crossHover ? 0xFFFF5555 : 0xFF888888;
-            RenderUtils.drawPixelIcon24(context, crossX, crossY, crossColor, PixelIcons.CROSS);
+            RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CROSS, crossX, crossY, 24, 24, crossColor);
         }
 
         context.disableScissor();
@@ -592,7 +592,7 @@ public class EditScreen extends Screen {
         // Separator line
         context.fill(x, y + SEARCH_HEIGHT, x + w, y + SEARCH_HEIGHT + 1, 0xFF555555);
 
-        RenderUtils.drawPixelIcon24(context, x + w - 25, y + ((SEARCH_HEIGHT - RenderUtils.PIXEL_ICON_SIZE) / 2), 0xFF888888, PixelIcons.SEARCH);
+        RenderUtils.drawPngIcon(context, PngIcons.Icon.SEARCH, x + w - 25, y + ((SEARCH_HEIGHT - PngIcons.ICON_SIZE) / 2), 0xFF888888);
 
         // Placeholder text "Search..." when field is empty
         if (field.getValue().isEmpty() && !field.isFocused()) {

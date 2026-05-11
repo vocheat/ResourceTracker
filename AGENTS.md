@@ -49,6 +49,8 @@ $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot"
 Quote the `-PprofileBuild=...` argument in PowerShell because the build file
 names contain dots.
 
+- For runtime `runClient` checks across multiple Minecraft profiles, launch profiles sequentially, one at a time. Wait until the user closes the current Minecraft window before starting the next profile. Do not start several profile clients in parallel because Gradle/Fabric Loom can fight over shared asset/cache locks and fail during `downloadAssets`.
+
 Installed Java paths noted by the previous project setup:
 
 - JDK 21: `C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot`
@@ -93,6 +95,7 @@ Key flow:
 
 ## Non-Obvious Rules
 
+- Write user-facing explanations, summaries, and completion reports in Russian unless the user asks for another language.
 - Never call `InventoryUtils.countItems()` from render code; counting happens in the tick handler.
 - All stored colors are ARGB `0xAARRGGBB`.
 - `EditScreen.close()` is the save point for that screen.
@@ -102,3 +105,4 @@ Key flow:
 - Do not delete working files when a task finishes. If every item in a plan file is complete, rename that file inside `Workflow/` to include `done` and the completion date, for example `Workflow/PLAN_1_21_X_BUGFIXES.done-2026-05-04.md`.
 - Before reporting completion, check for new working files outside `Workflow/`. Move them into `Workflow/` or explain why the file belongs in the project.
 - Do not add generated analysis, cache, assistant settings, or local tool output to GitHub unless the user asks for that artifact.
+
