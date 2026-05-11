@@ -90,7 +90,8 @@ public class HudMoveScreen extends Screen {
     private void renderScaledList(GuiGraphics context, TrackerConfig.TrackingList list) {
         VersionCompat.push(context);
         VersionCompat.translate(context, (float) list.x, (float) list.y);
-        VersionCompat.scale(context, list.scale, list.scale);
+        float scale = TrackerConfig.clampScale(list.scale);
+        VersionCompat.scale(context, scale, scale);
 
         BoxSize baseSize = calculateBaseSize(list);
         int borderColor = (list == draggingList) ? 0xFF00FF00 : 0xFFFFFFFF;
@@ -233,7 +234,7 @@ public class HudMoveScreen extends Screen {
                 if (!list.isVisible) continue;
 
                 BoxSize baseSize = calculateBaseSize(list);
-                VisualBounds bounds = calculateVisualBounds(baseSize, list.scale);
+                VisualBounds bounds = calculateVisualBounds(baseSize, TrackerConfig.clampScale(list.scale));
                 double hitX = list.x + bounds.left;
                 double hitY = list.y + bounds.top;
                 double hitRight = list.x + bounds.right;
@@ -254,7 +255,7 @@ public class HudMoveScreen extends Screen {
                 int newY = mouseY - dragOffsetY;
 
                 BoxSize baseSize = calculateBaseSize(draggingList);
-                VisualBounds bounds = calculateVisualBounds(baseSize, draggingList.scale);
+                VisualBounds bounds = calculateVisualBounds(baseSize, TrackerConfig.clampScale(draggingList.scale));
 
                 int minX = (int) Math.ceil(-bounds.left);
                 int maxX = (int) Math.floor(this.width - bounds.right);

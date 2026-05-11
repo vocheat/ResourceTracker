@@ -31,9 +31,6 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Handles the rendering of the Resource Tracker overlay on the in-game HUD.
  * <p>
@@ -57,7 +54,8 @@ public class HudOverlay {
 
             VersionCompat.push(context);
             VersionCompat.translate(context, (float) list.x, (float) list.y);
-            VersionCompat.scale(context, list.scale, list.scale);
+            float scale = TrackerConfig.clampScale(list.scale);
+            VersionCompat.scale(context, scale, scale);
 
             renderListContent(context, client, list);
 
@@ -70,12 +68,11 @@ public class HudOverlay {
         int headerHeight = 14;
         int itemRowHeight = list.showIcons ? 24 : 12;
 
-        List<TrackerConfig.TrackedItem> validItems = new ArrayList<>();
+        int itemCount = 0;
         for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (trackedItem.isValid()) validItems.add(trackedItem);
+            if (trackedItem.isValid()) itemCount++;
         }
 
-        int itemCount = validItems.size();
         if (itemCount == 0) {
             int boxWidth = client.font.width(list.name) + (padding * 2);
             int boxHeight = headerHeight + padding;
@@ -87,7 +84,9 @@ public class HudOverlay {
         int maxTextWidth = client.font.width(list.name);
         int iconOffset = list.showIcons ? 20 : 2;
 
-        for (TrackerConfig.TrackedItem trackedItem : validItems) {
+        for (TrackerConfig.TrackedItem trackedItem : list.items) {
+            if (!trackedItem.isValid()) continue;
+
             String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
 
             int entryWidth;
@@ -122,12 +121,14 @@ public class HudOverlay {
         int currentColumn = 0;
         int columnOffsetX = 0;
 
-        for (int i = 0; i < validItems.size(); i++) {
-            TrackerConfig.TrackedItem trackedItem = validItems.get(i);
+        int drawn = 0;
+        for (TrackerConfig.TrackedItem trackedItem : list.items) {
+            if (!trackedItem.isValid()) continue;
+
             int currentCount = trackedItem.cachedCount;
             boolean isDone = currentCount >= trackedItem.targetCount;
 
-            if (i > 0 && itemsPerColumn > 0 && i % itemsPerColumn == 0) {
+            if (drawn > 0 && itemsPerColumn > 0 && drawn % itemsPerColumn == 0) {
                 currentColumn++;
                 columnOffsetX = currentColumn * (columnWidth + padding);
                 currentY = headerHeight;
@@ -155,6 +156,7 @@ public class HudOverlay {
             }
 
             currentY += itemRowHeight;
+            drawn++;
         }
     }
 }

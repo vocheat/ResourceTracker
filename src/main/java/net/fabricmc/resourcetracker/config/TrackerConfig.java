@@ -63,6 +63,12 @@ public class TrackerConfig {
     private static final Path SERVER_LISTS_DIR = LISTS_DIR.resolve(SERVERS_DIR_NAME);
     private static final Path TEMPLATES_DIR = LISTS_DIR.resolve("templates");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    public static final float MIN_SCALE = 0.25f;
+    public static final float MAX_SCALE = 4.0f;
+    public static final int MAX_COLUMNS = 5;
+    public static final int MAX_TARGET_COUNT = 99999;
+    private static final int MAX_FILE_BASENAME_LENGTH = 80;
+    private static final int MAX_CONTEXT_SEGMENT_LENGTH = 120;
 
     public static TrackerConfig INSTANCE = new TrackerConfig();
 
@@ -167,6 +173,7 @@ public class TrackerConfig {
         private transient Item cachedItem = null;
         private transient ItemStack cachedStack = null;
         private transient String displayName = null;
+        private transient Boolean validItemId = null;
 
         public TrackedItem(String itemId, int targetCount) {
             this.itemId = itemId;
@@ -197,7 +204,10 @@ public class TrackerConfig {
         }
 
         public boolean isValid() {
-            return VersionCompat.isValidItemId(this.itemId);
+            if (validItemId == null) {
+                validItemId = VersionCompat.isValidItemId(this.itemId);
+            }
+            return validItemId;
         }
     }
 
@@ -218,10 +228,10 @@ public class TrackerConfig {
         INSTANCE.legacyListsMigrated = loaded.legacyListsMigrated;
         INSTANCE.defaultX = loaded.defaultX;
         INSTANCE.defaultY = loaded.defaultY;
-        INSTANCE.defaultScale = loaded.defaultScale;
+        INSTANCE.defaultScale = clampScale(loaded.defaultScale);
         INSTANCE.defaultShowRemaining = loaded.defaultShowRemaining;
         INSTANCE.defaultShowIcons = loaded.defaultShowIcons;
-        INSTANCE.defaultColumns = loaded.defaultColumns;
+        INSTANCE.defaultColumns = clampColumns(loaded.defaultColumns);
         INSTANCE.defaultTextColor = loaded.defaultTextColor;
         INSTANCE.defaultNameColor = loaded.defaultNameColor;
         INSTANCE.defaultBackgroundColor = loaded.defaultBackgroundColor;
@@ -298,10 +308,10 @@ public class TrackerConfig {
         if (list == null) return;
         list.x = INSTANCE.defaultX;
         list.y = INSTANCE.defaultY;
-        list.scale = INSTANCE.defaultScale;
+        list.scale = clampScale(INSTANCE.defaultScale);
         list.showRemaining = INSTANCE.defaultShowRemaining;
         list.showIcons = INSTANCE.defaultShowIcons;
-        list.columns = INSTANCE.defaultColumns;
+        list.columns = clampColumns(INSTANCE.defaultColumns);
         list.textColor = INSTANCE.defaultTextColor;
         list.nameColor = INSTANCE.defaultNameColor;
         list.backgroundColor = INSTANCE.defaultBackgroundColor;
@@ -325,7 +335,10 @@ public class TrackerConfig {
         INSTANCE.lists.remove(list);
         if (!activeContext.isNone() && list.storageFileName != null && !list.storageFileName.isBlank()) {
             try {
-                Files.deleteIfExists(getActiveListsDir().resolve(list.storageFileName));
+                Path file = resolveListFile(getActiveListsDir(), list.storageFileName);
+                if (file != null) {
+                    Files.deleteIfExists(file);
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -342,11 +355,14 @@ public class TrackerConfig {
     }
 
     public static String sanitizePathSegment(String input) {
-        String sanitized = input.toLowerCase(Locale.ROOT)
+        String sanitized = (input == null ? "" : input).toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9._-]+", "_")
                 .replaceAll("_+", "_")
                 .replaceAll("^_+|_+$", "");
-        return sanitized.isBlank() ? "unnamed" : sanitized;
+        if (sanitized.isBlank() || sanitized.equals(".") || sanitized.equals("..")) {
+            sanitized = "unnamed";
+        }
+        return limitLength(sanitized, MAX_FILE_BASENAME_LENGTH);
     }
 
     private static String sanitizeWindowsPathSegment(String input, String fallback) {
@@ -354,7 +370,11 @@ public class TrackerConfig {
                 .replaceAll("[\\p{Cntrl}]", "_")
                 .trim()
                 .replaceAll("[. ]+$", "");
-        return sanitized.isBlank() || sanitized.equals(".") || sanitized.equals("..") ? fallback : sanitized;
+        if (sanitized.isBlank() || sanitized.equals(".") || sanitized.equals("..") || isReservedWindowsName(sanitized)) {
+            sanitized = fallback;
+        }
+        sanitized = limitLength(sanitized, MAX_CONTEXT_SEGMENT_LENGTH).replaceAll("[. ]+$", "");
+        return sanitized.isBlank() ? fallback : sanitized;
     }
 
     private static void ensureDirectories() {
@@ -397,8 +417,8 @@ public class TrackerConfig {
     private static void migrateLegacyListsToTemplates(List<TrackingList> legacyLists) {
         ensureDirectories();
         for (TrackingList list : legacyLists) {
-            if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
-            if (list.items == null) list.items = new ArrayList<>();
+            if (list == null) continue;
+            normalizeList(list);
             writeList(TEMPLATES_DIR, list);
         }
     }
@@ -427,8 +447,8 @@ public class TrackerConfig {
         if (activeContext.isNone()) return;
         Path dir = getActiveListsDir();
         for (TrackingList list : INSTANCE.lists) {
-            if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
-            if (list.items == null) list.items = new ArrayList<>();
+            if (list == null) continue;
+            normalizeList(list);
             writeList(dir, list);
         }
     }
@@ -454,7 +474,7 @@ public class TrackerConfig {
                 String value = line.substring(eq + 1).trim();
                 if (inItems) {
                     int target = parseInt(value, 1);
-                    list.items.add(new TrackedItem(key, Math.max(1, target)));
+                    list.items.add(new TrackedItem(key, clampTargetCount(target)));
                 } else {
                     applyListProperty(list, key, value);
                 }
@@ -462,17 +482,25 @@ public class TrackerConfig {
         }
         if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
         if (list.name == null || list.name.isBlank()) list.name = stripTxt(file.getFileName().toString());
+        normalizeList(list);
         return list;
     }
 
     private static void writeList(Path dir, TrackingList list) {
+        if (list == null) return;
         ensureDirectory(dir);
+        normalizeList(list);
         String fileName = list.storageFileName;
+        Path file = resolveListFile(dir, fileName);
         if (fileName == null || fileName.isBlank()) {
             fileName = uniqueListFileName(dir, list.name);
             list.storageFileName = fileName;
+            file = dir.resolve(fileName);
+        } else if (file == null) {
+            fileName = uniqueListFileName(dir, list.name);
+            list.storageFileName = fileName;
+            file = dir.resolve(fileName);
         }
-        Path file = dir.resolve(fileName);
         try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
             writer.write("# ResourceTracker list v1\n");
             writer.write("id=" + safe(list.id) + "\n");
@@ -490,7 +518,7 @@ public class TrackerConfig {
             writer.write("[items]\n");
             for (TrackedItem item : list.items) {
                 if (item.itemId != null && !item.itemId.isBlank()) {
-                    writer.write(item.itemId + "=" + Math.max(1, item.targetCount) + "\n");
+                    writer.write(item.itemId + "=" + clampTargetCount(item.targetCount) + "\n");
                 }
             }
         } catch (IOException e) {
@@ -516,10 +544,10 @@ public class TrackerConfig {
             case "visible" -> list.isVisible = Boolean.parseBoolean(value);
             case "x" -> list.x = parseInt(value, list.x);
             case "y" -> list.y = parseInt(value, list.y);
-            case "scale" -> list.scale = parseFloat(value, list.scale);
+            case "scale" -> list.scale = clampScale(parseFloat(value, list.scale));
             case "showRemaining" -> list.showRemaining = Boolean.parseBoolean(value);
             case "showIcons" -> list.showIcons = Boolean.parseBoolean(value);
-            case "columns" -> list.columns = parseInt(value, list.columns);
+            case "columns" -> list.columns = clampColumns(parseInt(value, list.columns));
             case "textColor" -> list.textColor = parseColor(value, list.textColor);
             case "nameColor" -> list.nameColor = parseColor(value, list.nameColor);
             case "backgroundColor" -> list.backgroundColor = parseColor(value, list.backgroundColor);
@@ -529,18 +557,27 @@ public class TrackerConfig {
     private static void openFolder(Path path) {
         ensureDirectory(path);
         try {
-            if (Desktop.isDesktopSupported()) {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
                 Desktop.getDesktop().open(path.toFile());
             } else {
-                new ProcessBuilder("explorer.exe", path.toAbsolutePath().toString()).start();
+                openWithExplorer(path);
             }
         } catch (Exception e) {
             try {
-                new ProcessBuilder("explorer.exe", path.toAbsolutePath().toString()).start();
+                openWithExplorer(path);
             } catch (IOException fallbackError) {
                 fallbackError.printStackTrace();
             }
         }
+    }
+
+    private static void openWithExplorer(Path path) throws IOException {
+        String systemRoot = System.getenv("SystemRoot");
+        Path explorer = systemRoot == null || systemRoot.isBlank()
+                ? Path.of("C:", "Windows", "explorer.exe")
+                : Path.of(systemRoot, "explorer.exe");
+        String executable = Files.isRegularFile(explorer) ? explorer.toString() : "explorer.exe";
+        new ProcessBuilder(executable, path.toAbsolutePath().normalize().toString()).start();
     }
 
     private static void migrateLegacyContextDirectory(ActiveContext context) {
@@ -590,16 +627,89 @@ public class TrackerConfig {
         return candidate;
     }
 
+    public static float clampScale(float value) {
+        if (!Float.isFinite(value)) return 1.0f;
+        return Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
+    }
+
+    public static int clampColumns(int value) {
+        return Math.max(0, Math.min(MAX_COLUMNS, value));
+    }
+
+    public static int clampTargetCount(int value) {
+        return Math.max(1, Math.min(MAX_TARGET_COUNT, value));
+    }
+
+    private static void normalizeList(TrackingList list) {
+        if (list == null) return;
+        if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
+        if (list.name == null || list.name.isBlank()) list.name = "New List";
+        list.scale = clampScale(list.scale);
+        list.columns = clampColumns(list.columns);
+
+        List<TrackedItem> normalizedItems = new ArrayList<>();
+        if (list.items != null) {
+            for (TrackedItem item : list.items) {
+                if (item == null) continue;
+                item.targetCount = clampTargetCount(item.targetCount);
+                normalizedItems.add(item);
+            }
+        }
+        list.items = normalizedItems;
+    }
+
+    private static Path resolveListFile(Path dir, String fileName) {
+        if (dir == null || fileName == null || fileName.isBlank()) return null;
+
+        Path root = dir.toAbsolutePath().normalize();
+        Path file = root.resolve(fileName).normalize();
+        String lowerName = file.getFileName() == null ? "" : file.getFileName().toString().toLowerCase(Locale.ROOT);
+
+        if (!file.startsWith(root) || !Objects.equals(file.getParent(), root) || !lowerName.endsWith(".txt")) {
+            return null;
+        }
+        return file;
+    }
+
+    private static boolean isReservedWindowsName(String value) {
+        String name = value;
+        int dot = name.indexOf('.');
+        if (dot >= 0) {
+            name = name.substring(0, dot);
+        }
+        String upper = name.toUpperCase(Locale.ROOT);
+        return upper.equals("CON") || upper.equals("PRN") || upper.equals("AUX") || upper.equals("NUL")
+                || upper.matches("COM[1-9]") || upper.matches("LPT[1-9]");
+    }
+
+    private static String limitLength(String value, int maxLength) {
+        if (value.length() <= maxLength) return value;
+        return value.substring(0, maxLength);
+    }
+
     private static int parseInt(String value, int fallback) {
         try { return Integer.parseInt(value.trim()); } catch (Exception ignored) { return fallback; }
     }
 
     private static float parseFloat(String value, float fallback) {
-        try { return Float.parseFloat(value.trim()); } catch (Exception ignored) { return fallback; }
+        try {
+            float parsed = Float.parseFloat(value.trim());
+            return Float.isFinite(parsed) ? parsed : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private static int parseColor(String value, int fallback) {
-        try { return (int) Long.parseLong(value.trim().replace("#", ""), 16); } catch (Exception ignored) { return fallback; }
+        try {
+            String hex = value.trim().replace("#", "");
+            if (hex.length() == 6) {
+                hex = "FF" + hex;
+            }
+            return (int) Long.parseLong(hex, 16);
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private static String colorToHex(int color) {

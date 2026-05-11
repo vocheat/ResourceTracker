@@ -6,23 +6,26 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 
 public class RenderUtils {
-    public static final int PIXEL_ICON_SIZE = 16;
-
-    public static void drawPixelIcon24(GuiGraphicsExtractor context, int x, int y, int color, int[] pixels) {
-        if (pixels == null) return;
-        for (int pixel : pixels) {
-            int px = (pixel >> 8) & 0xFF;
-            int py = pixel & 0xFF;
-            if (px >= 0 && px < PIXEL_ICON_SIZE && py >= 0 && py < PIXEL_ICON_SIZE) {
-                context.fill(x + px, y + py, x + px + 1, y + py + 1, color);
-            }
-        }
+    public static void drawPngIconInBox(GuiGraphicsExtractor context, PngIcons.Icon icon, int boxX, int boxY, int boxW, int boxH, int color) {
+        PngIcons.Mask mask = icon.mask();
+        int iconX = boxX + (boxW - mask.width) / 2;
+        int iconY = boxY + (boxH - mask.height) / 2;
+        drawPngIcon(context, icon, iconX, iconY, color);
     }
 
-    public static void drawPixelIcon24InBox(GuiGraphicsExtractor context, int[] pixels, int boxX, int boxY, int boxW, int boxH, int color) {
-        int iconX = boxX + (boxW - PIXEL_ICON_SIZE) / 2;
-        int iconY = boxY + (boxH - PIXEL_ICON_SIZE) / 2;
-        drawPixelIcon24(context, iconX, iconY, color, pixels);
+    public static void drawPngIcon(GuiGraphicsExtractor context, PngIcons.Icon icon, int x, int y, int color) {
+        PngIcons.Mask mask = icon.mask();
+        int colorAlpha = (color >>> 24) & 0xFF;
+        int rgb = color & 0x00FFFFFF;
+        for (int pixel : mask.pixels) {
+            int alpha = ((pixel & 0xFF) * colorAlpha + 127) / 255;
+            if (alpha == 0) {
+                continue;
+            }
+            int px = (pixel >>> 16) & 0xFF;
+            int py = (pixel >>> 8) & 0xFF;
+            context.fill(x + px, y + py, x + px + 1, y + py + 1, (alpha << 24) | rgb);
+        }
     }
 
     public static void drawBox(GuiGraphicsExtractor context, int x, int y, int w, int h) {
@@ -84,12 +87,14 @@ public class RenderUtils {
         if (itemCount <= 0) {
             return new int[]{1, 0};
         }
-        if (list.columns > 0) {
-            int numColumns = list.columns;
+        int configuredColumns = TrackerConfig.clampColumns(list.columns);
+        if (configuredColumns > 0) {
+            int numColumns = configuredColumns;
             int itemsPerColumn = (int) Math.ceil((double) itemCount / numColumns);
             return new int[] { numColumns, itemsPerColumn };
         }
-        int availH = (int) ((screenHeight - list.y) / list.scale) - headerHeight - padding;
+        float scale = TrackerConfig.clampScale(list.scale);
+        int availH = (int) ((screenHeight - list.y) / scale) - headerHeight - padding;
         int maxPerCol = Math.max(1, availH / itemRowHeight);
         if (itemCount <= maxPerCol) {
             return new int[] { 1, itemCount };

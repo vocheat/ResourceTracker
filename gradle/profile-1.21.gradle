@@ -18,7 +18,6 @@ base {
 }
 
 repositories {
-    mavenLocal()
     maven { url 'https://maven.terraformersmc.com/releases/' }
     exclusiveContent {
         forRepository {
@@ -76,6 +75,31 @@ processResources {
                 loader_version: loader_version,
                 java_min_version: java_version.toString()
     }
+}
+
+tasks.register('verifyProfileMetadata') {
+    dependsOn processResources
+    doLast {
+        def metadataFile = layout.buildDirectory.file("resources/main/fabric.mod.json").get().asFile
+        if (!metadataFile.isFile() || metadataFile.length() == 0) {
+            throw new GradleException("Missing or empty generated fabric.mod.json for ${profile_id}: ${metadataFile}")
+        }
+
+        def metadata = metadataFile.getText('UTF-8')
+        def expectedVersion = "\"version\": \"${project.version}\""
+        def expectedMinecraft = "\"minecraft\": \">=${minecraft_min_version} <=${minecraft_max_version}\""
+        def expectedJava = "\"java\": \">=${java_version}\""
+
+        [expectedVersion, expectedMinecraft, expectedJava].each { expected ->
+            if (!metadata.contains(expected)) {
+                throw new GradleException("Generated fabric.mod.json for ${profile_id} does not contain ${expected}")
+            }
+        }
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn tasks.named('verifyProfileMetadata')
 }
 
 tasks.matching { it.name == 'sourcesJar' }.configureEach {

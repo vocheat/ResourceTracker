@@ -33,10 +33,10 @@ public class SettingsScreen extends Screen {
                 value -> TrackerConfig.INSTANCE.defaultY = value);
         y += 22;
         addFloatField(labelX, fieldX, y, "gui.resourcetracker.settings.default_scale", TrackerConfig.INSTANCE.defaultScale,
-                value -> TrackerConfig.INSTANCE.defaultScale = Math.max(0.25f, Math.min(4.0f, value)));
+                value -> TrackerConfig.INSTANCE.defaultScale = TrackerConfig.clampScale(value));
         y += 22;
         addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_columns", TrackerConfig.INSTANCE.defaultColumns,
-                value -> TrackerConfig.INSTANCE.defaultColumns = Math.max(0, Math.min(5, value)));
+                value -> TrackerConfig.INSTANCE.defaultColumns = TrackerConfig.clampColumns(value));
         y += 28;
 
         addColorEditor(centerX - 175, y, 0, "gui.resourcetracker.settings.default_text_color");

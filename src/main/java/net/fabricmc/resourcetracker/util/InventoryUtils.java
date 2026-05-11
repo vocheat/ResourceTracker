@@ -45,6 +45,7 @@ import java.util.Set;
  * @author vocheat
  */
 public class InventoryUtils {
+    private static final int MAX_CONTAINER_DEPTH = 16;
 
     /**
      * Counts the total number of a specific item in the player's inventory.
@@ -72,7 +73,7 @@ public class InventoryUtils {
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (stack.isEmpty()) continue;
-            addRecursiveCounts(stack, targetItems, counts);
+            addRecursiveCounts(stack, targetItems, counts, 0);
         }
         return counts;
     }
@@ -90,24 +91,37 @@ public class InventoryUtils {
      * @param targetItem The item type to look for.
      * @return The count of the target item found within this stack hierarchy.
      */
-    private static void addRecursiveCounts(ItemStack stack, Set<Item> targetItems, Map<Item, Integer> counts) {
+    private static void addRecursiveCounts(ItemStack stack, Set<Item> targetItems, Map<Item, Integer> counts, int depth) {
+        if (stack == null || stack.isEmpty()) return;
+
         Item item = stack.getItem();
         if (targetItems.contains(item)) {
-            counts.merge(item, stack.getCount(), Integer::sum);
+            addSaturatedCount(counts, item, stack.getCount());
+        }
+
+        if (depth >= MAX_CONTAINER_DEPTH) {
+            return;
         }
 
         ItemContainerContents containerData = stack.get(DataComponents.CONTAINER);
         if (containerData != null) {
             for (ItemStack subStack : containerData.nonEmptyItems()) {
-                addRecursiveCounts(subStack, targetItems, counts);
+                addRecursiveCounts(subStack, targetItems, counts, depth + 1);
             }
         }
 
         BundleContents bundleData = stack.get(DataComponents.BUNDLE_CONTENTS);
         if (bundleData != null) {
             for (ItemStack subStack : bundleData.items()) {
-                addRecursiveCounts(subStack, targetItems, counts);
+                addRecursiveCounts(subStack, targetItems, counts, depth + 1);
             }
         }
+    }
+
+    private static void addSaturatedCount(Map<Item, Integer> counts, Item item, int amount) {
+        counts.merge(item, amount, (current, added) -> {
+            long total = (long) current + added;
+            return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+        });
     }
 }
