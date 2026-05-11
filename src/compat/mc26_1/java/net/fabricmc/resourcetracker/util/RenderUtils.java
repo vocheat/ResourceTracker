@@ -1,5 +1,6 @@
 package net.fabricmc.resourcetracker.util;
 
+import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -7,25 +8,13 @@ import net.minecraft.network.chat.Component;
 
 public class RenderUtils {
     public static void drawPngIconInBox(GuiGraphicsExtractor context, PngIcons.Icon icon, int boxX, int boxY, int boxW, int boxH, int color) {
-        PngIcons.Mask mask = icon.mask();
-        int iconX = boxX + (boxW - mask.width) / 2;
-        int iconY = boxY + (boxH - mask.height) / 2;
+        int iconX = boxX + (boxW - icon.width()) / 2;
+        int iconY = boxY + (boxH - icon.height()) / 2;
         drawPngIcon(context, icon, iconX, iconY, color);
     }
 
     public static void drawPngIcon(GuiGraphicsExtractor context, PngIcons.Icon icon, int x, int y, int color) {
-        PngIcons.Mask mask = icon.mask();
-        int colorAlpha = (color >>> 24) & 0xFF;
-        int rgb = color & 0x00FFFFFF;
-        for (int pixel : mask.pixels) {
-            int alpha = ((pixel & 0xFF) * colorAlpha + 127) / 255;
-            if (alpha == 0) {
-                continue;
-            }
-            int px = (pixel >>> 16) & 0xFF;
-            int py = (pixel >>> 8) & 0xFF;
-            context.fill(x + px, y + py, x + px + 1, y + py + 1, (alpha << 24) | rgb);
-        }
+        VersionCompat.drawPngIcon(context, icon, x, y, color);
     }
 
     public static void drawBox(GuiGraphicsExtractor context, int x, int y, int w, int h) {

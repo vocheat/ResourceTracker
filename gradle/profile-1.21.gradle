@@ -66,6 +66,7 @@ processResources {
     inputs.property 'minecraft_max_version', minecraft_max_version
     inputs.property 'loader_version', loader_version
     inputs.property 'java_min_version', java_version.toString()
+    inputs.property 'fabric_api_version', fabric_version
     filteringCharset 'UTF-8'
 
     filesMatching('fabric.mod.json') {
@@ -73,7 +74,8 @@ processResources {
                 minecraft_min_version: minecraft_min_version,
                 minecraft_max_version: minecraft_max_version,
                 loader_version: loader_version,
-                java_min_version: java_version.toString()
+                java_min_version: java_version.toString(),
+                fabric_api_version: fabric_version
     }
 }
 
@@ -89,8 +91,10 @@ tasks.register('verifyProfileMetadata') {
         def expectedVersion = "\"version\": \"${project.version}\""
         def expectedMinecraft = "\"minecraft\": \">=${minecraft_min_version} <=${minecraft_max_version}\""
         def expectedJava = "\"java\": \">=${java_version}\""
+        def expectedLoader = "\"fabricloader\": \">=${loader_version}\""
+        def expectedFabricApi = "\"fabric-api\": \">=${fabric_version}\""
 
-        [expectedVersion, expectedMinecraft, expectedJava].each { expected ->
+        [expectedVersion, expectedMinecraft, expectedJava, expectedLoader, expectedFabricApi].each { expected ->
             if (!metadata.contains(expected)) {
                 throw new GradleException("Generated fabric.mod.json for ${profile_id} does not contain ${expected}")
             }
@@ -104,6 +108,12 @@ tasks.named('compileJava') {
 
 tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from files(
+            fileTree('src/main/java') {
+                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
+            },
+            fileTree("src/compat/${profile_id}/java")
+    )
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -151,3 +161,4 @@ publishing {
     }
     repositories {}
 }
+

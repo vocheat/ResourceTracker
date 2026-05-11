@@ -29,6 +29,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.resourcetracker.client.gui.MainScreen;
 import net.fabricmc.resourcetracker.compat.HudCompat;
 import net.fabricmc.resourcetracker.client.render.HudOverlay;
+import net.fabricmc.resourcetracker.client.render.HudRenderCache;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.InventoryUtils;
@@ -73,6 +74,8 @@ public class ResourceTrackerClient implements ClientModInitializer {
     public static KeyMapping toggleHudKey;
     private static TrackerConfig.ActiveContext lastContext = TrackerConfig.ActiveContext.none();
     private static boolean openMenuPhysicalKeyDown = false;
+    private static final Set<Item> cachedTargetItems = new HashSet<>();
+    private static String cachedTargetSignature = "";
 
     @Override
     public void onInitializeClient() {
@@ -116,32 +119,12 @@ public class ResourceTrackerClient implements ClientModInitializer {
             // Toggle global HUD visibility
             while (toggleHudKey.consumeClick()) {
                 TrackerConfig.INSTANCE.hudVisible = !TrackerConfig.INSTANCE.hudVisible;
-                TrackerConfig.save();
+                invalidateTargetItemCache();
+                TrackerConfig.saveGlobalSettingsOnly();
             }
 
             if (client.player != null && client.level != null && client.player.tickCount % 10 == 0) {
-                Set<Item> targetItems = new HashSet<>();
-                for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-                    if (!list.isVisible) continue;
-                    for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                        if (trackedItem.isValid()) {
-                            Item item = trackedItem.getItem();
-                            if (item != null) targetItems.add(item);
-                        } else {
-                            trackedItem.cachedCount = 0;
-                        }
-                    }
-                }
-
-                Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
-                for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-                    if (!list.isVisible) continue;
-                    for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                        if (trackedItem.isValid()) {
-                            trackedItem.cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
-                        }
-                    }
-                }
+                updateCachedCounts(client);
             }
         });
 
@@ -149,10 +132,84 @@ public class ResourceTrackerClient implements ClientModInitializer {
         HudCompat.register(new HudOverlay());
     }
 
+
+    public static void invalidateTargetItemCache() {
+        cachedTargetSignature = "";
+        cachedTargetItems.clear();
+        HudRenderCache.clear();
+    }
+
+    private static void updateCachedCounts(Minecraft client) {
+        if (!TrackerConfig.INSTANCE.hudVisible) return;
+
+        Set<Item> targetItems = getTargetItemsForVisibleLists();
+        if (targetItems.isEmpty()) {
+            clearVisibleCachedCounts();
+            return;
+        }
+
+        Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (!list.isVisible) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                if (trackedItem.isValid()) {
+                    trackedItem.cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                }
+            }
+        }
+    }
+
+    private static Set<Item> getTargetItemsForVisibleLists() {
+        String signature = buildTargetSignature();
+        if (signature.equals(cachedTargetSignature)) {
+            return cachedTargetItems;
+        }
+
+        cachedTargetItems.clear();
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (!list.isVisible || list.items == null) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                if (trackedItem.isValid()) {
+                    Item item = trackedItem.getItem();
+                    if (item != null) cachedTargetItems.add(item);
+                } else {
+                    trackedItem.cachedCount = 0;
+                }
+            }
+        }
+        cachedTargetSignature = signature;
+        return cachedTargetItems;
+    }
+
+    private static String buildTargetSignature() {
+        if (!TrackerConfig.INSTANCE.hudVisible || TrackerConfig.INSTANCE.lists == null) return "hidden";
+        StringBuilder signature = new StringBuilder();
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (list == null || !list.isVisible || list.items == null) continue;
+            signature.append(list.id).append(':').append(list.isVisible).append('|');
+            for (TrackerConfig.TrackedItem item : list.items) {
+                if (item != null) {
+                    signature.append(item.itemId).append('=').append(item.targetCount).append(';');
+                }
+            }
+        }
+        return signature.toString();
+    }
+
+    private static void clearVisibleCachedCounts() {
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (list == null || !list.isVisible || list.items == null) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                trackedItem.cachedCount = 0;
+            }
+        }
+    }
+
     private static void updateActiveListContext(Minecraft client) {
         TrackerConfig.ActiveContext context = getCurrentListContext(client);
         if (!lastContext.equals(context)) {
             TrackerConfig.setActiveContext(context);
+            invalidateTargetItemCache();
             lastContext = context;
         }
     }

@@ -3,9 +3,11 @@ package net.fabricmc.resourcetracker.compat;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.network.chat.Component;
@@ -13,6 +15,11 @@ import net.minecraft.world.item.Item;
 import org.lwjgl.glfw.GLFW;
 
 public class VersionCompat {
+    private static final Identifier ICONS_ATLAS = Identifier.fromNamespaceAndPath(
+            PngIcons.ATLAS_NAMESPACE,
+            PngIcons.ATLAS_PATH
+    );
+
     public static void push(GuiGraphics ctx) {
         ctx.pose().pushMatrix();
     }
@@ -27,6 +34,23 @@ public class VersionCompat {
 
     public static void scale(GuiGraphics ctx, float sx, float sy) {
         ctx.pose().scale(sx, sy);
+    }
+
+    public static void drawPngIcon(GuiGraphics context, PngIcons.Icon icon, int x, int y, int color) {
+        if (((color >>> 24) & 0xFF) == 0) return;
+        context.blit(
+                RenderPipelines.GUI_TEXTURED,
+                ICONS_ATLAS,
+                x,
+                y,
+                icon.u(),
+                icon.v(),
+                icon.width(),
+                icon.height(),
+                PngIcons.ATLAS_SIZE,
+                PngIcons.ATLAS_SIZE,
+                color
+        );
     }
 
     public static KeyMapping registerOpenKey() {

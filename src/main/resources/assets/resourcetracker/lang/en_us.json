@@ -48,5 +48,13 @@
   "gui.resourcetracker.settings.default_title_color": "Default Title RGBA",
   "gui.resourcetracker.settings.default_background_color": "Default Background RGBA",
   "gui.resourcetracker.settings.reset_defaults": "Reset Defaults",
-  "gui.resourcetracker.settings.open_lists_screen": "Lists"
+  "gui.resourcetracker.settings.open_lists_screen": "Lists",
+  "gui.resourcetracker.settings": "Settings",
+  "gui.resourcetracker.visibility_show": "Show list on HUD",
+  "gui.resourcetracker.visibility_hide": "Hide list from HUD",
+  "gui.resourcetracker.validation.integer": "Enter a whole number.",
+  "gui.resourcetracker.validation.scale": "Enter a scale from 0.25 to 4.0.",
+  "gui.resourcetracker.validation.columns": "Enter columns from 0 to 5. Use 0 for auto.",
+  "gui.resourcetracker.validation.target_count": "Enter a target count from 1 to 99999.",
+  "gui.resourcetracker.validation.rgba": "Enter RGBA values from 0 to 255."
 }

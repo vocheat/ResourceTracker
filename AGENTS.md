@@ -106,3 +106,106 @@ Key flow:
 - Before reporting completion, check for new working files outside `Workflow/`. Move them into `Workflow/` or explain why the file belongs in the project.
 - Do not add generated analysis, cache, assistant settings, or local tool output to GitHub unless the user asks for that artifact.
 
+## Workflow Directory Rules
+
+Use `Workflow/` for local planning, QA evidence, notes, generated work files, and assistant scratch files. Keep production code, resources, Gradle files, and release artifacts outside `Workflow/` only when they belong in the mod or the user asks to publish them.
+
+### Root
+
+- Do not add new working files directly under `Workflow/`.
+- Root-level files are only for a future `README.md`, `INBOX.md`, or legacy files that already exist.
+- When editing an old root-level checklist or plan, move it to the correct subfolder first.
+
+### `Workflow/plans/`
+
+Use this folder for implementation plans, roadmaps, task breakdowns, and active TODO lists.
+
+- Name new plans as `PLAN_<scope>.md`.
+- Use uppercase words and underscores for the scope: `PLAN_1.3.3.md`, `PLAN_MC26_1_PORT.md`, `PLAN_UI_RESPONSIVE_FIXES.md`.
+- Keep checkboxes in plans until the task closes.
+- When every item in a plan is complete, rename it to `PLAN_<scope>.done-YYYY-MM-DD.md`.
+- Do not delete finished plans.
+
+### `Workflow/notes/`
+
+Use this folder for durable project notes that should survive across sessions.
+
+- Use `CODEBASE_MEMORY.md` for broad architecture notes and facts worth reusing.
+- Use `NOTE_<topic>.md` for new focused notes.
+- Use `<topic>_progress.md` only for active porting or migration logs.
+- Use `<topic>_transition.md` for API or version transition notes.
+- Keep temporary reasoning out of `notes/` unless it will help a later session.
+
+### `Workflow/qa/`
+
+Use this folder for QA triage files that do not fit a specific test plan or log run.
+
+- Keep temporary bug intake in `BUGS_TEMP.md`.
+- Move confirmed bug work from `BUGS_TEMP.md` into a plan under `Workflow/plans/`.
+- Put manual checklists and test plans in `Workflow/qa/test-plans/`.
+- Put logs and crash reports in `Workflow/qa/test-logs/`.
+
+### `Workflow/qa/test-plans/`
+
+Use this folder for manual QA checklists, test matrices, and verification notes.
+
+- Name release checklists as `CHECKLIST_<version>.md`, for example `CHECKLIST_1.3.3.md`.
+- Name broader test plans as `TEST_PLAN_<scope>_YYYY-MM-DD.md`.
+- Use Markdown checkboxes: `- [ ]` and `- [x]`.
+- Include exact profile names when a check differs by Minecraft version.
+
+### `Workflow/qa/test-logs/`
+
+Use this folder for captured logs from Gradle, `runClient`, crash reports, and manual QA runs.
+
+- Create one folder per run: `YYYYMMDD-HHMMSS`.
+- Inside a run folder, group files by profile id: `mc1_21_0_to_1_21_4`, `mc1_21_5`, `mc1_21_6_to_1_21_8`, `mc1_21_9_to_1_21_11`, `mc26_1`.
+- Use stable log names: `prepare.out.log`, `prepare.err.log`, `gradle-run.out.log`, `gradle-run.err.log`, `latest.log`, `debug.log`.
+- Copy crash reports into a `crash-reports/` subfolder under the affected profile.
+- Do not mix logs from different run times in the same timestamp folder.
+
+### `Workflow/sessions/`
+
+Use this folder for session summaries and handoff notes.
+
+- Name session files as `SESSION_<YYYY-MM-DD>_<scope>.md`.
+- Use `SESSION_RESULTS_<YYYY-MM-DD>.md` for full-day result summaries.
+- If several summaries share a date, add a short scope or suffix: `SESSION_2026-05-11_1.3.3-ui.md`.
+- Include commands run, profiles checked, files changed, and remaining risks.
+
+### `Workflow/releases/`
+
+Use this folder for release notes, changelog drafts, and store or GitHub release text.
+
+- Name user-facing release notes as `RELEASE_NOTES_<version>.md`.
+- Put platform-specific drafts in `Workflow/releases/release-notes/`.
+- Name GitHub release drafts as `v<version>.github.md`.
+- For changelogs or release notes, use `$changelog-generator` first, then run `$stop-slop`.
+
+### `Workflow/assets/`
+
+Use this folder for draft assets, generated images, SVG sources, and design experiments.
+
+- Keep icon SVG sources in `Workflow/assets/icons/svg/`.
+- Name source assets after the target icon or feature: `settings.svg`, `hud_preview.png`.
+- Move assets into `src/main/resources/` only when the mod uses them.
+- Keep generated variants in `Workflow/assets/` unless the user asks to publish them.
+
+### `Workflow/tools/`
+
+Use this folder for local helper configs and assistant-only tools.
+
+- Keep MCP config examples under `Workflow/tools/mcp/`.
+- Put one-off helper scripts here unless they become project build tooling.
+- If a script affects production builds or releases, move it to the proper project folder and explain why.
+- Keep `Workflow/tools/run-client-profile.bat` in sync with supported run profiles. Update it when a new Minecraft profile appears, a profile build file is renamed, a `runClient` command changes, or a profile needs a different Java path.
+
+### Naming Rules
+
+- Markdown docs use `.md`.
+- Logs use `.log`.
+- Run folders use `YYYYMMDD-HHMMSS`.
+- Done plans use `.done-YYYY-MM-DD.md`.
+- Avoid spaces in new file and folder names.
+- Use lowercase for tool/config folders and uppercase prefixes for workflow documents: `PLAN_`, `CHECKLIST_`, `TEST_PLAN_`, `NOTE_`, `SESSION_`, `RELEASE_NOTES_`.
+
