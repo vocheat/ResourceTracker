@@ -44,14 +44,17 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 public class EditScreen extends Screen {
     private static final int SEARCH_HEIGHT = 26;
     private static final int ITEM_ROW_HEIGHT = 28;
+    private static final int MIN_LIST_BOX_HEIGHT = 72;
 
     private final Screen parent;
     private final TrackerConfig.TrackingList list;
@@ -68,11 +71,17 @@ public class EditScreen extends Screen {
     private final Map<TrackerConfig.TrackedItem, EditBox> itemCountFields = new HashMap<>();
     private final Map<Item, ItemStack> searchStackCache = new HashMap<>();
     private final Map<Item, String> itemDisplayNames = new HashMap<>();
+    private final Map<Item, String> itemIds = new HashMap<>();
+    private final Map<Item, String> itemDisplayNamesLower = new HashMap<>();
+    private final Map<Item, String> itemIdsLower = new HashMap<>();
+    private final Map<EditBox, Component> invalidFields = new IdentityHashMap<>();
     private final List<LabelData> labels = new ArrayList<>();
 
     private double scrollLeft = 0;
     private double scrollRight = 0;
     private int listAreaY;
+    private int leftBoxY;
+    private int rightBoxY;
     private int leftBoxX;
     private int rightBoxX;
     private int boxWidth;
@@ -81,16 +90,16 @@ public class EditScreen extends Screen {
     private boolean isDraggingScrollLeft = false;
     private boolean isDraggingScrollRight = false;
 
-    private int listContentTop() {
-        return listAreaY + SEARCH_HEIGHT + 1;
+    private int listContentTop(int boxY) {
+        return boxY + SEARCH_HEIGHT + 1;
     }
 
-    private int listContentBottom() {
-        return listAreaY + boxHeight - 2;
+    private int listContentBottom(int boxY) {
+        return boxY + boxHeight - 2;
     }
 
-    private int rowIndexAt(double mouseY, double scroll) {
-        return (int) ((mouseY - listContentTop() - 2 + scroll) / ITEM_ROW_HEIGHT);
+    private int rowIndexAt(double mouseY, double scroll, int boxY) {
+        return (int) ((mouseY - listContentTop(boxY) - 2 + scroll) / ITEM_ROW_HEIGHT);
     }
 
     private EditBox[] textRgbA = new EditBox[4];
@@ -110,11 +119,17 @@ public class EditScreen extends Screen {
         this.clearWidgets();
         this.labels.clear();
         this.itemCountFields.clear();
+        this.invalidFields.clear();
 
         if (availableItems.isEmpty()) {
             BuiltInRegistries.ITEM.stream().forEach(item -> {
                 availableItems.add(item);
-                itemDisplayNames.put(item, VersionCompat.getItemName(item));
+                String displayName = VersionCompat.getItemName(item);
+                String itemId = VersionCompat.getItemId(item);
+                itemDisplayNames.put(item, displayName);
+                itemIds.put(item, itemId);
+                itemDisplayNamesLower.put(item, displayName.toLowerCase(Locale.ROOT));
+                itemIdsLower.put(item, itemId.toLowerCase(Locale.ROOT));
             });
             availableItems.sort(Comparator.comparing(itemDisplayNames::get));
         }
@@ -137,33 +152,23 @@ public class EditScreen extends Screen {
         int curX = startX + nameW + gap;
 
         addLabel(Component.translatable("gui.resourcetracker.edit.pos_x"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
-        xField = createSmallField(curX, row1Y, fieldW, list.x, s -> {
-            try {
-                list.x = Integer.parseInt(s);
-            } catch (NumberFormatException ignored) {
-            }
-        });
+        xField = createIntField(curX, row1Y, fieldW, list.x, null, null,
+                Component.translatable("gui.resourcetracker.validation.integer"),
+                value -> list.x = value);
         this.addRenderableWidget(xField);
         curX += fieldW + gap;
 
         addLabel(Component.translatable("gui.resourcetracker.edit.pos_y"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
-        yField = createSmallField(curX, row1Y, fieldW, list.y, s -> {
-            try {
-                list.y = Integer.parseInt(s);
-            } catch (NumberFormatException ignored) {
-            }
-        });
+        yField = createIntField(curX, row1Y, fieldW, list.y, null, null,
+                Component.translatable("gui.resourcetracker.validation.integer"),
+                value -> list.y = value);
         this.addRenderableWidget(yField);
         curX += fieldW + gap;
 
         addLabel(Component.translatable("gui.resourcetracker.edit.scale"), curX, fieldW, row1Y - 12, 0xFFAAAAAA);
-        scaleField = createSmallField(curX, row1Y, fieldW, String.valueOf(list.scale), s -> {
-            try {
-                float v = Float.parseFloat(s);
-                list.scale = TrackerConfig.clampScale(v);
-            } catch (NumberFormatException ignored) {
-            }
-        });
+        scaleField = createFloatField(curX, row1Y, fieldW, list.scale, TrackerConfig.MIN_SCALE, TrackerConfig.MAX_SCALE,
+                Component.translatable("gui.resourcetracker.validation.scale"),
+                value -> list.scale = value);
         this.addRenderableWidget(scaleField);
 
         int row2Y = row1Y + 21;
@@ -253,29 +258,43 @@ public class EditScreen extends Screen {
 
         listAreaY = row3Y + 40;
         int bottomGap = 44;
-        boxWidth = 220;
-        boxHeight = this.height - listAreaY - bottomGap;
         int midGap = 15;
-        int totalListsWidth = (boxWidth * 2) + midGap;
-        leftBoxX = centerX - (totalListsWidth / 2);
-        rightBoxX = leftBoxX + boxWidth + midGap;
+        boolean wideLayout = this.width >= 480;
+        if (wideLayout) {
+            boxWidth = Math.min(220, Math.max(120, (this.width - 20 - midGap) / 2));
+            boxHeight = Math.max(MIN_LIST_BOX_HEIGHT, this.height - listAreaY - bottomGap);
+            int totalListsWidth = (boxWidth * 2) + midGap;
+            leftBoxX = centerX - (totalListsWidth / 2);
+            rightBoxX = leftBoxX + boxWidth + midGap;
+            leftBoxY = listAreaY;
+            rightBoxY = listAreaY;
+        } else {
+            boxWidth = Math.min(280, Math.max(120, this.width - 16));
+            int verticalGap = 18;
+            int availableHeight = Math.max((MIN_LIST_BOX_HEIGHT * 2) + verticalGap, this.height - listAreaY - bottomGap);
+            boxHeight = Math.max(MIN_LIST_BOX_HEIGHT, (availableHeight - verticalGap) / 2);
+            leftBoxX = centerX - (boxWidth / 2);
+            rightBoxX = leftBoxX;
+            leftBoxY = listAreaY;
+            rightBoxY = listAreaY + boxHeight + verticalGap;
+        }
 
-        searchField = new EditBox(font, leftBoxX + 6, listAreaY + 7, boxWidth - 38, 16,
+        searchField = new EditBox(font, leftBoxX + 6, leftBoxY + 7, boxWidth - 38, 16,
                 Component.translatable("gui.resourcetracker.edit.search"));
         searchField.setResponder(this::updateSearch);
         searchField.setBordered(false);
         searchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(searchField);
 
-        trackedSearchField = new EditBox(font, rightBoxX + 6, listAreaY + 7, boxWidth - 38, 16,
+        trackedSearchField = new EditBox(font, rightBoxX + 6, rightBoxY + 7, boxWidth - 38, 16,
                 Component.translatable("gui.resourcetracker.edit.search"));
         trackedSearchField.setResponder(this::updateTrackedSearch);
         trackedSearchField.setBordered(false);
         trackedSearchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(trackedSearchField);
 
-        addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
-        addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, listAreaY - 9, 0xFFFFFFFF);
+        addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, leftBoxY - 9, 0xFFFFFFFF);
+        addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, rightBoxY - 9, 0xFFFFFFFF);
 
         int botBtnW = 100;
         int botBtnGap = 15;
@@ -290,7 +309,8 @@ public class EditScreen extends Screen {
                                 list.items.clear();
                                 refreshCountWidgets();
                                 updateTrackedSearch(trackedSearchField.getValue());
-                                TrackerConfig.save();
+                                TrackerConfig.saveList(list);
+                                net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
                             }
                             this.minecraft.setScreen(EditScreen.this);
                         },
@@ -317,13 +337,13 @@ public class EditScreen extends Screen {
         context.fill(0, 0, width, height, 0xA0000000);
         context.centeredText(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
 
-        RenderUtils.drawBoxFill(context, leftBoxX, listAreaY, boxWidth, boxHeight);
-        renderSearchBar(context, leftBoxX, listAreaY, boxWidth, searchField);
-        renderItemList(context, mouseX, mouseY, leftBoxX, listAreaY, boxWidth, boxHeight, filteredItems, scrollLeft);
+        RenderUtils.drawBoxFill(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
+        renderSearchBar(context, leftBoxX, leftBoxY, boxWidth, searchField);
+        renderItemList(context, mouseX, mouseY, leftBoxX, leftBoxY, boxWidth, boxHeight, filteredItems, scrollLeft);
 
-        RenderUtils.drawBoxFill(context, rightBoxX, listAreaY, boxWidth, boxHeight);
-        renderSearchBar(context, rightBoxX, listAreaY, boxWidth, trackedSearchField);
-        renderAddedList(context, mouseX, mouseY, rightBoxX, listAreaY, boxWidth, boxHeight);
+        RenderUtils.drawBoxFill(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        renderSearchBar(context, rightBoxX, rightBoxY, boxWidth, trackedSearchField);
+        renderAddedList(context, mouseX, mouseY, rightBoxX, rightBoxY, boxWidth, boxHeight);
 
         super.extractRenderState(context, mouseX, mouseY, delta);
 
@@ -331,13 +351,14 @@ public class EditScreen extends Screen {
             context.text(font, label.text, label.x, label.y, label.color, true);
         }
 
-        RenderUtils.drawBoxOutline(context, leftBoxX, listAreaY, boxWidth, boxHeight);
-        RenderUtils.drawBoxOutline(context, rightBoxX, listAreaY, boxWidth, boxHeight);
+        RenderUtils.drawBoxOutline(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
+        RenderUtils.drawBoxOutline(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
 
         if (hoveredTooltipText != null) {
             VersionCompat.setTooltip(context, font, hoveredTooltipText, mouseX, mouseY);
             hoveredTooltipText = null;
         }
+        showInvalidFieldTooltip(context, mouseX, mouseY);
     }
 
     private void resetSettings() {
@@ -364,11 +385,14 @@ public class EditScreen extends Screen {
                 widget = new EditBox(font, 0, 0, 35, 14, Component.translatable("gui.resourcetracker.edit.count_field"));
                 widget.setValue(String.valueOf(item.targetCount));
                 widget.setTextColor(0xFFFFFFFF);
+                EditBox countField = widget;
                 widget.setResponder(val -> {
-                    try {
-                        int v = Integer.parseInt(val);
-                        item.targetCount = TrackerConfig.clampTargetCount(v);
-                    } catch (NumberFormatException ignored) {
+                    Integer v = parseInteger(val);
+                    boolean valid = v != null && v >= 1 && v <= TrackerConfig.MAX_TARGET_COUNT;
+                    markFieldValidity(countField, valid, Component.translatable("gui.resourcetracker.validation.target_count"));
+                    if (valid) {
+                        item.targetCount = v;
+                        net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
                     }
                 });
             }
@@ -381,7 +405,7 @@ public class EditScreen extends Screen {
 
     private void updateSearch(String query) {
         filteredItems.clear();
-        String q = query.toLowerCase().trim();
+        String q = query.toLowerCase(Locale.ROOT).trim();
 
         if (q.isEmpty()) {
             filteredItems.addAll(availableItems);
@@ -390,9 +414,15 @@ public class EditScreen extends Screen {
             List<Item> contains = new ArrayList<>();
 
             for (Item item : availableItems) {
-                String name = itemDisplayNames.getOrDefault(item, "").toLowerCase();
-                String id = VersionCompat.getItemId(item).toLowerCase();
-                if (name.startsWith(q) || id.startsWith(q) || id.startsWith("minecraft:" + q)) {
+                String name = itemDisplayNamesLower.get(item);
+                String id = itemIdsLower.get(item);
+                if (name == null || id == null) {
+                    cacheItemText(item);
+                    name = itemDisplayNamesLower.getOrDefault(item, "");
+                    id = itemIdsLower.getOrDefault(item, "");
+                }
+                boolean queryWithoutNamespace = !q.contains(":");
+                if (name.startsWith(q) || id.startsWith(q) || (queryWithoutNamespace && id.startsWith("minecraft:" + q))) {
                     startsWith.add(item);
                 } else if (name.contains(q) || id.contains(q)) {
                     contains.add(item);
@@ -406,14 +436,16 @@ public class EditScreen extends Screen {
 
     private void updateTrackedSearch(String query) {
         filteredTrackedItems.clear();
-        String q = query.toLowerCase().trim();
+        String q = query.toLowerCase(Locale.ROOT).trim();
 
         if (q.isEmpty()) {
             filteredTrackedItems.addAll(list.items);
         } else {
             for (TrackerConfig.TrackedItem trackedItem : list.items) {
                 if (!trackedItem.isValid()) continue;
-                if (trackedItem.getDisplayName().toLowerCase().contains(q)) {
+                String name = trackedItem.getDisplayName().toLowerCase(Locale.ROOT);
+                String id = trackedItem.itemId == null ? "" : trackedItem.itemId.toLowerCase(Locale.ROOT);
+                if (name.contains(q) || id.contains(q) || (!q.contains(":") && id.startsWith("minecraft:" + q))) {
                     filteredTrackedItems.add(trackedItem);
                 }
             }
@@ -432,7 +464,9 @@ public class EditScreen extends Screen {
 
         Item hoveredItem = null;
 
-        for (int i = 0; i < items.size(); i++) {
+        int firstVisibleIndex = Math.max(0, (int) Math.floor((scroll - 2) / itemH));
+        int lastVisibleIndex = Math.min(items.size() - 1, (int) Math.ceil((scroll + displayHeight) / itemH));
+        for (int i = firstVisibleIndex; i <= lastVisibleIndex; i++) {
             int cy = startY + (i * itemH);
             if (cy + itemH < startDisplayY || cy > y + h) continue;
 
@@ -446,7 +480,8 @@ public class EditScreen extends Screen {
 
             context.item(searchStackCache.computeIfAbsent(item, ItemStack::new), x + 4, cy + 6);
 
-            String name = RenderUtils.shortenText(font, itemDisplayNames.getOrDefault(item, VersionCompat.getItemName(item)), w - 28);
+            String name = getCachedItemName(item);
+            name = RenderUtils.shortenText(font, name, w - 28);
             context.text(font, Component.literal(name), x + 24, cy + 10, 0xFFFFFFFF, true);
         }
 
@@ -455,7 +490,7 @@ public class EditScreen extends Screen {
         RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, items.size() * itemH + 6, scroll);
 
         if (hoveredItem != null) {
-            hoveredTooltipText = searchStackCache.computeIfAbsent(hoveredItem, ItemStack::new).getHoverName();
+            hoveredTooltipText = Component.literal(getCachedItemName(hoveredItem));
         }
     }
 
@@ -473,7 +508,9 @@ public class EditScreen extends Screen {
             widget.setVisible(false);
         }
 
-        for (int i = 0; i < filteredTrackedItems.size(); i++) {
+        int firstVisibleIndex = Math.max(0, (int) Math.floor((scrollRight - 2) / itemH));
+        int lastVisibleIndex = Math.min(filteredTrackedItems.size() - 1, (int) Math.ceil((scrollRight + displayHeight) / itemH));
+        for (int i = firstVisibleIndex; i <= lastVisibleIndex; i++) {
             TrackerConfig.TrackedItem trackedItem = filteredTrackedItems.get(i);
             int cy = startY + (i * itemH);
 
@@ -508,6 +545,9 @@ public class EditScreen extends Screen {
             int crossY = cy + 2;
             boolean crossHover = mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24;
             int crossColor = crossHover ? 0xFFFF5555 : 0xFF888888;
+            if (crossHover) {
+                hoveredTooltipText = Component.translatable("gui.resourcetracker.delete");
+            }
             RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CROSS, crossX, crossY, 24, 24, crossColor);
         }
 
@@ -517,7 +557,7 @@ public class EditScreen extends Screen {
                 filteredTrackedItems.size() * itemH + 6, scrollRight);
 
         if (hoveredTracked != null) {
-            hoveredTooltipText = hoveredTracked.isValid() ? hoveredTracked.getStack().getHoverName() : Component.literal(hoveredTracked.itemId);
+            hoveredTooltipText = hoveredTracked.isValid() ? Component.literal(hoveredTracked.getDisplayName()) : Component.literal(hoveredTracked.itemId);
         }
     }
 
@@ -543,23 +583,25 @@ public class EditScreen extends Screen {
 
         double mx = event.x();
         double my = event.y();
-        int listContentY = listContentTop();
-        int listContentBottom = listContentBottom();
+        int leftContentY = listContentTop(leftBoxY);
+        int leftContentBottom = listContentBottom(leftBoxY);
+        int rightContentY = listContentTop(rightBoxY);
+        int rightContentBottom = listContentBottom(rightBoxY);
 
         if (mx > leftBoxX + boxWidth - 10 && mx < leftBoxX + boxWidth
-                && my >= listContentY && my < listContentBottom) {
+                && my >= leftContentY && my < leftContentBottom) {
             isDraggingScrollLeft = true;
             return true;
         }
 
         if (mx > rightBoxX + boxWidth - 10 && mx < rightBoxX + boxWidth
-                && my >= listContentY && my < listContentBottom) {
+                && my >= rightContentY && my < rightContentBottom) {
             isDraggingScrollRight = true;
             return true;
         }
 
-        if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= listContentY && my < listContentBottom) {
-            int idx = rowIndexAt(my, scrollLeft);
+        if (mx >= leftBoxX && mx < leftBoxX + boxWidth - 10 && my >= leftContentY && my < leftContentBottom) {
+            int idx = rowIndexAt(my, scrollLeft, leftBoxY);
             if (idx >= 0 && idx < filteredItems.size()) {
                 addItem(filteredItems.get(idx));
                 updateTrackedSearch(trackedSearchField.getValue());
@@ -567,10 +609,10 @@ public class EditScreen extends Screen {
             }
         }
 
-        if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= listContentY && my < listContentBottom) {
-            int idx = rowIndexAt(my, scrollRight);
+        if (mx >= rightBoxX && mx < rightBoxX + boxWidth - 10 && my >= rightContentY && my < rightContentBottom) {
+            int idx = rowIndexAt(my, scrollRight, rightBoxY);
             if (idx >= 0 && idx < filteredTrackedItems.size()) {
-                int itemY = listContentY + (idx * ITEM_ROW_HEIGHT) - (int) scrollRight + 2;
+                int itemY = rightContentY + (idx * ITEM_ROW_HEIGHT) - (int) scrollRight + 2;
                 int crossX = rightBoxX + boxWidth - 29;
                 int crossY = itemY + 2;
 
@@ -579,6 +621,7 @@ public class EditScreen extends Screen {
                     list.items.remove(toRemove);
                     refreshCountWidgets();
                     updateTrackedSearch(trackedSearchField.getValue());
+                    net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
                     playClickSound();
                 }
                 return true;
@@ -607,11 +650,12 @@ public class EditScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         double amount = verticalAmount;
-        int listContentY = listAreaY + SEARCH_HEIGHT + 2;
+        int leftContentY = leftBoxY + SEARCH_HEIGHT + 2;
+        int rightContentY = rightBoxY + SEARCH_HEIGHT + 2;
         int listVisibleH = boxHeight - SEARCH_HEIGHT - 2;
 
         if (mouseX >= leftBoxX && mouseX <= leftBoxX + boxWidth
-                && mouseY >= listContentY && mouseY <= listAreaY + boxHeight) {
+                && mouseY >= leftContentY && mouseY <= leftBoxY + boxHeight) {
             double contentH = filteredItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
                 scrollLeft = Mth.clamp(scrollLeft - (amount * ITEM_ROW_HEIGHT), 0, contentH - listVisibleH);
@@ -620,7 +664,7 @@ public class EditScreen extends Screen {
         }
 
         if (mouseX >= rightBoxX && mouseX <= rightBoxX + boxWidth
-                && mouseY >= listContentY && mouseY <= listAreaY + boxHeight) {
+                && mouseY >= rightContentY && mouseY <= rightBoxY + boxHeight) {
             double contentH = filteredTrackedItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
                 scrollRight = Mth.clamp(scrollRight - (amount * ITEM_ROW_HEIGHT), 0, contentH - listVisibleH);
@@ -636,14 +680,14 @@ public class EditScreen extends Screen {
         if (isDraggingScrollLeft) {
             double contentH = filteredItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
-                double pct = (mouseY - listContentTop()) / (double) listVisibleH;
+                double pct = (mouseY - listContentTop(leftBoxY)) / (double) listVisibleH;
                 scrollLeft = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
             }
         }
         if (isDraggingScrollRight) {
             double contentH = filteredTrackedItems.size() * ITEM_ROW_HEIGHT + 6;
             if (contentH > listVisibleH) {
-                double pct = (mouseY - listContentTop()) / (double) listVisibleH;
+                double pct = (mouseY - listContentTop(rightBoxY)) / (double) listVisibleH;
                 scrollRight = Mth.clamp(pct * contentH - (listVisibleH / 2.0), 0, contentH - listVisibleH);
             }
         }
@@ -655,11 +699,83 @@ public class EditScreen extends Screen {
         labels.add(new LabelData(text, centeredX, y, color));
     }
 
-    private EditBox createSmallField(int x, int y, int w, Object val, Consumer<String> onChange) {
+    private EditBox createIntField(int x, int y, int w, int value, Integer min, Integer max, Component tooltip, IntConsumer onChange) {
         EditBox field = new EditBox(font, x, y, w, 14, Component.empty());
-        field.setValue(String.valueOf(val));
-        field.setResponder(onChange);
+        field.setValue(String.valueOf(value));
+        field.setResponder(text -> {
+            Integer parsed = parseInteger(text);
+            boolean valid = parsed != null && (min == null || parsed >= min) && (max == null || parsed <= max);
+            markFieldValidity(field, valid, tooltip);
+            if (valid) onChange.accept(parsed);
+        });
         return field;
+    }
+
+    private EditBox createFloatField(int x, int y, int w, float value, float min, float max, Component tooltip, FloatSetter onChange) {
+        EditBox field = new EditBox(font, x, y, w, 14, Component.empty());
+        field.setValue(String.valueOf(value));
+        field.setResponder(text -> {
+            Float parsed = parseFloat(text);
+            boolean valid = parsed != null && Float.isFinite(parsed) && parsed >= min && parsed <= max;
+            markFieldValidity(field, valid, tooltip);
+            if (valid) onChange.set(parsed);
+        });
+        return field;
+    }
+
+    private Integer parseInteger(String text) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private Float parseFloat(String text) {
+        try {
+            return Float.parseFloat(text.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void markFieldValidity(EditBox field, boolean valid, Component tooltip) {
+        field.setTextColor(valid ? 0xFFFFFFFF : 0xFFFF5555);
+        if (valid) invalidFields.remove(field);
+        else invalidFields.put(field, tooltip);
+    }
+
+    private void showInvalidFieldTooltip(GuiGraphicsExtractor context, int mouseX, int mouseY) {
+        for (Map.Entry<EditBox, Component> entry : invalidFields.entrySet()) {
+            EditBox field = entry.getKey();
+            if (field.isFocused() || isFieldHovered(field, mouseX, mouseY)) {
+                VersionCompat.setTooltip(context, font, entry.getValue(), mouseX, mouseY);
+                return;
+            }
+        }
+    }
+
+    private boolean isFieldHovered(EditBox field, int mouseX, int mouseY) {
+        return field.visible && mouseX >= field.getX() && mouseX < field.getX() + field.getWidth()
+                && mouseY >= field.getY() && mouseY < field.getY() + field.getHeight();
+    }
+
+    private void cacheItemText(Item item) {
+        String displayName = VersionCompat.getItemName(item);
+        String itemId = VersionCompat.getItemId(item);
+        itemDisplayNames.put(item, displayName);
+        itemIds.put(item, itemId);
+        itemDisplayNamesLower.put(item, displayName.toLowerCase(Locale.ROOT));
+        itemIdsLower.put(item, itemId.toLowerCase(Locale.ROOT));
+    }
+
+    private String getCachedItemName(Item item) {
+        String name = itemDisplayNames.get(item);
+        if (name == null) {
+            cacheItemText(item);
+            name = itemDisplayNames.get(item);
+        }
+        return name == null ? "" : name;
     }
 
     private int getAlphaForIndex(int index) {
@@ -719,25 +835,31 @@ public class EditScreen extends Screen {
     private void applyInlineColor(int index) {
         EditBox[] fields = index == 0 ? textRgbA : index == 1 ? titleRgbA : bgRgbA;
         if (fields == null || fields[0] == null) return;
-        try {
-            int r = clamp(Integer.parseInt(fields[0].getValue()));
-            int g = clamp(Integer.parseInt(fields[1].getValue()));
-            int b = clamp(Integer.parseInt(fields[2].getValue()));
-            int a = clamp(Integer.parseInt(fields[3].getValue()));
+        Integer r = parseInteger(fields[0].getValue());
+        Integer g = parseInteger(fields[1].getValue());
+        Integer b = parseInteger(fields[2].getValue());
+        Integer a = parseInteger(fields[3].getValue());
+        boolean valid = isByte(r) & isByte(g) & isByte(b) & isByte(a);
+        Component tooltip = Component.translatable("gui.resourcetracker.validation.rgba");
+        markFieldValidity(fields[0], isByte(r), tooltip);
+        markFieldValidity(fields[1], isByte(g), tooltip);
+        markFieldValidity(fields[2], isByte(b), tooltip);
+        markFieldValidity(fields[3], isByte(a), tooltip);
+        if (valid) {
             int rgb = (r << 16) | (g << 8) | b;
             setColorForIndex(index, rgb);
             setAlphaForIndex(index, a);
-        } catch (NumberFormatException ignored) {
         }
     }
 
-    private int clamp(int val) {
-        return Math.max(0, Math.min(255, val));
+    private boolean isByte(Integer value) {
+        return value != null && value >= 0 && value <= 255;
     }
 
     @Override
     public void onClose() {
-        TrackerConfig.save();
+        TrackerConfig.saveList(list);
+        net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
         this.minecraft.setScreen(parent);
     }
 
@@ -750,6 +872,7 @@ public class EditScreen extends Screen {
         }
 
         list.items.add(new TrackerConfig.TrackedItem(id, 1));
+        net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
         if (this.minecraft != null && this.minecraft.player != null) {
             playClickSound();
         }
@@ -760,6 +883,10 @@ public class EditScreen extends Screen {
         if (this.minecraft != null && this.minecraft.player != null) {
             this.minecraft.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 1.0f);
         }
+    }
+
+    private interface FloatSetter {
+        void set(float value);
     }
 
 }

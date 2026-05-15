@@ -59,7 +59,7 @@ public class HudMoveScreen extends Screen {
     @Override
     protected void init() {
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
-            TrackerConfig.save();
+            TrackerConfig.saveAllActiveContextLists();
             minecraft.setScreen(parent);
         }).bounds(width / 2 - 50, height - 30, 100, 20).build());
     }
@@ -269,7 +269,7 @@ public class HudMoveScreen extends Screen {
             // Mouse Released: Stop dragging and save
             if (draggingList != null) {
                 draggingList = null;
-                TrackerConfig.save();
+                TrackerConfig.saveAllActiveContextLists();
             }
         }
         this.wasMouseDown = isMouseDown;

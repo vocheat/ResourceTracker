@@ -70,8 +70,6 @@ public class MainScreen extends Screen {
     private int addIconY;
     private int reloadIconX;
     private int reloadIconY;
-    private int gearIconX;
-    private int gearIconY;
     private int worldFolderIconX;
     private int worldFolderIconY;
     private int allFolderIconX;
@@ -90,41 +88,30 @@ public class MainScreen extends Screen {
     protected void init() {
         super.init();
         this.clearWidgets();
-        this.listTop = 78;
+        this.listTop = 82;
         this.listBottom = this.height - 50;
 
         int centerX = this.width / 2;
-        int boxWidth = 280;
-        int boxX = centerX - (boxWidth / 2);
+        int boxWidth = getBoxWidth();
+        int boxX = getBoxX(boxWidth);
         int toolY = this.listTop - 21;
+        int sideWidth = 150;
         int sideX = boxX + boxWidth + 12;
-        if (sideX + 150 > this.width - 8) {
-            sideX = Math.max(8, boxX - 162);
+        int sideY = this.listTop;
+        if (sideX + sideWidth > this.width - 8) {
+            sideX = boxX;
+            this.listBottom = Math.max(this.listTop + 50, this.height - 126);
+            sideY = this.listBottom + 6;
         }
 
-        this.gearIconX = boxX - 28;
-        this.gearIconY = 25;
         this.addIconX = boxX;
         this.addIconY = toolY;
         this.reloadIconX = boxX + boxWidth - 21;
         this.reloadIconY = toolY;
         this.worldFolderIconX = sideX;
-        this.worldFolderIconY = this.listTop;
+        this.worldFolderIconY = sideY;
         this.allFolderIconX = sideX;
-        this.allFolderIconY = this.listTop + 25;
-
-        this.settingsButton = this.addRenderableWidget(
-                Button.builder(
-                                Component.literal(""),
-                                button -> {
-                                    if (this.minecraft != null) {
-                                        this.minecraft.setScreen(new SettingsScreen(this));
-                                    }
-                                }
-                        )
-                        .bounds(this.gearIconX, this.gearIconY, 21, 21)
-                        .build()
-        );
+        this.allFolderIconY = sideY + 25;
 
         this.addListButton = this.addRenderableWidget(
                 Button.builder(
@@ -133,7 +120,8 @@ public class MainScreen extends Screen {
                                     TrackerConfig.TrackingList newList = TrackerConfig.createList("List " + (TrackerConfig.INSTANCE.lists.size() + 1));
                                     newList.isVisible = true;
                                     TrackerConfig.INSTANCE.lists.add(newList);
-                                    TrackerConfig.save();
+                                    TrackerConfig.saveList(newList);
+                                    ResourceTrackerClient.invalidateTargetItemCache();
                                     this.scrollOffset = Double.MAX_VALUE;
                                     this.init();
                                 }
@@ -147,6 +135,7 @@ public class MainScreen extends Screen {
                         Component.literal(""),
                         button -> {
                             TrackerConfig.reloadActiveContextLists();
+                            ResourceTrackerClient.invalidateTargetItemCache();
                             this.scrollOffset = 0;
                             this.init();
                         }
@@ -169,23 +158,23 @@ public class MainScreen extends Screen {
                         .build()
         );
 
-        this.openWorldFolderButton = Button.builder(
-                        Component.literal("   ").append(Component.translatable("gui.resourcetracker.open_world_lists")),
-                        button -> TrackerConfig.openActiveListsFolder()
-                )
-                .bounds(sideX, this.listTop, 150, 21)
-                .build();
+        this.openWorldFolderButton = createActionButton(sideX, sideY,
+                Component.translatable("gui.resourcetracker.open_world_lists"),
+                button -> TrackerConfig.openActiveListsFolder());
         this.openWorldFolderButton.active = TrackerConfig.hasActiveContext();
         this.addRenderableWidget(this.openWorldFolderButton);
 
-        this.addRenderableWidget(
-                Button.builder(
-                                Component.literal("   ").append(Component.translatable("gui.resourcetracker.open_all_lists")),
-                                button -> TrackerConfig.openListsRootFolder()
-                        )
-                        .bounds(sideX, this.listTop + 25, 150, 21)
-                        .build()
-        );
+        this.addRenderableWidget(createActionButton(sideX, sideY + 25,
+                Component.translatable("gui.resourcetracker.open_all_lists"),
+                button -> TrackerConfig.openListsRootFolder()));
+
+        this.settingsButton = this.addRenderableWidget(createActionButton(sideX, sideY + 50,
+                Component.translatable("gui.resourcetracker.settings"),
+                button -> {
+                    if (this.minecraft != null) {
+                        this.minecraft.setScreen(new SettingsScreen(this));
+                    }
+                }));
 
         this.addRenderableWidget(
                 Button.builder(
@@ -230,9 +219,12 @@ public class MainScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
         drawButtonIcon(context, Icon.PLUS, this.addIconX, this.addIconY, 21, 21, iconColor(this.addListButton, 0xFFFFFFFF));
         drawButtonIcon(context, Icon.RELOAD, this.reloadIconX, this.reloadIconY, 21, 21, iconColor(this.reloadListsButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.GEAR, this.gearIconX, this.gearIconY, 21, 21, iconColor(this.settingsButton, 0xFFFFFFFF));
         drawButtonIcon(context, Icon.FOLDER, this.worldFolderIconX, this.worldFolderIconY, 21, 21, iconColor(this.openWorldFolderButton, 0xFFFFFFFF));
         drawButtonIcon(context, Icon.FOLDER, this.allFolderIconX, this.allFolderIconY, 21, 21, 0xFFFFFFFF);
+        drawButtonIcon(context, Icon.GEAR, this.allFolderIconX, this.allFolderIconY + 25, 21, 21, 0xFFFFFFFF);
+        showButtonTooltip(context, mouseX, mouseY, this.addListButton, Component.translatable("gui.resourcetracker.add_list"));
+        showButtonTooltip(context, mouseX, mouseY, this.reloadListsButton, Component.translatable("gui.resourcetracker.reload_lists"));
+        showButtonTooltip(context, mouseX, mouseY, this.settingsButton, Component.translatable("gui.resourcetracker.settings"));
     }
 
     /**
@@ -243,10 +235,9 @@ public class MainScreen extends Screen {
         List<TrackerConfig.TrackingList> lists = TrackerConfig.INSTANCE.lists;
         int contentHeight = lists.size() * itemHeight;
 
-        int centerX = this.width / 2;
-        int boxWidth = 280;
+        int boxWidth = getBoxWidth();
         int boxHeight = this.listBottom - this.listTop;
-        int boxX = centerX - (boxWidth / 2);
+        int boxX = getBoxX(boxWidth);
 
         int maxScroll = Math.max(0, contentHeight - boxHeight);
         this.scrollOffset = Mth.clamp(this.scrollOffset, 0, maxScroll);
@@ -258,6 +249,7 @@ public class MainScreen extends Screen {
 
         // Flag: is the mouse hovering over any trash icon?
         boolean isHoveringTrash = false;
+        Component iconTooltip = null;
 
         for (int i = 0; i < lists.size(); i++) {
             TrackerConfig.TrackingList list = lists.get(i);
@@ -287,6 +279,9 @@ public class MainScreen extends Screen {
             int eyeY = y + 2;
             boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 21 && mouseY >= eyeY && mouseY < eyeY + 21);
             drawPixelEye(context, eyeX, eyeY, list.isVisible, eyeHovered);
+            if (eyeHovered) {
+                iconTooltip = Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show");
+            }
 
             String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 66);
             context.drawString(this.font, Component.literal(nameText), x + 31, y + 8, 0xFFFFFFFF, true);
@@ -319,6 +314,8 @@ public class MainScreen extends Screen {
                 // Gray text "Hold Shift"
                 VersionCompat.setTooltip(context, font, Component.translatable("gui.resourcetracker.hold_shift").withStyle(ChatFormatting.GRAY), mouseX, mouseY);
             }
+        } else if (iconTooltip != null) {
+            VersionCompat.setTooltip(context, font, iconTooltip, mouseX, mouseY);
         }
     }
 
@@ -329,9 +326,8 @@ public class MainScreen extends Screen {
         if (isMouseDown && !wasMouseDown) {
             if (mouseY >= listTop && mouseY <= listBottom) {
                 List<TrackerConfig.TrackingList> lists = TrackerConfig.INSTANCE.lists;
-                int centerX = this.width / 2;
-                int boxWidth = 280;
-                int boxX = centerX - (boxWidth / 2);
+                int boxWidth = getBoxWidth();
+                int boxX = getBoxX(boxWidth);
 
                 double relativeY = mouseY - listTop + scrollOffset - 2;
                 if (relativeY >= 0) {
@@ -345,11 +341,13 @@ public class MainScreen extends Screen {
 
                         if (mouseX >= eyeX && mouseX < eyeX + 25) {
                             list.isVisible = !list.isVisible;
-                            TrackerConfig.save();
+                            TrackerConfig.saveList(list);
+                            ResourceTrackerClient.invalidateTargetItemCache();
                             playClickSound();
                         } else if (mouseX >= trashX && mouseX < trashX + 21) {
                             if (shiftPressed()) {
                                 TrackerConfig.deleteList(list);
+                                ResourceTrackerClient.invalidateTargetItemCache();
                                 playClickSound();
                             }
                         } else if (mouseX > boxX + 31 && mouseX < trashX - 4) {
@@ -401,6 +399,28 @@ public class MainScreen extends Screen {
     private void playClickSound() {
         if (this.minecraft != null && this.minecraft.player != null) {
             this.minecraft.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0F, 1.0F);
+        }
+    }
+
+    private int getBoxWidth() {
+        return Math.min(280, Math.max(120, this.width - 16));
+    }
+
+    private int getBoxX(int boxWidth) {
+        return (this.width - boxWidth) / 2;
+    }
+
+    private Button createActionButton(int x, int y, Component text, Button.OnPress onPress) {
+        return Button.builder(Component.literal("   ").append(text), onPress)
+                .bounds(x, y, 150, 21)
+                .build();
+    }
+
+
+    private void showButtonTooltip(GuiGraphics context, int mouseX, int mouseY, Button button, Component text) {
+        if (button != null && mouseX >= button.getX() && mouseX < button.getX() + button.getWidth()
+                && mouseY >= button.getY() && mouseY < button.getY() + button.getHeight()) {
+            VersionCompat.setTooltip(context, font, text, mouseX, mouseY);
         }
     }
 

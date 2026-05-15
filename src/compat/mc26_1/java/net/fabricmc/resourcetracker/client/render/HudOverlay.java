@@ -2,7 +2,6 @@ package net.fabricmc.resourcetracker.client.render;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -28,99 +27,23 @@ public class HudOverlay {
     }
 
     private void renderListContent(GuiGraphicsExtractor context, Minecraft client, TrackerConfig.TrackingList list) {
-        int padding = 4;
-        int headerHeight = 14;
-        int itemRowHeight = list.showIcons ? 24 : 12;
+        HudRenderModel model = HudRenderCache.get(list, client.font, client.getWindow().getGuiScaledHeight());
 
-        int itemCount = 0;
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (trackedItem.isValid()) itemCount++;
-        }
+        context.fill(
+                model.backgroundMinX,
+                model.backgroundMinY,
+                model.backgroundMaxX,
+                model.backgroundMaxY,
+                model.backgroundColor
+        );
+        context.text(client.font, model.title, 0, 0, model.titleColor);
 
-        if (itemCount == 0) {
-            int boxWidth = client.font.width(list.name) + (padding * 2);
-            int boxHeight = headerHeight + padding;
-            context.fill(-padding, -padding, boxWidth - padding, boxHeight - padding, list.backgroundColor);
-            context.text(client.font, list.name, 0, 0, list.nameColor);
-            return;
-        }
-
-        int maxTextWidth = client.font.width(list.name);
-        int iconOffset = list.showIcons ? 20 : 2;
-
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) continue;
-
-            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
-
-            int entryWidth;
-            if (list.showIcons) {
-                int nameWidth = client.font.width(trackedItem.getDisplayName());
-                int countWidth = client.font.width(countText);
-                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
-            } else {
-                String combined = trackedItem.getDisplayName() + ": " + countText;
-                entryWidth = iconOffset + client.font.width(combined);
+        for (HudRenderModel.Row row : model.rows) {
+            if (model.showIcons && row.stack != null) {
+                context.item(row.stack, row.itemX, row.itemY);
             }
-
-            if (entryWidth > maxTextWidth) {
-                maxTextWidth = entryWidth;
-            }
-        }
-
-        int columnWidth = maxTextWidth + (padding * 2);
-
-        int[] layout = RenderUtils.calculateColumnLayout(list, itemCount,
-                client.getWindow().getGuiScaledHeight(), headerHeight, padding, itemRowHeight);
-        int numColumns = layout[0];
-        int itemsPerColumn = layout[1];
-
-        int totalWidth = (columnWidth * numColumns) + (padding * (numColumns - 1));
-        int boxHeight = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
-
-        context.fill(-padding, -padding, totalWidth - padding, boxHeight - padding, list.backgroundColor);
-        context.text(client.font, list.name, 0, 0, list.nameColor);
-
-        int currentY = headerHeight;
-        int currentColumn = 0;
-        int columnOffsetX = 0;
-
-        int drawn = 0;
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) continue;
-
-            int currentCount = trackedItem.cachedCount;
-            boolean isDone = currentCount >= trackedItem.targetCount;
-
-            if (drawn > 0 && itemsPerColumn > 0 && drawn % itemsPerColumn == 0) {
-                currentColumn++;
-                columnOffsetX = currentColumn * (columnWidth + padding);
-                currentY = headerHeight;
-            }
-
-            int itemColor = list.textColor;
-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
-
-            if (list.showIcons) {
-                context.item(trackedItem.getStack(), columnOffsetX, currentY + 1);
-
-                int availableWidth = maxTextWidth - iconOffset;
-                String itemName = RenderUtils.shortenText(client.font, trackedItem.getDisplayName(), availableWidth);
-                context.text(client.font, itemName, columnOffsetX + iconOffset, currentY, itemColor);
-
-                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-                context.text(client.font, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
-            } else {
-                String namePart = trackedItem.getDisplayName() + ": ";
-                int nw = client.font.width(namePart);
-                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-
-                context.text(client.font, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
-                context.text(client.font, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
-            }
-
-            currentY += itemRowHeight;
-            drawn++;
+            context.text(client.font, row.nameText, row.nameX, row.nameY, row.nameColor);
+            context.text(client.font, row.countText, row.countX, row.countY, row.countColor);
         }
     }
 }

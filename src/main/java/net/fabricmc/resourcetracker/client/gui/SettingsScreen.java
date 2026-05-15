@@ -1,5 +1,6 @@
 package net.fabricmc.resourcetracker.client.gui;
 
+import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -7,10 +8,16 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.IdentityHashMap;
+import java.util.Map;
+
 public class SettingsScreen extends Screen {
     private final Screen parent;
 
     private final EditBox[][] colorFields = new EditBox[3][4];
+    private final Map<EditBox, Component> invalidFields = new IdentityHashMap<>();
+    private int scrollY = 0;
+    private int contentBottom = 0;
 
     public SettingsScreen(Screen parent) {
         super(Component.translatable("gui.resourcetracker.settings.title"));
@@ -20,23 +27,29 @@ public class SettingsScreen extends Screen {
     @Override
     protected void init() {
         this.clearWidgets();
+        this.invalidFields.clear();
 
         int centerX = this.width / 2;
-        int y = 34;
+        int y = 34 - scrollY;
         int labelX = centerX - 150;
         int fieldX = centerX + 35;
 
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_x", TrackerConfig.INSTANCE.defaultX,
+        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_x", TrackerConfig.INSTANCE.defaultX, null, null,
+                Component.translatable("gui.resourcetracker.validation.integer"),
                 value -> TrackerConfig.INSTANCE.defaultX = value);
         y += 22;
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_y", TrackerConfig.INSTANCE.defaultY,
+        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_y", TrackerConfig.INSTANCE.defaultY, null, null,
+                Component.translatable("gui.resourcetracker.validation.integer"),
                 value -> TrackerConfig.INSTANCE.defaultY = value);
         y += 22;
         addFloatField(labelX, fieldX, y, "gui.resourcetracker.settings.default_scale", TrackerConfig.INSTANCE.defaultScale,
-                value -> TrackerConfig.INSTANCE.defaultScale = TrackerConfig.clampScale(value));
+                TrackerConfig.MIN_SCALE, TrackerConfig.MAX_SCALE,
+                Component.translatable("gui.resourcetracker.validation.scale"),
+                value -> TrackerConfig.INSTANCE.defaultScale = value);
         y += 22;
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_columns", TrackerConfig.INSTANCE.defaultColumns,
-                value -> TrackerConfig.INSTANCE.defaultColumns = TrackerConfig.clampColumns(value));
+        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_columns", TrackerConfig.INSTANCE.defaultColumns, 0, TrackerConfig.MAX_COLUMNS,
+                Component.translatable("gui.resourcetracker.validation.columns"),
+                value -> TrackerConfig.INSTANCE.defaultColumns = value);
         y += 28;
 
         addColorEditor(centerX - 175, y, 0, "gui.resourcetracker.settings.default_text_color");
@@ -53,7 +66,6 @@ public class SettingsScreen extends Screen {
                     button.setMessage(Component.translatable(TrackerConfig.INSTANCE.defaultShowRemaining
                             ? "gui.resourcetracker.edit.mode_need"
                             : "gui.resourcetracker.edit.mode_count"));
-                    TrackerConfig.save();
                 })
                 .bounds(centerX - 155, y, 100, 20)
                 .build());
@@ -65,7 +77,6 @@ public class SettingsScreen extends Screen {
                     button.setMessage(Component.translatable(TrackerConfig.INSTANCE.defaultShowIcons
                             ? "gui.resourcetracker.edit.icons_on"
                             : "gui.resourcetracker.edit.icons_off"));
-                    TrackerConfig.save();
                 })
                 .bounds(centerX - 45, y, 90, 20)
                 .build());
@@ -100,8 +111,10 @@ public class SettingsScreen extends Screen {
                 .bounds(centerX + 5, y, 150, 20)
                 .build());
 
+        this.contentBottom = y + 54 + scrollY;
+
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> {
-                    TrackerConfig.save();
+                    TrackerConfig.saveGlobalSettingsOnly();
                     if (this.minecraft != null) {
                         this.minecraft.setScreen(parent);
                     }
@@ -120,42 +133,57 @@ public class SettingsScreen extends Screen {
         context.fill(0, 0, this.width, this.height, 0xA0000000);
         context.drawCenteredString(this.font, this.title, this.width / 2, 14, 0xFFFFFFFF);
         super.render(context, mouseX, mouseY, delta);
+        showInvalidFieldTooltip(context, mouseX, mouseY);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        int maxScroll = Math.max(0, contentBottom - (this.height - 42));
+        if (maxScroll <= 0) {
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        scrollY = Math.max(0, Math.min(maxScroll, scrollY - (int) (verticalAmount * 18)));
+        init();
+        return true;
     }
 
     @Override
     public void onClose() {
-        TrackerConfig.save();
+        TrackerConfig.saveGlobalSettingsOnly();
         if (this.minecraft != null) {
             this.minecraft.setScreen(parent);
         }
     }
 
-    private EditBox addIntField(int labelX, int fieldX, int y, String labelKey, int value, IntSetter setter) {
+    private EditBox addIntField(int labelX, int fieldX, int y, String labelKey, int value, Integer min, Integer max, Component tooltip, IntSetter setter) {
         addLabel(labelX, y + 4, labelKey);
         EditBox field = new EditBox(font, fieldX, y, 110, 16, Component.translatable(labelKey));
         field.setValue(String.valueOf(value));
         field.setTextColor(0xFFFFFFFF);
         field.setResponder(text -> {
-            try {
-                setter.set(Integer.parseInt(text));
-                TrackerConfig.save();
-            } catch (NumberFormatException ignored) {
+            Integer parsed = parseInteger(text);
+            boolean valid = parsed != null && (min == null || parsed >= min) && (max == null || parsed <= max);
+            markFieldValidity(field, valid, tooltip);
+            if (valid) {
+                setter.set(parsed);
             }
         });
         this.addRenderableWidget(field);
         return field;
     }
 
-    private EditBox addFloatField(int labelX, int fieldX, int y, String labelKey, float value, FloatSetter setter) {
+    private EditBox addFloatField(int labelX, int fieldX, int y, String labelKey, float value, float min, float max, Component tooltip, FloatSetter setter) {
         addLabel(labelX, y + 4, labelKey);
         EditBox field = new EditBox(font, fieldX, y, 110, 16, Component.translatable(labelKey));
         field.setValue(String.valueOf(value));
         field.setTextColor(0xFFFFFFFF);
         field.setResponder(text -> {
-            try {
-                setter.set(Float.parseFloat(text));
-                TrackerConfig.save();
-            } catch (NumberFormatException ignored) {
+            Float parsed = parseFloat(text);
+            boolean valid = parsed != null && Float.isFinite(parsed) && parsed >= min && parsed <= max;
+            markFieldValidity(field, valid, tooltip);
+            if (valid) {
+                setter.set(parsed);
             }
         });
         this.addRenderableWidget(field);
@@ -195,12 +223,17 @@ public class SettingsScreen extends Screen {
 
     private void applyColorFields(int index) {
         try {
-            int r = clampByte(Integer.parseInt(colorFields[index][0].getValue()));
-            int g = clampByte(Integer.parseInt(colorFields[index][1].getValue()));
-            int b = clampByte(Integer.parseInt(colorFields[index][2].getValue()));
-            int a = clampByte(Integer.parseInt(colorFields[index][3].getValue()));
+            Integer r = parseInteger(colorFields[index][0].getValue());
+            Integer g = parseInteger(colorFields[index][1].getValue());
+            Integer b = parseInteger(colorFields[index][2].getValue());
+            Integer a = parseInteger(colorFields[index][3].getValue());
+            Component tooltip = Component.translatable("gui.resourcetracker.validation.rgba");
+            markFieldValidity(colorFields[index][0], isByte(r), tooltip);
+            markFieldValidity(colorFields[index][1], isByte(g), tooltip);
+            markFieldValidity(colorFields[index][2], isByte(b), tooltip);
+            markFieldValidity(colorFields[index][3], isByte(a), tooltip);
+            if (!(isByte(r) && isByte(g) && isByte(b) && isByte(a))) return;
             setColorForIndex(index, (a << 24) | (r << 16) | (g << 8) | b);
-            TrackerConfig.save();
         } catch (NumberFormatException | NullPointerException ignored) {
         }
     }
@@ -214,8 +247,41 @@ public class SettingsScreen extends Screen {
         };
     }
 
-    private int clampByte(int value) {
-        return Math.max(0, Math.min(255, value));
+    private boolean isByte(Integer value) {
+        return value != null && value >= 0 && value <= 255;
+    }
+
+    private Integer parseInteger(String text) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private Float parseFloat(String text) {
+        try {
+            return Float.parseFloat(text.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void markFieldValidity(EditBox field, boolean valid, Component tooltip) {
+        field.setTextColor(valid ? 0xFFFFFFFF : 0xFFFF5555);
+        if (valid) invalidFields.remove(field);
+        else invalidFields.put(field, tooltip);
+    }
+
+    private void showInvalidFieldTooltip(GuiGraphics context, int mouseX, int mouseY) {
+        for (Map.Entry<EditBox, Component> entry : invalidFields.entrySet()) {
+            EditBox field = entry.getKey();
+            if (field.isFocused() || (field.visible && mouseX >= field.getX() && mouseX < field.getX() + field.getWidth()
+                    && mouseY >= field.getY() && mouseY < field.getY() + field.getHeight())) {
+                VersionCompat.setTooltip(context, font, entry.getValue(), mouseX, mouseY);
+                return;
+            }
+        }
     }
 
     private int getColorForIndex(int index) {

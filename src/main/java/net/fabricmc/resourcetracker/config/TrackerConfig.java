@@ -241,11 +241,25 @@ public class TrackerConfig {
             migrateLegacyListsToTemplates(loaded.lists);
             INSTANCE.legacyListsMigrated = true;
         }
-        saveGlobalSettings();
+        saveGlobalSettingsOnly();
     }
 
     public static void save() {
+        saveGlobalSettingsOnly();
+        saveAllActiveContextLists();
+    }
+
+    public static void saveGlobalSettingsOnly() {
         saveGlobalSettings();
+    }
+
+    public static void saveList(TrackingList list) {
+        if (activeContext.isNone() || list == null) return;
+        normalizeList(list);
+        writeList(getActiveListsDir(), list);
+    }
+
+    public static void saveAllActiveContextLists() {
         saveActiveContextLists();
     }
 
@@ -253,7 +267,7 @@ public class TrackerConfig {
         if (context == null) context = ActiveContext.none();
         if (activeContext.equals(context)) return;
 
-        saveActiveContextLists();
+        saveAllActiveContextLists();
         activeContext = context;
         INSTANCE.lists = new ArrayList<>();
         if (!activeContext.isNone()) {
@@ -327,7 +341,7 @@ public class TrackerConfig {
         INSTANCE.defaultTextColor = 0xFFFFFFFF;
         INSTANCE.defaultNameColor = 0xFFFFFFFF;
         INSTANCE.defaultBackgroundColor = 0xA0505050;
-        saveGlobalSettings();
+        saveGlobalSettingsOnly();
     }
 
     public static void deleteList(TrackingList list) {
@@ -343,7 +357,6 @@ public class TrackerConfig {
                 e.printStackTrace();
             }
         }
-        save();
     }
 
     public static ActiveContext makeSingleplayerContext(String worldFolderName) {

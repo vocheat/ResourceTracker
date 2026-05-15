@@ -24,97 +24,58 @@
 
 package net.fabricmc.resourcetracker.util;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.IOException;
-import java.io.InputStream;
-
 /**
- * Runtime icon masks loaded from the PNG assets bundled with the mod.
+ * Custom GUI icons packed into one 64x64 texture atlas.
  */
 public final class PngIcons {
     public static final int ICON_SIZE = 15;
-
-    private static final String BASE_PATH = "/assets/resourcetracker/textures/gui/icons/";
+    public static final int ATLAS_SIZE = 64;
+    public static final String ATLAS_NAMESPACE = "resourcetracker";
+    public static final String ATLAS_PATH = "textures/gui/icons_atlas.png";
 
     private PngIcons() {}
 
     public enum Icon {
-        PLUS("plus.png"),
-        RELOAD("reload.png"),
-        SEARCH("search.png"),
-        SETTINGS("settings.png"),
-        FOLDER("folder.png"),
-        EYE("eye.png"),
-        EYE_CROSSED("eye_crossed.png"),
-        TRASH("trash.png"),
-        CROSS("cross.png");
+        PLUS(0, 0),
+        RELOAD(16, 0),
+        SEARCH(32, 0),
+        SETTINGS(48, 0),
+        FOLDER(0, 16),
+        EYE(16, 16),
+        EYE_CROSSED(32, 16),
+        TRASH(48, 16),
+        CROSS(0, 32);
 
-        private final Mask mask;
+        private final int u;
+        private final int v;
+        private final int width;
+        private final int height;
 
-        Icon(String fileName) {
-            this.mask = loadMask(fileName);
+        Icon(int u, int v) {
+            this(u, v, ICON_SIZE, ICON_SIZE);
         }
 
-        Mask mask() {
-            return mask;
-        }
-    }
-
-    static final class Mask {
-        final int width;
-        final int height;
-        final int[] pixels;
-
-        Mask(int width, int height, int[] pixels) {
+        Icon(int u, int v, int width, int height) {
+            this.u = u;
+            this.v = v;
             this.width = width;
             this.height = height;
-            this.pixels = pixels;
-        }
-    }
-
-    private static Mask loadMask(String fileName) {
-        String resourcePath = BASE_PATH + fileName;
-        try (InputStream stream = PngIcons.class.getResourceAsStream(resourcePath)) {
-            if (stream == null) {
-                throw new IllegalStateException("Missing icon resource: " + resourcePath);
-            }
-            BufferedImage image = ImageIO.read(stream);
-            if (image == null) {
-                throw new IllegalStateException("Unreadable icon resource: " + resourcePath);
-            }
-            return toMask(resourcePath, image);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to load icon resource: " + resourcePath, e);
-        }
-    }
-
-    private static Mask toMask(String resourcePath, BufferedImage image) {
-        int width = image.getWidth();
-        int height = image.getHeight();
-        if (width != ICON_SIZE || height != ICON_SIZE) {
-            throw new IllegalStateException(resourcePath + " must be " + ICON_SIZE + "x" + ICON_SIZE + " pixels");
         }
 
-        int count = 0;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (((image.getRGB(x, y) >>> 24) & 0xFF) != 0) {
-                    count++;
-                }
-            }
+        public int u() {
+            return u;
         }
 
-        int[] pixels = new int[count];
-        int index = 0;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int alpha = (image.getRGB(x, y) >>> 24) & 0xFF;
-                if (alpha != 0) {
-                    pixels[index++] = (x << 16) | (y << 8) | alpha;
-                }
-            }
+        public int v() {
+            return v;
         }
-        return new Mask(width, height, pixels);
+
+        public int width() {
+            return width;
+        }
+
+        public int height() {
+            return height;
+        }
     }
 }
