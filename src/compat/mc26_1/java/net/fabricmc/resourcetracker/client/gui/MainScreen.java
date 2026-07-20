@@ -118,7 +118,7 @@ public class MainScreen extends Screen {
                 Button.builder(
                                 Component.literal(""),
                                 button -> {
-                                    TrackerConfig.TrackingList newList = TrackerConfig.createList("List " + (TrackerConfig.INSTANCE.lists.size() + 1));
+                                    TrackerConfig.TrackingList newList = TrackerConfig.createList(Component.translatable("gui.resourcetracker.default_list", TrackerConfig.INSTANCE.lists.size() + 1).getString());
                                     newList.isVisible = true;
                                     TrackerConfig.INSTANCE.lists.add(newList);
                                     TrackerConfig.saveList(newList);
