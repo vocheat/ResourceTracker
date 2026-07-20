@@ -45,6 +45,11 @@ dependencies {
     localRuntime 'maven.modrinth:modmenu:18.0.0-alpha.8'
 }
 
+dependencyLocking {
+    lockFile = file('gradle/dependency-locks/mc26_1.lockfile')
+    lockAllConfigurations()
+}
+
 processResources {
     inputs.property 'version', project.version
     inputs.property 'minecraft_min_version', '26.1'
