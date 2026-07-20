@@ -285,6 +285,16 @@ public class TrackerConfig {
         return !activeContext.isNone();
     }
 
+    /** Clears names resolved from client language resources. */
+    public static void invalidateDisplayNameCache() {
+        for (TrackingList list : INSTANCE.lists) {
+            if (list == null || list.items == null) continue;
+            for (TrackedItem item : list.items) {
+                if (item != null) item.displayName = null;
+            }
+        }
+    }
+
     public static void reloadActiveContextLists() {
         if (activeContext.isNone()) return;
         INSTANCE.lists = new ArrayList<>();

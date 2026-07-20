@@ -1,5 +1,6 @@
 package net.fabricmc.resourcetracker.client.gui;
 
+import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
@@ -247,6 +248,7 @@ public class HudMoveScreen extends Screen {
     @Override
     public void onClose() {
         TrackerConfig.saveAllActiveContextLists();
+        ResourceTrackerClient.invalidateTargetItemCache();
         if (this.minecraft != null) {
             this.minecraft.setScreen(parent);
         }
