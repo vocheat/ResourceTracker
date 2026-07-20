@@ -84,6 +84,10 @@ public class ResourceTrackerClient implements ClientModInitializer {
         // Register keybindings — via VersionCompat for cross-version support
         openMenuKey = VersionCompat.registerOpenKey();
         toggleHudKey = VersionCompat.registerToggleHudKey();
+        VersionCompat.registerClientResourceReloadListener(() -> {
+            TrackerConfig.invalidateDisplayNameCache();
+            HudRenderCache.clear();
+        });
 
         // Register the client tick event to handle input and update inventory counts
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -144,18 +148,28 @@ public class ResourceTrackerClient implements ClientModInitializer {
 
         Set<Item> targetItems = getTargetItemsForVisibleLists();
         if (targetItems.isEmpty()) {
-            clearVisibleCachedCounts();
+            if (clearVisibleCachedCounts()) {
+                HudRenderCache.clear();
+            }
             return;
         }
 
         Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
+        boolean countsChanged = false;
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
             for (TrackerConfig.TrackedItem trackedItem : list.items) {
                 if (trackedItem.isValid()) {
-                    trackedItem.cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                    int cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                    if (trackedItem.cachedCount != cachedCount) {
+                        trackedItem.cachedCount = cachedCount;
+                        countsChanged = true;
+                    }
                 }
             }
+        }
+        if (countsChanged) {
+            HudRenderCache.clear();
         }
     }
 
@@ -196,13 +210,18 @@ public class ResourceTrackerClient implements ClientModInitializer {
         return signature.toString();
     }
 
-    private static void clearVisibleCachedCounts() {
+    private static boolean clearVisibleCachedCounts() {
+        boolean countsChanged = false;
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (list == null || !list.isVisible || list.items == null) continue;
             for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                trackedItem.cachedCount = 0;
+                if (trackedItem.cachedCount != 0) {
+                    trackedItem.cachedCount = 0;
+                    countsChanged = true;
+                }
             }
         }
+        return countsChanged;
     }
 
     private static void updateActiveListContext(Minecraft client) {

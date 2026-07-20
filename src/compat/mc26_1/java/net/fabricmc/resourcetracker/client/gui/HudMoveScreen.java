@@ -1,6 +1,7 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -26,6 +27,7 @@ public class HudMoveScreen extends Screen {
     protected void init() {
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
             TrackerConfig.saveAllActiveContextLists();
+            ResourceTrackerClient.invalidateTargetItemCache();
             minecraft.setScreen(parent);
         }).bounds(width / 2 - 50, height - 30, 100, 20).build());
     }
@@ -102,7 +104,7 @@ public class HudMoveScreen extends Screen {
             boolean isDone = currentCount >= trackedItem.targetCount;
 
             int itemColor = list.textColor;
-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
+            int countColor = isDone ? (itemColor & 0xFF000000) | 0x0055FF55 : itemColor;
 
             if (list.showIcons) {
                 int availableWidth = colWidth - iconOffset;
@@ -225,6 +227,7 @@ public class HudMoveScreen extends Screen {
             if (draggingList != null) {
                 draggingList = null;
                 TrackerConfig.saveAllActiveContextLists();
+                ResourceTrackerClient.invalidateTargetItemCache();
             }
         }
         this.wasMouseDown = isMouseDown;
@@ -247,6 +250,7 @@ public class HudMoveScreen extends Screen {
     @Override
     public void onClose() {
         TrackerConfig.saveAllActiveContextLists();
+        ResourceTrackerClient.invalidateTargetItemCache();
         this.minecraft.setScreen(parent);
     }
 

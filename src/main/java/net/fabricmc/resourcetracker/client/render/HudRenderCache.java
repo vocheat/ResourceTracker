@@ -6,33 +6,30 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
- * Builds and reuses immutable HUD draw models keyed by list state and cached counts.
+ * Builds and reuses immutable HUD draw models until the list or its counts are invalidated.
  */
 public final class HudRenderCache {
     private static final int PADDING = 4;
     private static final int HEADER_HEIGHT = 14;
-    private static final Map<String, Entry> CACHE = new HashMap<>();
+    private static final Map<TrackerConfig.TrackingList, Entry> CACHE = new IdentityHashMap<>();
 
     private HudRenderCache() {
     }
 
     public static HudRenderModel get(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
-        String needPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
-        String cacheKey = buildKey(list, guiScaledHeight, needPrefix);
-        String cacheId = list.id == null ? "" : list.id;
-        Entry entry = CACHE.get(cacheId);
-        if (entry != null && entry.key.equals(cacheKey)) {
+        Entry entry = CACHE.get(list);
+        if (entry != null && entry.font == font && entry.guiScaledHeight == guiScaledHeight) {
             return entry.model;
         }
 
+        String needPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
         HudRenderModel model = buildModel(list, font, guiScaledHeight, needPrefix);
-        CACHE.put(cacheId, new Entry(cacheKey, model));
+        CACHE.put(list, new Entry(font, guiScaledHeight, model));
         return model;
     }
 
@@ -132,7 +129,9 @@ public final class HudRenderCache {
             TrackerConfig.TrackedItem trackedItem = validItems.get(drawn);
             ItemText text = texts.get(drawn);
             int itemColor = list.textColor;
-            int countColor = trackedItem.cachedCount >= trackedItem.targetCount ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
+            int countColor = trackedItem.cachedCount >= trackedItem.targetCount
+                    ? (itemColor & 0xFF000000) | 0x0055FF55
+                    : itemColor;
 
             if (list.showIcons) {
                 int availableWidth = maxTextWidth - iconOffset;
@@ -185,34 +184,6 @@ public final class HudRenderCache {
         );
     }
 
-    private static String buildKey(TrackerConfig.TrackingList list, int guiScaledHeight, String needPrefix) {
-        StringBuilder key = new StringBuilder(256);
-        key.append(nullSafe(list.id)).append('|')
-                .append(nullSafe(list.name)).append('|')
-                .append(list.y).append('|')
-                .append(TrackerConfig.clampScale(list.scale)).append('|')
-                .append(list.showIcons).append('|')
-                .append(list.showRemaining).append('|')
-                .append(TrackerConfig.clampColumns(list.columns)).append('|')
-                .append(list.textColor).append('|')
-                .append(list.nameColor).append('|')
-                .append(list.backgroundColor).append('|')
-                .append(guiScaledHeight).append('|')
-                .append(needPrefix).append('|');
-        if (list.items != null) {
-            for (TrackerConfig.TrackedItem item : list.items) {
-                if (item == null) {
-                    key.append("<null>;");
-                } else {
-                    key.append(nullSafe(item.itemId)).append('=')
-                            .append(item.targetCount).append(',')
-                            .append(item.cachedCount).append(';');
-                }
-            }
-        }
-        return key.toString();
-    }
-
     private static String getCountText(int current, int target, boolean showRemaining, String needPrefix) {
         if (current >= target) {
             return "[\u2713] " + current + "/" + target;
@@ -223,11 +194,7 @@ public final class HudRenderCache {
         return current + " / " + target;
     }
 
-    private static String nullSafe(String value) {
-        return Objects.toString(value, "");
-    }
-
-    private record Entry(String key, HudRenderModel model) {
+    private record Entry(Font font, int guiScaledHeight, HudRenderModel model) {
     }
 
     private record ItemText(String displayName, String countText, int namePartWidth) {
