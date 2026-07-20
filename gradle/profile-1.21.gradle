@@ -41,6 +41,11 @@ dependencies {
     modLocalRuntime "maven.modrinth:modmenu:${modmenu_version}"
 }
 
+dependencyLocking {
+    lockFile = file("gradle/dependency-locks/${profile_id}.lockfile")
+    lockAllConfigurations()
+}
+
 loom {
     runs {
         client {
@@ -52,9 +57,7 @@ loom {
 
 tasks.named('compileJava', JavaCompile) {
     source = files(
-            fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
-            },
+            fileTree('src/main/java'),
             fileTree("src/compat/${profile_id}/java")
     )
 }
@@ -109,9 +112,7 @@ tasks.named('compileJava') {
 tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from files(
-            fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
-            },
+            fileTree('src/main/java'),
             fileTree("src/compat/${profile_id}/java")
     )
 }
