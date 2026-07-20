@@ -4,6 +4,7 @@
   "gui.resourcetracker.title": "Resource Tracker",
   "gui.resourcetracker.move_hud": "Move HUD Elements",
   "gui.resourcetracker.add_list": "Add list",
+  "gui.resourcetracker.default_list": "List %d",
   "gui.resourcetracker.close": "Close",
   "gui.resourcetracker.move.title": "Move HUD Elements",
   "gui.resourcetracker.move.drag_hint": "Drag lists to move them",

@@ -37,7 +37,6 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.world.level.storage.LevelResource;
-import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -73,7 +72,6 @@ public class ResourceTrackerClient implements ClientModInitializer {
      */
     public static KeyMapping toggleHudKey;
     private static TrackerConfig.ActiveContext lastContext = TrackerConfig.ActiveContext.none();
-    private static boolean openMenuPhysicalKeyDown = false;
     private static final Set<Item> cachedTargetItems = new HashSet<>();
     private static String cachedTargetSignature = "";
 
@@ -89,30 +87,13 @@ public class ResourceTrackerClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             updateActiveListContext(client);
 
-            // Check for menu key press. Screens can consume key events before KeyMapping sees them,
-            // so keep a physical M-key edge check for closing the main tracker screen.
-            boolean closedMenuThisTick = false;
-            if (client.screen instanceof MainScreen && client.getWindow() != null) {
-                long handle = VersionCompat.getWindowHandle(client.getWindow());
-                boolean isDown = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_M) == GLFW.GLFW_PRESS;
-                if (isDown && !openMenuPhysicalKeyDown) {
-                    client.screen.onClose();
-                    closedMenuThisTick = true;
-                }
-                openMenuPhysicalKeyDown = isDown;
-            } else {
-                openMenuPhysicalKeyDown = false;
-            }
-
-            while (!closedMenuThisTick && openMenuKey.consumeClick()) {
+            // Always use the registered KeyMapping so the Controls screen remains the
+            // single source of truth for the binding, including user reassignment.
+            while (openMenuKey.consumeClick()) {
                 if (client.screen instanceof MainScreen) {
                     client.screen.onClose();
                 } else if (client.screen == null) {
                     client.setScreen(new MainScreen(null));
-                    if (client.getWindow() != null) {
-                        long handle = VersionCompat.getWindowHandle(client.getWindow());
-                        openMenuPhysicalKeyDown = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_M) == GLFW.GLFW_PRESS;
-                    }
                 }
             }
 
