@@ -24,9 +24,9 @@ public class HudMoveScreen extends Screen {
 
     @Override
     protected void init() {
+        this.clearWidgets();
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
-            TrackerConfig.saveAllActiveContextLists();
-            minecraft.setScreen(parent);
+            onClose();
         }).bounds(width / 2 - 50, height - 30, 100, 20).build());
     }
 
@@ -247,7 +247,9 @@ public class HudMoveScreen extends Screen {
     @Override
     public void onClose() {
         TrackerConfig.saveAllActiveContextLists();
-        this.minecraft.setScreen(parent);
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(parent);
+        }
     }
 
     private record BoxSize(int width, int height) {}

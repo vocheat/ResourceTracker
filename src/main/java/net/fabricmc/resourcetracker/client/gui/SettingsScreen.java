@@ -90,6 +90,7 @@ public class SettingsScreen extends Screen {
         y += 28;
 
         Button listScreen = Button.builder(Component.translatable("gui.resourcetracker.settings.open_lists_screen"), button -> {
+                    TrackerConfig.saveGlobalSettingsOnly();
                     if (this.minecraft != null) {
                         this.minecraft.setScreen(new MainScreen(parent));
                     }
@@ -113,12 +114,7 @@ public class SettingsScreen extends Screen {
 
         this.contentBottom = y + 54 + scrollY;
 
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> {
-                    TrackerConfig.saveGlobalSettingsOnly();
-                    if (this.minecraft != null) {
-                        this.minecraft.setScreen(parent);
-                    }
-                })
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> onClose())
                 .bounds(centerX - 50, this.height - 30, 100, 20)
                 .build());
     }
