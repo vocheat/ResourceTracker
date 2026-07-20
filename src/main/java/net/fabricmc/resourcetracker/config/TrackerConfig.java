@@ -33,11 +33,11 @@ import net.minecraft.world.item.ItemStack;
 
 import java.awt.Desktop;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,7 +54,7 @@ import java.util.UUID;
 public class TrackerConfig {
 
     private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir();
-    private static final File CONFIG_FILE = CONFIG_DIR.resolve("resourcetracker.json").toFile();
+    private static final Path CONFIG_FILE = CONFIG_DIR.resolve("resourcetracker.json");
     private static final Path DATA_DIR = CONFIG_DIR.resolve("resourcetracker");
     private static final Path LISTS_DIR = DATA_DIR.resolve("lists");
     private static final String SINGLEPLAYER_DIR_NAME = "Singleplayer Worlds";
@@ -214,8 +214,8 @@ public class TrackerConfig {
     public static void load() {
         ensureDirectories();
         TrackerConfig loaded = new TrackerConfig();
-        if (CONFIG_FILE.exists()) {
-            try (FileReader reader = new FileReader(CONFIG_FILE, StandardCharsets.UTF_8)) {
+        if (Files.isRegularFile(CONFIG_FILE)) {
+            try (BufferedReader reader = Files.newBufferedReader(CONFIG_FILE, StandardCharsets.UTF_8)) {
                 TrackerConfig fromJson = GSON.fromJson(reader, TrackerConfig.class);
                 if (fromJson != null) loaded = fromJson;
             } catch (Exception e) {
@@ -238,8 +238,9 @@ public class TrackerConfig {
         INSTANCE.lists = new ArrayList<>();
 
         if (!INSTANCE.legacyListsMigrated && !loaded.lists.isEmpty()) {
-            migrateLegacyListsToTemplates(loaded.lists);
-            INSTANCE.legacyListsMigrated = true;
+            if (migrateLegacyListsToTemplates(loaded.lists)) {
+                INSTANCE.legacyListsMigrated = true;
+            }
         }
         saveGlobalSettingsOnly();
     }
@@ -406,9 +407,9 @@ public class TrackerConfig {
         }
     }
 
-    private static void saveGlobalSettings() {
+    private static boolean saveGlobalSettings() {
         ensureDirectories();
-        try (FileWriter writer = new FileWriter(CONFIG_FILE, StandardCharsets.UTF_8)) {
+        try {
             GlobalSettings settings = new GlobalSettings();
             settings.hudVisible = INSTANCE.hudVisible;
             settings.legacyListsMigrated = INSTANCE.legacyListsMigrated;
@@ -421,19 +422,21 @@ public class TrackerConfig {
             settings.defaultTextColor = INSTANCE.defaultTextColor;
             settings.defaultNameColor = INSTANCE.defaultNameColor;
             settings.defaultBackgroundColor = INSTANCE.defaultBackgroundColor;
-            GSON.toJson(settings, writer);
+            return writeTextAtomically(CONFIG_FILE, GSON.toJson(settings));
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
         }
     }
 
-    private static void migrateLegacyListsToTemplates(List<TrackingList> legacyLists) {
+    private static boolean migrateLegacyListsToTemplates(List<TrackingList> legacyLists) {
         ensureDirectories();
         for (TrackingList list : legacyLists) {
             if (list == null) continue;
             normalizeList(list);
-            writeList(TEMPLATES_DIR, list);
+            if (!templateWithIdExists(list.id) && !writeList(TEMPLATES_DIR, list)) return false;
         }
+        return true;
     }
 
     private static void loadActiveContextLists() {
@@ -499,8 +502,8 @@ public class TrackerConfig {
         return list;
     }
 
-    private static void writeList(Path dir, TrackingList list) {
-        if (list == null) return;
+    private static boolean writeList(Path dir, TrackingList list) {
+        if (list == null) return false;
         ensureDirectory(dir);
         normalizeList(list);
         String fileName = list.storageFileName;
@@ -514,28 +517,52 @@ public class TrackerConfig {
             list.storageFileName = fileName;
             file = dir.resolve(fileName);
         }
-        try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-            writer.write("# ResourceTracker list v1\n");
-            writer.write("id=" + safe(list.id) + "\n");
-            writer.write("name=" + safe(list.name) + "\n");
-            writer.write("visible=" + list.isVisible + "\n");
-            writer.write("x=" + list.x + "\n");
-            writer.write("y=" + list.y + "\n");
-            writer.write("scale=" + list.scale + "\n");
-            writer.write("showRemaining=" + list.showRemaining + "\n");
-            writer.write("showIcons=" + list.showIcons + "\n");
-            writer.write("columns=" + list.columns + "\n");
-            writer.write("textColor=" + colorToHex(list.textColor) + "\n");
-            writer.write("nameColor=" + colorToHex(list.nameColor) + "\n");
-            writer.write("backgroundColor=" + colorToHex(list.backgroundColor) + "\n\n");
-            writer.write("[items]\n");
+        try {
+            StringBuilder contents = new StringBuilder("# ResourceTracker list v1\n")
+                    .append("id=").append(safe(list.id)).append('\n')
+                    .append("name=").append(safe(list.name)).append('\n')
+                    .append("visible=").append(list.isVisible).append('\n')
+                    .append("x=").append(list.x).append('\n')
+                    .append("y=").append(list.y).append('\n')
+                    .append("scale=").append(list.scale).append('\n')
+                    .append("showRemaining=").append(list.showRemaining).append('\n')
+                    .append("showIcons=").append(list.showIcons).append('\n')
+                    .append("columns=").append(list.columns).append('\n')
+                    .append("textColor=").append(colorToHex(list.textColor)).append('\n')
+                    .append("nameColor=").append(colorToHex(list.nameColor)).append('\n')
+                    .append("backgroundColor=").append(colorToHex(list.backgroundColor)).append("\n\n[items]\n");
             for (TrackedItem item : list.items) {
                 if (item.itemId != null && !item.itemId.isBlank()) {
-                    writer.write(item.itemId + "=" + clampTargetCount(item.targetCount) + "\n");
+                    contents.append(safe(item.itemId)).append('=').append(clampTargetCount(item.targetCount)).append('\n');
                 }
             }
+            writeTextAtomically(file, contents.toString());
+            return true;
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
+        }
+    }
+
+    private static boolean templateWithIdExists(String id) {
+        if (id == null || id.isBlank()) return false;
+        try (var stream = Files.list(TEMPLATES_DIR)) {
+            return stream
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
+                    .anyMatch(path -> hasListId(path, id));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private static boolean hasListId(Path file, String id) {
+        try {
+            TrackingList list = readList(file);
+            return id.equals(list.id);
+        } catch (IOException e) {
+            System.err.println("[ResourceTracker] Failed to read template file " + file + ": " + e.getMessage());
+            return false;
         }
     }
 
@@ -682,6 +709,34 @@ public class TrackerConfig {
             return null;
         }
         return file;
+    }
+
+    private static boolean writeTextAtomically(Path file, String contents) throws IOException {
+        Path target = file.toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            throw new IOException("Configuration parent directory is unavailable: " + target);
+        }
+
+        Path temporary = Files.createTempFile(parent, "." + target.getFileName(), ".tmp");
+        try {
+            Files.writeString(temporary, contents, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+            forceAndMove(temporary, target);
+            return true;
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static void forceAndMove(Path temporary, Path target) throws IOException {
+        try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+            channel.force(true);
+        }
+        try {
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static boolean isReservedWindowsName(String value) {
