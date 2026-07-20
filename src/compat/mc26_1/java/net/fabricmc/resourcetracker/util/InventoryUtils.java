@@ -48,18 +48,42 @@ public class InventoryUtils {
         ItemContainerContents containerData = stack.get(DataComponents.CONTAINER);
         if (containerData != null) {
             for (ItemStackTemplate template : containerData.nonEmptyItems()) {
-                addRecursiveCounts(template.create(), targetItems, counts, depth + 1);
+                addRecursiveCounts(template, targetItems, counts, depth + 1);
             }
         }
 
         BundleContents bundleData = stack.get(DataComponents.BUNDLE_CONTENTS);
         if (bundleData != null) {
             for (ItemStackTemplate template : bundleData.items()) {
-                addRecursiveCounts(template.create(), targetItems, counts, depth + 1);
+                addRecursiveCounts(template, targetItems, counts, depth + 1);
             }
         }
     }
 
+    private static void addRecursiveCounts(ItemStackTemplate template, Set<Item> targetItems, Map<Item, Integer> counts, int depth) {
+        Item item = template.item().value();
+        if (targetItems.contains(item)) {
+            addSaturatedCount(counts, item, template.count());
+        }
+
+        if (depth >= MAX_CONTAINER_DEPTH) {
+            return;
+        }
+
+        ItemContainerContents containerData = template.get(DataComponents.CONTAINER);
+        if (containerData != null) {
+            for (ItemStackTemplate nestedTemplate : containerData.nonEmptyItems()) {
+                addRecursiveCounts(nestedTemplate, targetItems, counts, depth + 1);
+            }
+        }
+
+        BundleContents bundleData = template.get(DataComponents.BUNDLE_CONTENTS);
+        if (bundleData != null) {
+            for (ItemStackTemplate nestedTemplate : bundleData.items()) {
+                addRecursiveCounts(nestedTemplate, targetItems, counts, depth + 1);
+            }
+        }
+    }
     private static void addSaturatedCount(Map<Item, Integer> counts, Item item, int amount) {
         counts.merge(item, amount, (current, added) -> {
             long total = (long) current + added;
