@@ -134,7 +134,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(JavaExec).configureEach {
     javaLauncher = javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(java_version)
+        languageVersion = JavaLanguageVersion.of(findProperty('runtime_java_version') ?: java_version)
     }
 }
 
