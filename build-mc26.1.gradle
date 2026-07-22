@@ -21,12 +21,18 @@ base {
 }
 
 repositories {
-    maven { url 'https://maven.terraformersmc.com/releases/' }
-    maven {
-        name = 'Modrinth'
-        url = 'https://api.modrinth.com/maven'
-        content { includeGroup 'maven.modrinth' }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter {
+            includeGroup 'maven.modrinth'
+        }
     }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
 }
 
 loom {
