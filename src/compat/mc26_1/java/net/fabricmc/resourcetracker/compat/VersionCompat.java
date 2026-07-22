@@ -3,6 +3,8 @@ package net.fabricmc.resourcetracker.compat;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.fabricmc.resourcetracker.util.PngIcons;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.Font;
@@ -11,6 +13,8 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
@@ -70,6 +74,20 @@ public class VersionCompat {
                 GLFW.GLFW_KEY_UNKNOWN,
                 KeyMapping.Category.MISC
         ));
+    }
+
+    public static void registerClientResourceReloadListener(Runnable callback) {
+        ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(new SimpleSynchronousResourceReloadListener() {
+            @Override
+            public Identifier getFabricId() {
+                return Identifier.fromNamespaceAndPath("resourcetracker", "hud_localization");
+            }
+
+            @Override
+            public void onResourceManagerReload(ResourceManager resourceManager) {
+                callback.run();
+            }
+        });
     }
 
     public static Item getItem(String itemId) {

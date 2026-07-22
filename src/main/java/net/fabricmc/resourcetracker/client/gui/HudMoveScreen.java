@@ -24,6 +24,7 @@
 
 package net.fabricmc.resourcetracker.client.gui;
 
+import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
@@ -58,9 +59,9 @@ public class HudMoveScreen extends Screen {
 
     @Override
     protected void init() {
+        this.clearWidgets();
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
-            TrackerConfig.saveAllActiveContextLists();
-            minecraft.setScreen(parent);
+            onClose();
         }).bounds(width / 2 - 50, height - 30, 100, 20).build());
     }
 
@@ -287,6 +288,15 @@ public class HudMoveScreen extends Screen {
     private int clamp(int value, int min, int max) {
         if (max < min) return min;
         return Math.max(min, Math.min(value, max));
+    }
+
+    @Override
+    public void onClose() {
+        TrackerConfig.saveAllActiveContextLists();
+        ResourceTrackerClient.invalidateTargetItemCache();
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(parent);
+        }
     }
 
     /**

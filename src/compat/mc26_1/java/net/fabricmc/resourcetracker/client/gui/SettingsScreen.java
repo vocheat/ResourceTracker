@@ -89,8 +89,12 @@ public class SettingsScreen extends Screen {
                 .build());
         y += 28;
 
-        Button listScreen = Button.builder(Component.translatable("gui.resourcetracker.settings.open_lists_screen"), button ->
-                        this.minecraft.setScreen(new MainScreen(parent)))
+        Button listScreen = Button.builder(Component.translatable("gui.resourcetracker.settings.open_lists_screen"), button -> {
+                    TrackerConfig.saveGlobalSettingsOnly();
+                    if (this.minecraft != null) {
+                        this.minecraft.setScreen(new MainScreen(parent));
+                    }
+                })
                 .bounds(centerX - 50, y, 100, 20)
                 .build();
         this.addRenderableWidget(listScreen);
@@ -110,10 +114,7 @@ public class SettingsScreen extends Screen {
 
         this.contentBottom = y + 54 + scrollY;
 
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> {
-                    TrackerConfig.saveGlobalSettingsOnly();
-                    this.minecraft.setScreen(parent);
-                })
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> onClose())
                 .bounds(centerX - 50, this.height - 30, 100, 20)
                 .build());
     }
@@ -146,7 +147,9 @@ public class SettingsScreen extends Screen {
     @Override
     public void onClose() {
         TrackerConfig.saveGlobalSettingsOnly();
-        this.minecraft.setScreen(parent);
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(parent);
+        }
     }
 
     private EditBox addIntField(int labelX, int fieldX, int y, String labelKey, int value, Integer min, Integer max, Component tooltip, IntSetter setter) {

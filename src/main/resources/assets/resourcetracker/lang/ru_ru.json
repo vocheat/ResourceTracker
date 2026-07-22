@@ -4,6 +4,7 @@
   "gui.resourcetracker.title": "Resource Tracker",
   "gui.resourcetracker.move_hud": "Переместить HUD",
   "gui.resourcetracker.add_list": "Создать список",
+  "gui.resourcetracker.default_list": "Список %d",
   "gui.resourcetracker.close": "Закрыть",
   "gui.resourcetracker.move.title": "Перемещение HUD",
   "gui.resourcetracker.move.drag_hint": "Перетащите списки мышью",
@@ -49,12 +50,12 @@
   "gui.resourcetracker.settings.default_background_color": "Цвет фона RGBA по умолчанию",
   "gui.resourcetracker.settings.reset_defaults": "Сбросить",
   "gui.resourcetracker.settings.open_lists_screen": "Списки",
-  "gui.resourcetracker.settings": "?????????",
-  "gui.resourcetracker.visibility_show": "???????? ?????? ?? HUD",
-  "gui.resourcetracker.visibility_hide": "?????? ?????? ? HUD",
-  "gui.resourcetracker.validation.integer": "??????? ????? ?????.",
-  "gui.resourcetracker.validation.scale": "??????? ??????? ?? 0.25 ?? 4.0.",
-  "gui.resourcetracker.validation.columns": "??????? ????? ???????? ?? 0 ?? 5. 0 ? ????.",
-  "gui.resourcetracker.validation.target_count": "??????? ???? ?? 1 ?? 99999.",
-  "gui.resourcetracker.validation.rgba": "??????? ???????? RGBA ?? 0 ?? 255."
+  "gui.resourcetracker.settings": "Настройки",
+  "gui.resourcetracker.visibility_show": "Показать список на HUD",
+  "gui.resourcetracker.visibility_hide": "Скрыть список с HUD",
+  "gui.resourcetracker.validation.integer": "Введите целое число.",
+  "gui.resourcetracker.validation.scale": "Введите масштаб от 0.25 до 4.0.",
+  "gui.resourcetracker.validation.columns": "Введите число столбцов от 0 до 5. 0 — авто.",
+  "gui.resourcetracker.validation.target_count": "Введите целевое количество от 1 до 99999.",
+  "gui.resourcetracker.validation.rgba": "Введите значения RGBA от 0 до 255."
 }

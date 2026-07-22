@@ -18,7 +18,6 @@ base {
 }
 
 repositories {
-    maven { url 'https://maven.terraformersmc.com/releases/' }
     exclusiveContent {
         forRepository {
             maven {
@@ -30,6 +29,7 @@ repositories {
             includeGroup 'maven.modrinth'
         }
     }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
 }
 
 dependencies {
@@ -39,6 +39,11 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
     modCompileOnly "maven.modrinth:modmenu:${modmenu_version}"
     modLocalRuntime "maven.modrinth:modmenu:${modmenu_version}"
+}
+
+dependencyLocking {
+    lockFile = file("gradle/dependency-locks/${profile_id}.lockfile")
+    lockAllConfigurations()
 }
 
 loom {
@@ -52,9 +57,7 @@ loom {
 
 tasks.named('compileJava', JavaCompile) {
     source = files(
-            fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
-            },
+            fileTree('src/main/java'),
             fileTree("src/compat/${profile_id}/java")
     )
 }
@@ -109,9 +112,7 @@ tasks.named('compileJava') {
 tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from files(
-            fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/MainScreen.java'
-            },
+            fileTree('src/main/java'),
             fileTree("src/compat/${profile_id}/java")
     )
 }
@@ -133,7 +134,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(JavaExec).configureEach {
     javaLauncher = javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(java_version)
+        languageVersion = JavaLanguageVersion.of(findProperty('runtime_java_version') ?: java_version)
     }
 }
 

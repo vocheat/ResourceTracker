@@ -95,7 +95,7 @@ public class MainScreen extends Screen {
         int boxWidth = getBoxWidth();
         int boxX = getBoxX(boxWidth);
         int toolY = this.listTop - 21;
-        int sideWidth = 150;
+        int sideWidth = getActionButtonWidth();
         int sideX = boxX + boxWidth + 12;
         int sideY = this.listTop;
         if (sideX + sideWidth > this.width - 8) {
@@ -117,7 +117,7 @@ public class MainScreen extends Screen {
                 Button.builder(
                                 Component.literal(""),
                                 button -> {
-                                    TrackerConfig.TrackingList newList = TrackerConfig.createList("List " + (TrackerConfig.INSTANCE.lists.size() + 1));
+                                    TrackerConfig.TrackingList newList = TrackerConfig.createList(Component.translatable("gui.resourcetracker.default_list", TrackerConfig.INSTANCE.lists.size() + 1).getString());
                                     newList.isVisible = true;
                                     TrackerConfig.INSTANCE.lists.add(newList);
                                     TrackerConfig.saveList(newList);
@@ -179,11 +179,7 @@ public class MainScreen extends Screen {
         this.addRenderableWidget(
                 Button.builder(
                                 Component.translatable("gui.resourcetracker.close"),
-                                button -> {
-                                    if (this.minecraft != null) {
-                                        this.minecraft.setScreen(this.parent);
-                                    }
-                                }
+                                button -> onClose()
                         )
                         .bounds(centerX - 50, this.height - 30, 100, 20)
                         .build()
@@ -367,6 +363,7 @@ public class MainScreen extends Screen {
     public boolean keyPressed(KeyEvent event) {
         if (ResourceTrackerClient.openMenuKey != null && ResourceTrackerClient.openMenuKey.matches(event)) {
             onClose();
+            ResourceTrackerClient.discardHandledOpenMenuKeyClicks();
             return true;
         }
         if (event.key() == GLFW.GLFW_KEY_LEFT_SHIFT) {
@@ -403,7 +400,7 @@ public class MainScreen extends Screen {
     }
 
     private int getBoxWidth() {
-        return Math.min(280, Math.max(120, this.width - 16));
+        return Math.min(280, Math.max(80, this.width - 16));
     }
 
     private int getBoxX(int boxWidth) {
@@ -412,8 +409,12 @@ public class MainScreen extends Screen {
 
     private Button createActionButton(int x, int y, Component text, Button.OnPress onPress) {
         return Button.builder(Component.literal("   ").append(text), onPress)
-                .bounds(x, y, 150, 21)
+                .bounds(x, y, getActionButtonWidth(), 21)
                 .build();
+    }
+
+    private int getActionButtonWidth() {
+        return Math.min(150, Math.max(80, this.width - 16));
     }
 
 

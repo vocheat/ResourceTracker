@@ -37,7 +37,6 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.world.level.storage.LevelResource;
-import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -73,9 +72,17 @@ public class ResourceTrackerClient implements ClientModInitializer {
      */
     public static KeyMapping toggleHudKey;
     private static TrackerConfig.ActiveContext lastContext = TrackerConfig.ActiveContext.none();
-    private static boolean openMenuPhysicalKeyDown = false;
     private static final Set<Item> cachedTargetItems = new HashSet<>();
     private static String cachedTargetSignature = "";
+
+    /**
+     * Discards clicks already handled directly by an open screen.
+     */
+    public static void discardHandledOpenMenuKeyClicks() {
+        while (openMenuKey != null && openMenuKey.consumeClick()) {
+            // Drain the click queue so END_CLIENT_TICK does not reopen the screen.
+        }
+    }
 
     @Override
     public void onInitializeClient() {
@@ -84,35 +91,22 @@ public class ResourceTrackerClient implements ClientModInitializer {
         // Register keybindings — via VersionCompat for cross-version support
         openMenuKey = VersionCompat.registerOpenKey();
         toggleHudKey = VersionCompat.registerToggleHudKey();
+        VersionCompat.registerClientResourceReloadListener(() -> {
+            TrackerConfig.invalidateDisplayNameCache();
+            HudRenderCache.clear();
+        });
 
         // Register the client tick event to handle input and update inventory counts
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             updateActiveListContext(client);
 
-            // Check for menu key press. Screens can consume key events before KeyMapping sees them,
-            // so keep a physical M-key edge check for closing the main tracker screen.
-            boolean closedMenuThisTick = false;
-            if (client.screen instanceof MainScreen && client.getWindow() != null) {
-                long handle = VersionCompat.getWindowHandle(client.getWindow());
-                boolean isDown = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_M) == GLFW.GLFW_PRESS;
-                if (isDown && !openMenuPhysicalKeyDown) {
-                    client.screen.onClose();
-                    closedMenuThisTick = true;
-                }
-                openMenuPhysicalKeyDown = isDown;
-            } else {
-                openMenuPhysicalKeyDown = false;
-            }
-
-            while (!closedMenuThisTick && openMenuKey.consumeClick()) {
+            // Always use the registered KeyMapping so the Controls screen remains the
+            // single source of truth for the binding, including user reassignment.
+            while (openMenuKey.consumeClick()) {
                 if (client.screen instanceof MainScreen) {
                     client.screen.onClose();
                 } else if (client.screen == null) {
                     client.setScreen(new MainScreen(null));
-                    if (client.getWindow() != null) {
-                        long handle = VersionCompat.getWindowHandle(client.getWindow());
-                        openMenuPhysicalKeyDown = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_M) == GLFW.GLFW_PRESS;
-                    }
                 }
             }
 
@@ -144,18 +138,28 @@ public class ResourceTrackerClient implements ClientModInitializer {
 
         Set<Item> targetItems = getTargetItemsForVisibleLists();
         if (targetItems.isEmpty()) {
-            clearVisibleCachedCounts();
+            if (clearVisibleCachedCounts()) {
+                HudRenderCache.clear();
+            }
             return;
         }
 
         Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
+        boolean countsChanged = false;
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
             for (TrackerConfig.TrackedItem trackedItem : list.items) {
                 if (trackedItem.isValid()) {
-                    trackedItem.cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                    int cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                    if (trackedItem.cachedCount != cachedCount) {
+                        trackedItem.cachedCount = cachedCount;
+                        countsChanged = true;
+                    }
                 }
             }
+        }
+        if (countsChanged) {
+            HudRenderCache.clear();
         }
     }
 
@@ -196,13 +200,18 @@ public class ResourceTrackerClient implements ClientModInitializer {
         return signature.toString();
     }
 
-    private static void clearVisibleCachedCounts() {
+    private static boolean clearVisibleCachedCounts() {
+        boolean countsChanged = false;
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (list == null || !list.isVisible || list.items == null) continue;
             for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                trackedItem.cachedCount = 0;
+                if (trackedItem.cachedCount != 0) {
+                    trackedItem.cachedCount = 0;
+                    countsChanged = true;
+                }
             }
         }
+        return countsChanged;
     }
 
     private static void updateActiveListContext(Minecraft client) {

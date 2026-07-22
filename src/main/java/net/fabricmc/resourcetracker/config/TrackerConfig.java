@@ -33,11 +33,11 @@ import net.minecraft.world.item.ItemStack;
 
 import java.awt.Desktop;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,7 +54,7 @@ import java.util.UUID;
 public class TrackerConfig {
 
     private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir();
-    private static final File CONFIG_FILE = CONFIG_DIR.resolve("resourcetracker.json").toFile();
+    private static final Path CONFIG_FILE = CONFIG_DIR.resolve("resourcetracker.json");
     private static final Path DATA_DIR = CONFIG_DIR.resolve("resourcetracker");
     private static final Path LISTS_DIR = DATA_DIR.resolve("lists");
     private static final String SINGLEPLAYER_DIR_NAME = "Singleplayer Worlds";
@@ -72,14 +72,20 @@ public class TrackerConfig {
 
     public static TrackerConfig INSTANCE = new TrackerConfig();
 
-    /** Active context lists. Legacy JSON lists are migrated to templates and no longer saved globally. */
+    /** Active context lists. Legacy JSON lists are migrated to the first active context and no longer saved globally. */
     public List<TrackingList> lists = new ArrayList<>();
 
     /** Global HUD visibility toggle. */
     public boolean hudVisible = true;
 
-    /** Set after legacy JSON lists have been copied to lists/templates. */
+    /** Set after legacy JSON lists have been copied to an active context. */
     public boolean legacyListsMigrated = false;
+
+    /** Separates completed active-context migration from older releases that copied lists only to templates. */
+    public boolean legacyListsMigratedToActiveContext = false;
+
+    /** Context selected for an in-progress legacy migration; prevents copying the same lists to another world/server. */
+    public String legacyMigrationTargetContextKey = null;
 
     public int defaultX = 10;
     public int defaultY = 10;
@@ -92,6 +98,7 @@ public class TrackerConfig {
     public int defaultBackgroundColor = 0xA0505050;
 
     private static ActiveContext activeContext = ActiveContext.none();
+    private static List<TrackingList> pendingLegacyLists = new ArrayList<>();
 
     public enum ContextType {
         NONE,
@@ -214,8 +221,8 @@ public class TrackerConfig {
     public static void load() {
         ensureDirectories();
         TrackerConfig loaded = new TrackerConfig();
-        if (CONFIG_FILE.exists()) {
-            try (FileReader reader = new FileReader(CONFIG_FILE, StandardCharsets.UTF_8)) {
+        if (Files.isRegularFile(CONFIG_FILE)) {
+            try (BufferedReader reader = Files.newBufferedReader(CONFIG_FILE, StandardCharsets.UTF_8)) {
                 TrackerConfig fromJson = GSON.fromJson(reader, TrackerConfig.class);
                 if (fromJson != null) loaded = fromJson;
             } catch (Exception e) {
@@ -226,6 +233,8 @@ public class TrackerConfig {
         if (loaded.lists == null) loaded.lists = new ArrayList<>();
         INSTANCE.hudVisible = loaded.hudVisible;
         INSTANCE.legacyListsMigrated = loaded.legacyListsMigrated;
+        INSTANCE.legacyListsMigratedToActiveContext = loaded.legacyListsMigratedToActiveContext;
+        INSTANCE.legacyMigrationTargetContextKey = loaded.legacyMigrationTargetContextKey;
         INSTANCE.defaultX = loaded.defaultX;
         INSTANCE.defaultY = loaded.defaultY;
         INSTANCE.defaultScale = clampScale(loaded.defaultScale);
@@ -236,10 +245,12 @@ public class TrackerConfig {
         INSTANCE.defaultNameColor = loaded.defaultNameColor;
         INSTANCE.defaultBackgroundColor = loaded.defaultBackgroundColor;
         INSTANCE.lists = new ArrayList<>();
+        pendingLegacyLists = new ArrayList<>();
 
-        if (!INSTANCE.legacyListsMigrated && !loaded.lists.isEmpty()) {
-            migrateLegacyListsToTemplates(loaded.lists);
-            INSTANCE.legacyListsMigrated = true;
+        if (!INSTANCE.legacyListsMigratedToActiveContext && !loaded.lists.isEmpty()) {
+            assignDeterministicLegacyIds(loaded.lists);
+            pendingLegacyLists.addAll(loaded.lists);
+            return;
         }
         saveGlobalSettingsOnly();
     }
@@ -272,6 +283,7 @@ public class TrackerConfig {
         INSTANCE.lists = new ArrayList<>();
         if (!activeContext.isNone()) {
             migrateLegacyContextDirectory(activeContext);
+            migratePendingLegacyLists(activeContext);
             loadActiveContextLists();
         }
     }
@@ -282,6 +294,16 @@ public class TrackerConfig {
 
     public static boolean hasActiveContext() {
         return !activeContext.isNone();
+    }
+
+    /** Clears names resolved from client language resources. */
+    public static void invalidateDisplayNameCache() {
+        for (TrackingList list : INSTANCE.lists) {
+            if (list == null || list.items == null) continue;
+            for (TrackedItem item : list.items) {
+                if (item != null) item.displayName = null;
+            }
+        }
     }
 
     public static void reloadActiveContextLists() {
@@ -406,12 +428,17 @@ public class TrackerConfig {
         }
     }
 
-    private static void saveGlobalSettings() {
+    private static boolean saveGlobalSettings() {
         ensureDirectories();
-        try (FileWriter writer = new FileWriter(CONFIG_FILE, StandardCharsets.UTF_8)) {
+        try {
             GlobalSettings settings = new GlobalSettings();
             settings.hudVisible = INSTANCE.hudVisible;
             settings.legacyListsMigrated = INSTANCE.legacyListsMigrated;
+            settings.legacyListsMigratedToActiveContext = INSTANCE.legacyListsMigratedToActiveContext;
+            settings.legacyMigrationTargetContextKey = INSTANCE.legacyMigrationTargetContextKey;
+            if (!INSTANCE.legacyListsMigratedToActiveContext) {
+                settings.lists = new ArrayList<>(pendingLegacyLists);
+            }
             settings.defaultX = INSTANCE.defaultX;
             settings.defaultY = INSTANCE.defaultY;
             settings.defaultScale = INSTANCE.defaultScale;
@@ -421,23 +448,71 @@ public class TrackerConfig {
             settings.defaultTextColor = INSTANCE.defaultTextColor;
             settings.defaultNameColor = INSTANCE.defaultNameColor;
             settings.defaultBackgroundColor = INSTANCE.defaultBackgroundColor;
-            GSON.toJson(settings, writer);
+            return writeTextAtomically(CONFIG_FILE, GSON.toJson(settings));
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
         }
     }
 
-    private static void migrateLegacyListsToTemplates(List<TrackingList> legacyLists) {
-        ensureDirectories();
-        for (TrackingList list : legacyLists) {
+    private static void migratePendingLegacyLists(ActiveContext context) {
+        if (INSTANCE.legacyListsMigratedToActiveContext || context == null || context.isNone()) return;
+
+        String targetContextKey = context.key();
+        if (INSTANCE.legacyMigrationTargetContextKey != null
+                && !INSTANCE.legacyMigrationTargetContextKey.equals(targetContextKey)) {
+            return;
+        }
+
+        if (pendingLegacyLists.isEmpty()) {
+            pendingLegacyLists.addAll(loadLists(TEMPLATES_DIR));
+        }
+        if (pendingLegacyLists.isEmpty()) {
+            INSTANCE.legacyListsMigrated = true;
+            INSTANCE.legacyListsMigratedToActiveContext = true;
+            INSTANCE.legacyMigrationTargetContextKey = null;
+            saveGlobalSettingsOnly();
+            return;
+        }
+
+        assignDeterministicLegacyIds(pendingLegacyLists);
+        if (INSTANCE.legacyMigrationTargetContextKey == null) {
+            INSTANCE.legacyMigrationTargetContextKey = targetContextKey;
+            if (!saveGlobalSettings()) {
+                INSTANCE.legacyMigrationTargetContextKey = null;
+                return;
+            }
+        }
+
+        Path targetDir = getActiveListsDir();
+        for (TrackingList list : pendingLegacyLists) {
             if (list == null) continue;
             normalizeList(list);
-            writeList(TEMPLATES_DIR, list);
+            if (!listWithIdExists(targetDir, list.id) && !writeList(targetDir, list)) {
+                saveGlobalSettingsOnly();
+                return;
+            }
+        }
+
+        String completedTargetContextKey = INSTANCE.legacyMigrationTargetContextKey;
+        INSTANCE.legacyListsMigrated = true;
+        INSTANCE.legacyListsMigratedToActiveContext = true;
+        INSTANCE.legacyMigrationTargetContextKey = null;
+        if (saveGlobalSettings()) {
+            pendingLegacyLists = new ArrayList<>();
+        } else {
+            INSTANCE.legacyListsMigrated = false;
+            INSTANCE.legacyListsMigratedToActiveContext = false;
+            INSTANCE.legacyMigrationTargetContextKey = completedTargetContextKey;
         }
     }
 
     private static void loadActiveContextLists() {
-        Path dir = getActiveListsDir();
+        INSTANCE.lists.addAll(loadLists(getActiveListsDir()));
+    }
+
+    private static List<TrackingList> loadLists(Path dir) {
+        List<TrackingList> loadedLists = new ArrayList<>();
         try {
             try (var stream = Files.list(dir)) {
                 stream.filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
@@ -445,7 +520,7 @@ public class TrackerConfig {
                         .forEach(path -> {
                             try {
                                 TrackingList list = readList(path);
-                                if (list != null) INSTANCE.lists.add(list);
+                                if (list != null) loadedLists.add(list);
                             } catch (Exception e) {
                                 System.err.println("[ResourceTracker] Failed to read list file " + path + ": " + e.getMessage());
                             }
@@ -454,6 +529,7 @@ public class TrackerConfig {
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return loadedLists;
     }
 
     private static void saveActiveContextLists() {
@@ -499,8 +575,8 @@ public class TrackerConfig {
         return list;
     }
 
-    private static void writeList(Path dir, TrackingList list) {
-        if (list == null) return;
+    private static boolean writeList(Path dir, TrackingList list) {
+        if (list == null) return false;
         ensureDirectory(dir);
         normalizeList(list);
         String fileName = list.storageFileName;
@@ -514,28 +590,61 @@ public class TrackerConfig {
             list.storageFileName = fileName;
             file = dir.resolve(fileName);
         }
-        try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-            writer.write("# ResourceTracker list v1\n");
-            writer.write("id=" + safe(list.id) + "\n");
-            writer.write("name=" + safe(list.name) + "\n");
-            writer.write("visible=" + list.isVisible + "\n");
-            writer.write("x=" + list.x + "\n");
-            writer.write("y=" + list.y + "\n");
-            writer.write("scale=" + list.scale + "\n");
-            writer.write("showRemaining=" + list.showRemaining + "\n");
-            writer.write("showIcons=" + list.showIcons + "\n");
-            writer.write("columns=" + list.columns + "\n");
-            writer.write("textColor=" + colorToHex(list.textColor) + "\n");
-            writer.write("nameColor=" + colorToHex(list.nameColor) + "\n");
-            writer.write("backgroundColor=" + colorToHex(list.backgroundColor) + "\n\n");
-            writer.write("[items]\n");
+        try {
+            StringBuilder contents = new StringBuilder("# ResourceTracker list v1\n")
+                    .append("id=").append(safe(list.id)).append('\n')
+                    .append("name=").append(safe(list.name)).append('\n')
+                    .append("visible=").append(list.isVisible).append('\n')
+                    .append("x=").append(list.x).append('\n')
+                    .append("y=").append(list.y).append('\n')
+                    .append("scale=").append(list.scale).append('\n')
+                    .append("showRemaining=").append(list.showRemaining).append('\n')
+                    .append("showIcons=").append(list.showIcons).append('\n')
+                    .append("columns=").append(list.columns).append('\n')
+                    .append("textColor=").append(colorToHex(list.textColor)).append('\n')
+                    .append("nameColor=").append(colorToHex(list.nameColor)).append('\n')
+                    .append("backgroundColor=").append(colorToHex(list.backgroundColor)).append("\n\n[items]\n");
             for (TrackedItem item : list.items) {
                 if (item.itemId != null && !item.itemId.isBlank()) {
-                    writer.write(item.itemId + "=" + clampTargetCount(item.targetCount) + "\n");
+                    contents.append(safe(item.itemId)).append('=').append(clampTargetCount(item.targetCount)).append('\n');
                 }
             }
+            writeTextAtomically(file, contents.toString());
+            return true;
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
+        }
+    }
+
+    private static boolean listWithIdExists(Path dir, String id) {
+        if (id == null || id.isBlank()) return false;
+        try (var stream = Files.list(dir)) {
+            return stream
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
+                    .anyMatch(path -> hasListId(path, id));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private static boolean hasListId(Path file, String id) {
+        try {
+            TrackingList list = readList(file);
+            return id.equals(list.id);
+        } catch (IOException e) {
+            System.err.println("[ResourceTracker] Failed to read list file " + file + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static void assignDeterministicLegacyIds(List<TrackingList> legacyLists) {
+        for (int index = 0; index < legacyLists.size(); index++) {
+            TrackingList list = legacyLists.get(index);
+            if (list != null && (list.id == null || list.id.isBlank())) {
+                list.id = UUID.nameUUIDFromBytes((index + "\\n" + GSON.toJson(list)).getBytes(StandardCharsets.UTF_8)).toString();
+            }
         }
     }
 
@@ -684,6 +793,34 @@ public class TrackerConfig {
         return file;
     }
 
+    private static boolean writeTextAtomically(Path file, String contents) throws IOException {
+        Path target = file.toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            throw new IOException("Configuration parent directory is unavailable: " + target);
+        }
+
+        Path temporary = Files.createTempFile(parent, "." + target.getFileName(), ".tmp");
+        try {
+            Files.writeString(temporary, contents, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+            forceAndMove(temporary, target);
+            return true;
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static void forceAndMove(Path temporary, Path target) throws IOException {
+        try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+            channel.force(true);
+        }
+        try {
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     private static boolean isReservedWindowsName(String value) {
         String name = value;
         int dot = name.indexOf('.');
@@ -738,8 +875,11 @@ public class TrackerConfig {
     }
 
     private static class GlobalSettings {
+        List<TrackingList> lists = new ArrayList<>();
         boolean hudVisible = true;
         boolean legacyListsMigrated = false;
+        boolean legacyListsMigratedToActiveContext = false;
+        String legacyMigrationTargetContextKey = null;
         int defaultX = 10;
         int defaultY = 10;
         float defaultScale = 1.0f;
