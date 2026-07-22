@@ -75,6 +75,15 @@ public class ResourceTrackerClient implements ClientModInitializer {
     private static final Set<Item> cachedTargetItems = new HashSet<>();
     private static String cachedTargetSignature = "";
 
+    /**
+     * Discards clicks already handled directly by an open screen.
+     */
+    public static void discardHandledOpenMenuKeyClicks() {
+        while (openMenuKey != null && openMenuKey.consumeClick()) {
+            // Drain the click queue so END_CLIENT_TICK does not reopen the screen.
+        }
+    }
+
     @Override
     public void onInitializeClient() {
         TrackerConfig.load();

@@ -362,6 +362,7 @@ public class MainScreen extends Screen {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (ResourceTrackerClient.openMenuKey != null && ResourceTrackerClient.openMenuKey.matches(keyCode, scanCode)) {
             onClose();
+            ResourceTrackerClient.discardHandledOpenMenuKeyClicks();
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT) {
