@@ -17,6 +17,7 @@ Resource Tracker is a client-side Minecraft Fabric mod for tracking item collect
 - Minecraft 1.21.6-1.21.8, Java 21
 - Minecraft 1.21.9-1.21.11, Java 21
 - Minecraft 26.1, Java 25
+- Minecraft 26.2, Java 25
 
 ## Usage
 
@@ -42,8 +43,9 @@ Compile a specific profile:
 .\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 .\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc26.2.gradle" compileJava
 ```
 
 ## License

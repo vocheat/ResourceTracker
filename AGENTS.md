@@ -10,8 +10,8 @@ collection progress on the HUD.
 - Java package root: `net.fabricmc.resourcetracker`
 - Default target: Minecraft `1.21.11`
 - Default build profile: `mc1_21_9_to_1_21_11`
-- Java: JDK 21 for 1.21.x builds, JDK 25 for MC 26.1
-- Mapping set: Mojang official mappings for 1.21.x; MC 26.1 has no `mappings` dependency
+- Java: JDK 21 for 1.21.x builds, JDK 25 for MC 26.x
+- Mapping set: Mojang official mappings for 1.21.x; MC 26.x profiles have no `mappings` dependency
 - No test suite exists; compilation is the primary automated verification.
 
 ## Build And Verify
@@ -32,9 +32,10 @@ build-mc1.21.5.gradle
 build-mc1.21.6-1.21.8.gradle
 build-mc1.21.9-1.21.11.gradle
 build-mc26.1.gradle
+build-mc26.2.gradle
 ```
 
-Gradle 9.4.1 does not accept the old `-b` short option. Use the `profileBuild`
+Gradle 9.5.1 does not accept the old `-b` short option. Use the `profileBuild`
 selector instead:
 
 ```powershell
@@ -42,8 +43,9 @@ selector instead:
 .\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 .\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc26.2.gradle" compileJava
 ```
 
 Quote the `-PprofileBuild=...` argument in PowerShell because the build file
@@ -53,8 +55,8 @@ names contain dots.
 
 Installed Java paths noted by the previous project setup:
 
-- JDK 21: `C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot`
-- JDK 25: `C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot`
+- JDK 21: `C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot`
+- JDK 25: `C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot`
 
 ## Architecture
 
@@ -80,6 +82,7 @@ compat/
   mc1_21_6_to_1_21_8/java/.../VersionCompat + HudCompat
   mc1_21_9_to_1_21_11/java/.../VersionCompat + HudCompat
   mc26_1/java/.../VersionCompat + HudCompat
+  mc26_2/java/.../VersionCompat + HudCompat
 ```
 
 Key flow:
@@ -90,8 +93,9 @@ Key flow:
 - `InventoryUtils` recursively counts inventory contents, containers, and bundles.
 - `VersionCompat` owns key mapping registration, matrix operations, and registry id lookup differences.
 - ModMenu is resolved from Modrinth Maven as `maven.modrinth:modmenu:<version>`.
-- MC 26.1 uses profile-specific `GuiGraphicsExtractor` screens/HUD with UI parity
-  against the 1.21.x screens where the 26.1 client API allows it.
+- MC 26.x uses profile-specific `GuiGraphicsExtractor` screens/HUD with UI parity
+  against the 1.21.x screens where the client API allows it. MC 26.2 accesses
+  screen state through `Minecraft.gui` and HUD visibility through `Minecraft.gui.hud`.
 
 ## Non-Obvious Rules
 
@@ -159,7 +163,7 @@ Use this folder for manual QA checklists, test matrices, and verification notes.
 Use this folder for captured logs from Gradle, `runClient`, crash reports, and manual QA runs.
 
 - Create one folder per run: `YYYYMMDD-HHMMSS`.
-- Inside a run folder, group files by profile id: `mc1_21_0_to_1_21_4`, `mc1_21_5`, `mc1_21_6_to_1_21_8`, `mc1_21_9_to_1_21_11`, `mc26_1`.
+- Inside a run folder, group files by profile id: `mc1_21_0_to_1_21_4`, `mc1_21_5`, `mc1_21_6_to_1_21_8`, `mc1_21_9_to_1_21_11`, `mc26_1`, `mc26_2`.
 - Use stable log names: `prepare.out.log`, `prepare.err.log`, `gradle-run.out.log`, `gradle-run.err.log`, `latest.log`, `debug.log`.
 - Copy crash reports into a `crash-reports/` subfolder under the affected profile.
 - Do not mix logs from different run times in the same timestamp folder.
