@@ -6,7 +6,7 @@ Keep changes focused and verify the profile you touched before opening a pull re
 
 - Git
 - JDK 21 for Minecraft 1.21.x profiles
-- JDK 25 for Minecraft 26.1
+- JDK 25 for Minecraft 26.1 and 26.2
 
 ## Setup
 
@@ -27,8 +27,9 @@ Use `-PprofileBuild=...`; do not use Gradle's old `-b` option.
 .\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 .\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc26.2.gradle" compileJava
 ```
 
 ## Project structure

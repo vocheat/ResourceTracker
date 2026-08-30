@@ -1,0 +1,156 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.20'
+    id 'maven-publish'
+}
+version = "${project.mod_version}+mc26.2"
+group = project.maven_group
+
+layout.buildDirectory.set(layout.projectDirectory.dir("build/mc26_2"))
+
+sourceSets {
+    main {
+        java {
+            srcDirs = []
+        }
+    }
+}
+
+base {
+    archivesName = "${project.archives_base_name}-mc26.2"
+}
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter {
+            includeGroup 'maven.modrinth'
+        }
+    }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
+}
+
+loom {
+    runs {
+        client {
+            runDir "run/mc26_2"
+        }
+    }
+}
+
+dependencies {
+    minecraft 'com.mojang:minecraft:26.2'
+    implementation 'net.fabricmc:fabric-loader:0.19.3'
+    implementation 'net.fabricmc.fabric-api:fabric-api:0.158.0+26.2'
+    compileOnly 'maven.modrinth:modmenu:20.0.1'
+    localRuntime 'maven.modrinth:modmenu:20.0.1'
+}
+
+dependencyLocking {
+    lockFile = file('gradle/dependency-locks/mc26_2.lockfile')
+    lockAllConfigurations()
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_min_version', '26.2'
+    inputs.property 'minecraft_max_version', '26.2'
+    inputs.property 'loader_version', '0.19.3'
+    inputs.property 'java_min_version', '25'
+    inputs.property 'fabric_api_version', '0.158.0+26.2'
+    filteringCharset 'UTF-8'
+
+    filesMatching('fabric.mod.json') {
+        expand version: project.version,
+                minecraft_min_version: '26.2',
+                minecraft_max_version: '26.2',
+                loader_version: '0.19.3',
+                java_min_version: '25',
+                fabric_api_version: '0.158.0+26.2'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.register('verifyProfileMetadata') {
+    dependsOn processResources
+    doLast {
+        def metadataFile = layout.buildDirectory.file("resources/main/fabric.mod.json").get().asFile
+        def metadata = metadataFile.getText('UTF-8')
+        [
+                '"version": "' + project.version + '"',
+                '"minecraft": ">=26.2 <=26.2"',
+                '"java": ">=25"',
+                '"fabricloader": ">=0.19.3"',
+                '"fabric-api": ">=0.158.0+26.2"'
+        ].each { expected ->
+            if (!metadata.contains(expected)) throw new GradleException("Generated fabric.mod.json for mc26_2 does not contain ${expected}")
+        }
+    }
+}
+
+tasks.named('compileJava', JavaCompile) {
+    dependsOn tasks.named('verifyProfileMetadata')
+    source = files(
+            fileTree('src/main/java') {
+                exclude 'net/fabricmc/resourcetracker/client/gui/**'
+                exclude 'net/fabricmc/resourcetracker/client/ResourceTrackerClient.java'
+                exclude 'net/fabricmc/resourcetracker/client/render/HudOverlay.java'
+                exclude 'net/fabricmc/resourcetracker/util/RenderUtils.java'
+                exclude 'net/fabricmc/resourcetracker/util/InventoryUtils.java'
+            },
+            fileTree('src/compat/mc26_2/java')
+    )
+}
+
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from files(
+            fileTree('src/main/java') {
+                exclude 'net/fabricmc/resourcetracker/client/gui/**'
+                exclude 'net/fabricmc/resourcetracker/client/ResourceTrackerClient.java'
+                exclude 'net/fabricmc/resourcetracker/client/render/HudOverlay.java'
+                exclude 'net/fabricmc/resourcetracker/util/RenderUtils.java'
+                exclude 'net/fabricmc/resourcetracker/util/InventoryUtils.java'
+            },
+            fileTree('src/compat/mc26_2/java')
+    )
+}
+
+java {
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.archives_base_name}" }
+    }
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            artifactId = "${project.archives_base_name}-mc26.2"
+            from components.java
+        }
+    }
+    repositories {}
+}
