@@ -29,6 +29,9 @@ import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.ComponentPath;
+import net.minecraft.client.gui.navigation.FocusNavigationEvent;
+import net.minecraft.client.gui.navigation.ScreenDirection;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ConfirmScreen;
@@ -88,6 +91,10 @@ public class EditScreen extends Screen {
     private final List<Button> itemTabButtons = new ArrayList<>();
     private final List<Button> availableActionButtons = new ArrayList<>();
     private final List<Button> removeActionButtons = new ArrayList<>();
+    private final List<Integer> availableProxyIndices = new ArrayList<>();
+    private final List<Integer> removeProxyIndices = new ArrayList<>();
+    private int availableFocusIndex = -1;
+    private int trackedFocusIndex = -1;
     private int listAreaY;
     private int leftBoxY;
     private int rightBoxY;
@@ -474,7 +481,7 @@ public class EditScreen extends Screen {
             filteredItems.addAll(contains);
         }
         scrollLeft = 0;
-        if (searchField != null) rebuildItemActionButtons();
+        if (searchField != null) resetAvailableFocus();
     }
 
     private void updateTrackedSearch(String query) {
@@ -494,49 +501,190 @@ public class EditScreen extends Screen {
             }
         }
         scrollRight = 0;
-        if (trackedSearchField != null) rebuildItemActionButtons();
+        if (trackedSearchField != null) resetTrackedFocus();
     }
 
     private void rebuildItemActionButtons() {
         for (Button button : availableActionButtons) removeWidget(button);
         for (Button button : removeActionButtons) removeWidget(button);
-        availableActionButtons.clear(); removeActionButtons.clear();
-        for (Item item : filteredItems) {
-            Button button = Button.builder(Component.translatable("gui.resourcetracker.edit.add_item", getCachedItemName(item)), b -> addItem(item))
+        availableActionButtons.clear();
+        removeActionButtons.clear();
+        availableProxyIndices.clear();
+        removeProxyIndices.clear();
+
+        int proxyCount = visibleItemRowCapacity();
+        for (int slot = 0; slot < proxyCount; slot++) {
+            final int proxySlot = slot;
+            Button button = Button.builder(Component.empty(), b -> activateAvailableProxy(proxySlot))
                     .bounds(leftBoxX, leftBoxY + SEARCH_HEIGHT, Math.max(1, boxWidth - 10), ITEM_ROW_HEIGHT).build();
-            button.setAlpha(0.0F); addRenderableWidget(button); availableActionButtons.add(button);
+            button.setAlpha(0.0F);
+            addRenderableWidget(button);
+            availableActionButtons.add(button);
+            availableProxyIndices.add(-1);
         }
-        for (TrackerConfig.TrackedItem item : filteredTrackedItems) {
-            Button button = Button.builder(Component.translatable("gui.resourcetracker.edit.remove_item", item.getDisplayName()), b -> confirmRemove(item))
+        for (int slot = 0; slot < proxyCount; slot++) {
+            final int proxySlot = slot;
+            Button button = Button.builder(Component.empty(), b -> activateRemoveProxy(proxySlot))
                     .bounds(rightBoxX + boxWidth - 32, rightBoxY + SEARCH_HEIGHT, 28, ITEM_ROW_HEIGHT).build();
-            button.setAlpha(0.0F); addRenderableWidget(button); removeActionButtons.add(button);
+            button.setAlpha(0.0F);
+            addRenderableWidget(button);
+            removeActionButtons.add(button);
+            removeProxyIndices.add(-1);
         }
+        resetAvailableFocus();
+        resetTrackedFocus();
+    }
+
+    private int visibleItemRowCapacity() {
+        return Math.max(1, (Math.max(1, boxHeight - SEARCH_HEIGHT - 2) + ITEM_ROW_HEIGHT - 1) / ITEM_ROW_HEIGHT + 1);
+    }
+
+    private void resetAvailableFocus() {
+        availableFocusIndex = filteredItems.isEmpty() ? -1 : 0;
+        scrollLeft = 0;
+    }
+
+    private void resetTrackedFocus() {
+        trackedFocusIndex = filteredTrackedItems.isEmpty() ? -1 : 0;
+        scrollRight = 0;
+    }
+
+    private void activateAvailableProxy(int slot) {
+        if (slot >= 0 && slot < availableProxyIndices.size()) {
+            int index = availableProxyIndices.get(slot);
+            if (index >= 0 && index < filteredItems.size()) addItem(filteredItems.get(index));
+        }
+    }
+
+    private void activateRemoveProxy(int slot) {
+        if (slot >= 0 && slot < removeProxyIndices.size()) {
+            int index = removeProxyIndices.get(slot);
+            if (index >= 0 && index < filteredTrackedItems.size()) confirmRemove(filteredTrackedItems.get(index));
+        }
+    }
+
+    private int focusedAvailableIndex() {
+        for (int i = 0; i < availableActionButtons.size(); i++) {
+            if (availableActionButtons.get(i).isFocused()) return availableProxyIndices.get(i);
+        }
+        return -1;
+    }
+
+    private int focusedTrackedIndex() {
+        for (int i = 0; i < removeActionButtons.size(); i++) {
+            if (removeActionButtons.get(i).isFocused()) return removeProxyIndices.get(i);
+        }
+        return -1;
     }
 
     private void updateItemActionButtons() {
         int leftStart = leftBoxY + SEARCH_HEIGHT + 2;
         int rightStart = rightBoxY + SEARCH_HEIGHT + 2;
         int visibleHeight = Math.max(1, boxHeight - SEARCH_HEIGHT - 2);
-        for (int i = 0; i < availableActionButtons.size(); i++) {
-            Button button = availableActionButtons.get(i);
-            int y = (int) (leftStart + i * ITEM_ROW_HEIGHT - scrollLeft);
-            button.setX(leftBoxX + 1); button.setY(y); button.setWidth(Math.max(1, boxWidth - 11));
+        int leftMaxScroll = Math.max(0, filteredItems.size() * ITEM_ROW_HEIGHT - visibleHeight);
+        int rightMaxScroll = Math.max(0, filteredTrackedItems.size() * ITEM_ROW_HEIGHT - visibleHeight);
+        scrollLeft = Mth.clamp(scrollLeft, 0, leftMaxScroll);
+        scrollRight = Mth.clamp(scrollRight, 0, rightMaxScroll);
+
+        int focusedLeft = focusedAvailableIndex();
+        int focusedRight = focusedTrackedIndex();
+        if (focusedLeft >= 0) availableFocusIndex = focusedLeft;
+        if (focusedRight >= 0) trackedFocusIndex = focusedRight;
+
+        int leftFirst = Math.max(0, (int) Math.floor((scrollLeft - 2) / ITEM_ROW_HEIGHT));
+        int rightFirst = Math.max(0, (int) Math.floor((scrollRight - 2) / ITEM_ROW_HEIGHT));
+        for (int slot = 0; slot < availableActionButtons.size(); slot++) {
+            int index = leftFirst + slot;
+            Button button = availableActionButtons.get(slot);
+            availableProxyIndices.set(slot, index < filteredItems.size() ? index : -1);
             button.visible = !narrowLayout || !showTrackedPane;
-            if (button.isFocused()) {
-                if (y < leftStart) scrollLeft = Math.max(0, i * ITEM_ROW_HEIGHT);
-                if (y + ITEM_ROW_HEIGHT > leftStart + visibleHeight) scrollLeft = Math.min(Math.max(0, filteredItems.size() * ITEM_ROW_HEIGHT - visibleHeight), (i + 1) * ITEM_ROW_HEIGHT - visibleHeight);
+            if (index >= 0 && index < filteredItems.size()) {
+                button.setX(leftBoxX + 1);
+                button.setY(leftStart + slot * ITEM_ROW_HEIGHT);
+                button.setWidth(Math.max(1, boxWidth - 11));
+                button.setMessage(Component.translatable("gui.resourcetracker.edit.add_item", getCachedItemName(filteredItems.get(index))));
+            } else {
+                button.visible = false;
             }
         }
-        for (int i = 0; i < removeActionButtons.size(); i++) {
-            Button button = removeActionButtons.get(i);
-            int y = (int) (rightStart + i * ITEM_ROW_HEIGHT - scrollRight);
-            button.setX(rightBoxX + boxWidth - 32); button.setY(y); button.setWidth(28);
+        for (int slot = 0; slot < removeActionButtons.size(); slot++) {
+            int index = rightFirst + slot;
+            Button button = removeActionButtons.get(slot);
+            removeProxyIndices.set(slot, index < filteredTrackedItems.size() ? index : -1);
             button.visible = !narrowLayout || showTrackedPane;
-            if (button.isFocused()) {
-                if (y < rightStart) scrollRight = Math.max(0, i * ITEM_ROW_HEIGHT);
-                if (y + ITEM_ROW_HEIGHT > rightStart + visibleHeight) scrollRight = Math.min(Math.max(0, filteredTrackedItems.size() * ITEM_ROW_HEIGHT - visibleHeight), (i + 1) * ITEM_ROW_HEIGHT - visibleHeight);
+            if (index >= 0 && index < filteredTrackedItems.size()) {
+                button.setX(rightBoxX + boxWidth - 32);
+                button.setY(rightStart + slot * ITEM_ROW_HEIGHT);
+                button.setWidth(28);
+                button.setMessage(Component.translatable("gui.resourcetracker.edit.remove_item", filteredTrackedItems.get(index).getDisplayName()));
+            } else {
+                button.visible = false;
             }
         }
+    }
+
+    private void focusLogicalItem(boolean tracked, int index) {
+        List<?> items = tracked ? filteredTrackedItems : filteredItems;
+        if (items.isEmpty()) return;
+        index = Mth.clamp(index, 0, items.size() - 1);
+        int visibleHeight = Math.max(1, boxHeight - SEARCH_HEIGHT - 2);
+        int maxScroll = Math.max(0, items.size() * ITEM_ROW_HEIGHT - visibleHeight);
+        int start = tracked ? rightBoxY + SEARCH_HEIGHT + 2 : leftBoxY + SEARCH_HEIGHT + 2;
+        double scroll = tracked ? scrollRight : scrollLeft;
+        int rowY = start + index * ITEM_ROW_HEIGHT - (int) scroll;
+        if (rowY < start) scroll = index * ITEM_ROW_HEIGHT;
+        else if (rowY + ITEM_ROW_HEIGHT > start + visibleHeight) scroll = (index + 1) * ITEM_ROW_HEIGHT - visibleHeight;
+        scroll = Mth.clamp(scroll, 0, maxScroll);
+        if (tracked) { trackedFocusIndex = index; scrollRight = scroll; }
+        else { availableFocusIndex = index; scrollLeft = scroll; }
+        updateItemActionButtons();
+        List<Button> buttons = tracked ? removeActionButtons : availableActionButtons;
+        List<Integer> indices = tracked ? removeProxyIndices : availableProxyIndices;
+        for (int i = 0; i < buttons.size(); i++) {
+            if (indices.get(i) == index && buttons.get(i).visible) {
+                buttons.get(i).setFocused(true);
+                break;
+            }
+        }
+    }
+
+    @Override
+    public ComponentPath nextFocusPath(FocusNavigationEvent event) {
+        boolean forward;
+        if (event instanceof FocusNavigationEvent.TabNavigation tab) {
+            forward = tab.forward();
+        } else if (event instanceof FocusNavigationEvent.ArrowNavigation arrow
+                && (arrow.direction() == ScreenDirection.UP || arrow.direction() == ScreenDirection.DOWN)) {
+            forward = arrow.direction() == ScreenDirection.DOWN;
+        } else {
+            return super.nextFocusPath(event);
+        }
+
+        int currentAvailable = focusedAvailableIndex();
+        if (currentAvailable >= 0) {
+            int next = currentAvailable + (forward ? 1 : -1);
+            if (next >= 0 && next < filteredItems.size()) {
+                return focusLogicalPath(false, next);
+            }
+        }
+        int currentTracked = focusedTrackedIndex();
+        if (currentTracked >= 0) {
+            int next = currentTracked + (forward ? 1 : -1);
+            if (next >= 0 && next < filteredTrackedItems.size()) {
+                return focusLogicalPath(true, next);
+            }
+        }
+        return super.nextFocusPath(event);
+    }
+
+    private ComponentPath focusLogicalPath(boolean tracked, int index) {
+        focusLogicalItem(tracked, index);
+        List<Button> buttons = tracked ? removeActionButtons : availableActionButtons;
+        List<Integer> indices = tracked ? removeProxyIndices : availableProxyIndices;
+        for (int i = 0; i < buttons.size(); i++) {
+            if (indices.get(i) == index && buttons.get(i).visible) return ComponentPath.leaf(buttons.get(i));
+        }
+        return null;
     }
 
     private void confirmRemove(TrackerConfig.TrackedItem item) {
