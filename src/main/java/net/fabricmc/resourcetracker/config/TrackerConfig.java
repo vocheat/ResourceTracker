@@ -36,6 +36,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
@@ -99,6 +100,25 @@ public class TrackerConfig {
 
     private static ActiveContext activeContext = ActiveContext.none();
     private static List<TrackingList> pendingLegacyLists = new ArrayList<>();
+    private static ConfigLoadStatus loadStatus = ConfigLoadStatus.NOT_LOADED;
+    private static boolean globalWriteBlocked = false;
+    private static Path recoveryBackupPath = null;
+
+    public enum ConfigLoadStatus {
+        NOT_LOADED,
+        MISSING,
+        LOADED,
+        CORRUPT,
+        IO_ERROR,
+        RECOVERED
+    }
+
+    public enum ConfigRecoveryStatus {
+        SUCCESS,
+        NOT_NEEDED,
+        BACKUP_FAILED,
+        WRITE_FAILED
+    }
 
     public enum ContextType {
         NONE,
@@ -219,14 +239,32 @@ public class TrackerConfig {
     }
 
     public static void load() {
+        loadStatus = ConfigLoadStatus.NOT_LOADED;
+        globalWriteBlocked = false;
+        recoveryBackupPath = null;
         ensureDirectories();
         TrackerConfig loaded = new TrackerConfig();
-        if (Files.isRegularFile(CONFIG_FILE)) {
+        if (!Files.exists(CONFIG_FILE)) {
+            loadStatus = ConfigLoadStatus.MISSING;
+        } else {
             try (BufferedReader reader = Files.newBufferedReader(CONFIG_FILE, StandardCharsets.UTF_8)) {
                 TrackerConfig fromJson = GSON.fromJson(reader, TrackerConfig.class);
-                if (fromJson != null) loaded = fromJson;
+                if (fromJson != null) {
+                    loaded = fromJson;
+                    loadStatus = ConfigLoadStatus.LOADED;
+                } else {
+                    throw new IllegalArgumentException("Configuration JSON is empty");
+                }
+            } catch (IOException e) {
+                loadStatus = ConfigLoadStatus.IO_ERROR;
+                globalWriteBlocked = true;
+                recoveryBackupPath = backupExistingConfig();
+                System.err.println("[ResourceTracker] Failed to load configuration (" + loadStatus + "): " + e.getMessage());
             } catch (Exception e) {
-                e.printStackTrace();
+                loadStatus = ConfigLoadStatus.CORRUPT;
+                globalWriteBlocked = true;
+                recoveryBackupPath = backupExistingConfig();
+                System.err.println("[ResourceTracker] Failed to load configuration (" + loadStatus + "): " + e.getMessage());
             }
         }
 
@@ -252,7 +290,32 @@ public class TrackerConfig {
             pendingLegacyLists.addAll(loaded.lists);
             return;
         }
-        saveGlobalSettingsOnly();
+        if (loadStatus == ConfigLoadStatus.MISSING) saveGlobalSettingsOnly();
+    }
+
+    public static ConfigLoadStatus getLoadStatus() {
+        return loadStatus;
+    }
+
+    public static boolean isGlobalWriteBlocked() {
+        return globalWriteBlocked;
+    }
+
+    public static Path getRecoveryBackupPath() {
+        return recoveryBackupPath;
+    }
+
+    public static ConfigRecoveryStatus recoverConfig() {
+        if (!globalWriteBlocked || (loadStatus != ConfigLoadStatus.CORRUPT && loadStatus != ConfigLoadStatus.IO_ERROR)) {
+            return ConfigRecoveryStatus.NOT_NEEDED;
+        }
+        Path backup = backupExistingConfig();
+        if (backup == null) return ConfigRecoveryStatus.BACKUP_FAILED;
+        recoveryBackupPath = backup;
+        if (!saveGlobalSettingsInternal()) return ConfigRecoveryStatus.WRITE_FAILED;
+        globalWriteBlocked = false;
+        loadStatus = ConfigLoadStatus.RECOVERED;
+        return ConfigRecoveryStatus.SUCCESS;
     }
 
     public static void save() {
@@ -429,6 +492,11 @@ public class TrackerConfig {
     }
 
     private static boolean saveGlobalSettings() {
+        if (globalWriteBlocked) return false;
+        return saveGlobalSettingsInternal();
+    }
+
+    private static boolean saveGlobalSettingsInternal() {
         ensureDirectories();
         try {
             GlobalSettings settings = new GlobalSettings();
@@ -455,6 +523,28 @@ public class TrackerConfig {
         }
     }
 
+    private static Path backupExistingConfig() {
+        if (!Files.isRegularFile(CONFIG_FILE)) return null;
+        Path parent = CONFIG_FILE.getParent();
+        if (parent == null) return null;
+        String base = CONFIG_FILE.getFileName().toString() + ".recovery";
+        for (int index = 1; index <= 1000; index++) {
+            String suffix = index == 1 ? "" : "_" + index;
+            Path candidate = parent.resolve(base + suffix + ".bak");
+            try {
+                Files.copy(CONFIG_FILE, candidate);
+                return candidate;
+            } catch (FileAlreadyExistsException ignored) {
+                // A concurrent or earlier recovery already owns this name.
+            } catch (IOException e) {
+                System.err.println("[ResourceTracker] Failed to back up configuration: " + e.getMessage());
+                return null;
+            }
+        }
+        System.err.println("[ResourceTracker] Could not find a free configuration backup name");
+        return null;
+    }
+
     private static void migratePendingLegacyLists(ActiveContext context) {
         if (INSTANCE.legacyListsMigratedToActiveContext || context == null || context.isNone()) return;
 
@@ -468,32 +558,39 @@ public class TrackerConfig {
             pendingLegacyLists.addAll(loadLists(TEMPLATES_DIR));
         }
         if (pendingLegacyLists.isEmpty()) {
+            boolean oldMigrated = INSTANCE.legacyListsMigrated;
+            boolean oldMigratedToActive = INSTANCE.legacyListsMigratedToActiveContext;
+            String oldTarget = INSTANCE.legacyMigrationTargetContextKey;
             INSTANCE.legacyListsMigrated = true;
             INSTANCE.legacyListsMigratedToActiveContext = true;
             INSTANCE.legacyMigrationTargetContextKey = null;
-            saveGlobalSettingsOnly();
+            if (saveGlobalSettings()) {
+                pendingLegacyLists = new ArrayList<>();
+            } else {
+                INSTANCE.legacyListsMigrated = oldMigrated;
+                INSTANCE.legacyListsMigratedToActiveContext = oldMigratedToActive;
+                INSTANCE.legacyMigrationTargetContextKey = oldTarget;
+            }
             return;
         }
 
         assignDeterministicLegacyIds(pendingLegacyLists);
-        if (INSTANCE.legacyMigrationTargetContextKey == null) {
-            INSTANCE.legacyMigrationTargetContextKey = targetContextKey;
-            if (!saveGlobalSettings()) {
-                INSTANCE.legacyMigrationTargetContextKey = null;
-                return;
-            }
-        }
+        if (INSTANCE.legacyMigrationTargetContextKey == null) INSTANCE.legacyMigrationTargetContextKey = targetContextKey;
 
         Path targetDir = getActiveListsDir();
         for (TrackingList list : pendingLegacyLists) {
             if (list == null) continue;
             normalizeList(list);
-            if (!listWithIdExists(targetDir, list.id) && !writeList(targetDir, list)) {
-                saveGlobalSettingsOnly();
+            // Check immediately before each write so a retry after a marker failure
+            // remains idempotent even when the destination already contains the ID.
+            if (listWithIdExists(targetDir, list.id)) continue;
+            if (listWithIdExists(targetDir, list.id) || !writeList(targetDir, list)) {
                 return;
             }
         }
 
+        boolean oldMigrated = INSTANCE.legacyListsMigrated;
+        boolean oldMigratedToActive = INSTANCE.legacyListsMigratedToActiveContext;
         String completedTargetContextKey = INSTANCE.legacyMigrationTargetContextKey;
         INSTANCE.legacyListsMigrated = true;
         INSTANCE.legacyListsMigratedToActiveContext = true;
@@ -501,8 +598,8 @@ public class TrackerConfig {
         if (saveGlobalSettings()) {
             pendingLegacyLists = new ArrayList<>();
         } else {
-            INSTANCE.legacyListsMigrated = false;
-            INSTANCE.legacyListsMigratedToActiveContext = false;
+            INSTANCE.legacyListsMigrated = oldMigrated;
+            INSTANCE.legacyListsMigratedToActiveContext = oldMigratedToActive;
             INSTANCE.legacyMigrationTargetContextKey = completedTargetContextKey;
         }
     }
@@ -586,9 +683,32 @@ public class TrackerConfig {
             list.storageFileName = fileName;
             file = dir.resolve(fileName);
         } else if (file == null) {
-            fileName = uniqueListFileName(dir, list.name);
+            fileName = uniqueListFileName(dir, stripTxt(fileName));
             list.storageFileName = fileName;
             file = dir.resolve(fileName);
+        } else {
+            Path existing = findCaseInsensitiveFile(dir, fileName);
+            if (existing != null) {
+                String existingId = readStoredListId(existing);
+                if (!list.id.equals(existingId)) {
+                    fileName = uniqueListFileName(dir, stripTxt(fileName));
+                    list.storageFileName = fileName;
+                    file = dir.resolve(fileName);
+                } else {
+                    file = existing;
+                    list.storageFileName = existing.getFileName().toString();
+                }
+            }
+        }
+        // Re-evaluate ownership immediately before replacing an existing path.
+        Path existingBeforeWrite = findCaseInsensitiveFile(dir, file.getFileName().toString());
+        if (existingBeforeWrite != null && !list.id.equals(readStoredListId(existingBeforeWrite))) {
+            fileName = uniqueListFileName(dir, stripTxt(file.getFileName().toString()));
+            list.storageFileName = fileName;
+            file = dir.resolve(fileName);
+        } else if (existingBeforeWrite != null) {
+            file = existingBeforeWrite;
+            list.storageFileName = existingBeforeWrite.getFileName().toString();
         }
         try {
             StringBuilder contents = new StringBuilder("# ResourceTracker list v1\n")
@@ -630,13 +750,26 @@ public class TrackerConfig {
     }
 
     private static boolean hasListId(Path file, String id) {
-        try {
-            TrackingList list = readList(file);
-            return id.equals(list.id);
+        return id.equals(readStoredListId(file));
+    }
+
+    private static String readStoredListId(Path file) {
+        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.equalsIgnoreCase("[items]")) break;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                if (line.substring(0, eq).trim().equalsIgnoreCase("id")) {
+                    String value = line.substring(eq + 1).trim();
+                    return value.isBlank() ? null : value;
+                }
+            }
         } catch (IOException e) {
             System.err.println("[ResourceTracker] Failed to read list file " + file + ": " + e.getMessage());
-            return false;
         }
+        return null;
     }
 
     private static void assignDeterministicLegacyIds(List<TrackingList> legacyLists) {
@@ -652,11 +785,21 @@ public class TrackerConfig {
         String base = sanitizePathSegment(name == null || name.isBlank() ? "list" : name);
         String candidate = base + ".txt";
         int n = 2;
-        while (Files.exists(dir.resolve(candidate))) {
+        while (findCaseInsensitiveFile(dir, candidate) != null) {
             candidate = base + "_" + n + ".txt";
             n++;
         }
         return candidate;
+    }
+
+    private static Path findCaseInsensitiveFile(Path dir, String fileName) {
+        if (dir == null || fileName == null || fileName.isBlank()) return null;
+        try (var stream = Files.list(dir)) {
+            return stream.filter(path -> path.getFileName().toString().equalsIgnoreCase(fileName))
+                    .findFirst().orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static void applyListProperty(TrackingList list, String key, String value) {
