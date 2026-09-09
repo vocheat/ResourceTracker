@@ -104,7 +104,7 @@ public class EditScreen extends Screen {
     private static final int SEARCH_HEIGHT = 26;
     private static final int ITEM_ROW_HEIGHT = 28;
     private static final int MIN_LIST_BOX_HEIGHT = 72;
-    
+
     private Component hoveredTooltipText = null;
 
     // Mouse State
@@ -231,14 +231,14 @@ public class EditScreen extends Screen {
         String[] fLabels = {"R", "G", "B", "Alpha"};
         int[] fColors = {0xFFFF4444, 0xFF44FF44, 0xFF4488FF, 0xFFCCCCCC};
         int[] fWidths = {26, 26, 26, 34};
-        
+
         int colorFirst = narrowLayout ? activeColorGroup : 0;
         int colorLast = narrowLayout ? activeColorGroup + 1 : 3;
         for (int i = colorFirst; i < colorLast; i++) {
             int cx = colorStartX + i * (groupW + groupGap);
             int labelW = font.width(headers[i]);
             labels.add(new LabelData(headers[i], cx + (groupW - labelW) / 2, row3Y - 12, 0xFFFFFFFF));
-            
+
             // Labels for R G B Alpha
             int fStartX = cx;
             for (int j = 0; j < 4; j++) {
@@ -251,7 +251,7 @@ public class EditScreen extends Screen {
             EditBox[] fields = new EditBox[4];
             int color = getColorForIndex(i);
             int[] vals = { (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, getAlphaForIndex(i) };
-            
+
             fStartX = cx;
             for (int j = 0; j < 4; j++) {
                 EditBox f = new EditBox(font, fStartX, row3Y + 12, fWidths[j], 14, Component.empty());
