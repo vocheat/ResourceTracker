@@ -328,12 +328,13 @@ public class TrackerConfig {
     }
 
     public static void saveList(TrackingList list) {
-        if (activeContext.isNone() || list == null) return;
+        if (globalWriteBlocked || activeContext.isNone() || list == null) return;
         normalizeList(list);
         writeList(getActiveListsDir(), list);
     }
 
     public static void saveAllActiveContextLists() {
+        if (globalWriteBlocked) return;
         saveActiveContextLists();
     }
 
@@ -430,7 +431,7 @@ public class TrackerConfig {
     }
 
     public static void deleteList(TrackingList list) {
-        if (list == null) return;
+        if (globalWriteBlocked || list == null) return;
         INSTANCE.lists.remove(list);
         if (!activeContext.isNone() && list.storageFileName != null && !list.storageFileName.isBlank()) {
             try {
@@ -546,7 +547,7 @@ public class TrackerConfig {
     }
 
     private static void migratePendingLegacyLists(ActiveContext context) {
-        if (INSTANCE.legacyListsMigratedToActiveContext || context == null || context.isNone()) return;
+        if (globalWriteBlocked || INSTANCE.legacyListsMigratedToActiveContext || context == null || context.isNone()) return;
 
         String targetContextKey = context.key();
         if (INSTANCE.legacyMigrationTargetContextKey != null
@@ -630,7 +631,7 @@ public class TrackerConfig {
     }
 
     private static void saveActiveContextLists() {
-        if (activeContext.isNone()) return;
+        if (globalWriteBlocked || activeContext.isNone()) return;
         Path dir = getActiveListsDir();
         for (TrackingList list : INSTANCE.lists) {
             if (list == null) continue;
@@ -846,7 +847,7 @@ public class TrackerConfig {
     }
 
     private static void migrateLegacyContextDirectory(ActiveContext context) {
-        if (context == null || context.isNone()) return;
+        if (globalWriteBlocked || context == null || context.isNone()) return;
         String legacyName = switch (context.type) {
             case SINGLEPLAYER -> "singleplayer__" + sanitizePathSegment(context.folderName);
             case SERVER -> "server__" + sanitizePathSegment(context.folderName);
@@ -870,6 +871,7 @@ public class TrackerConfig {
     }
 
     private static void moveLegacyListFile(Path source, Path target) {
+        if (globalWriteBlocked) return;
         try {
             Path destination = target;
             if (Files.exists(destination)) {
