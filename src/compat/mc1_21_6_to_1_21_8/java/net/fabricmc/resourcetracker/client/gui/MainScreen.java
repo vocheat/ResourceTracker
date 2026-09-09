@@ -32,6 +32,7 @@ import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
@@ -63,8 +64,6 @@ public class MainScreen extends Screen {
     private int listBottom;
     private final int itemHeight = 25;
     private boolean wasMouseDown = false;
-    private boolean leftShiftDown = false;
-    private boolean rightShiftDown = false;
     private int addIconX;
     private int addIconY;
     private int reloadIconX;
@@ -77,6 +76,9 @@ public class MainScreen extends Screen {
     private Button reloadListsButton;
     private Button settingsButton;
     private Button openWorldFolderButton;
+    private final List<Button> listEditButtons = new java.util.ArrayList<>();
+    private final List<Button> listVisibilityButtons = new java.util.ArrayList<>();
+    private final List<Button> listDeleteButtons = new java.util.ArrayList<>();
 
     public MainScreen(Screen parent) {
         super(Component.translatable("gui.resourcetracker.title"));
@@ -87,6 +89,9 @@ public class MainScreen extends Screen {
     protected void init() {
         super.init();
         this.clearWidgets();
+        this.listEditButtons.clear();
+        this.listVisibilityButtons.clear();
+        this.listDeleteButtons.clear();
         this.listTop = 82;
         this.listBottom = this.height - 50;
 
@@ -102,6 +107,8 @@ public class MainScreen extends Screen {
             this.listBottom = Math.max(this.listTop + 50, this.height - 126);
             sideY = this.listBottom + 6;
         }
+
+        createListActionButtons(boxX, boxWidth);
 
         this.addIconX = boxX;
         this.addIconY = toolY;
@@ -194,6 +201,8 @@ public class MainScreen extends Screen {
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, this.width, this.height, 0xA0000000);
 
+        updateListActionButtons(getBoxX(getBoxWidth()), getBoxWidth());
+
         String titleText = this.title.getString();
         int titleWidth = this.font.width(titleText);
         int titleX = (this.width - titleWidth) / 2;
@@ -208,7 +217,6 @@ public class MainScreen extends Screen {
             context.drawString(this.font, empty, (this.width - this.font.width(empty)) / 2, 72, 0xFFAAAAAA, true);
         }
 
-        handleMouseInput(mouseX, mouseY);
         renderScrollableList(context, mouseX, mouseY);
 
         super.render(context, mouseX, mouseY, delta);
@@ -365,21 +373,11 @@ public class MainScreen extends Screen {
             ResourceTrackerClient.discardHandledOpenMenuKeyClicks();
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT) {
-            leftShiftDown = true;
-        } else if (keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT) {
-            rightShiftDown = true;
-        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT) {
-            leftShiftDown = false;
-        } else if (keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT) {
-            rightShiftDown = false;
-        }
         return super.keyReleased(keyCode, scanCode, modifiers);
     }
 
@@ -469,6 +467,38 @@ public class MainScreen extends Screen {
     }
 
     private boolean shiftPressed() {
-        return leftShiftDown || rightShiftDown;
+        if (this.minecraft == null) return false;
+        long windowHandle = VersionCompat.getWindowHandle(this.minecraft.getWindow());
+        return GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+                || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+    }
+
+    private void createListActionButtons(int boxX, int boxWidth) {
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            Button edit = Button.builder(Component.translatable("gui.resourcetracker.edit_row", list.name), button -> { if (this.minecraft != null) this.minecraft.setScreen(new EditScreen(this, list)); })
+                    .bounds(boxX + 31, listTop, Math.max(1, boxWidth - 66), 21).build();
+            edit.setAlpha(0.0F); this.addRenderableWidget(edit); listEditButtons.add(edit);
+            Button visibility = Button.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), button -> {
+                        list.isVisible = !list.isVisible; TrackerConfig.saveList(list); ResourceTrackerClient.invalidateTargetItemCache();
+                    }).bounds(boxX + 4, listTop, 25, 21).build();
+            visibility.setAlpha(0.0F); this.addRenderableWidget(visibility); listVisibilityButtons.add(visibility);
+            Button delete = Button.builder(Component.translatable("gui.resourcetracker.delete_row", list.name), button -> deleteFromAction(list)).bounds(boxX + boxWidth - 25, listTop, 21, 21).build();
+            delete.setAlpha(0.0F); this.addRenderableWidget(delete); listDeleteButtons.add(delete);
+        }
+    }
+
+    private void updateListActionButtons(int boxX, int boxWidth) {
+        for (int i = 0; i < TrackerConfig.INSTANCE.lists.size(); i++) {
+            int y = (int) (listTop + i * itemHeight - scrollOffset + 2);
+            listEditButtons.get(i).setX(boxX + 31); listEditButtons.get(i).setY(y); listEditButtons.get(i).setWidth(Math.max(1, boxWidth - 66));
+            listVisibilityButtons.get(i).setX(boxX + 4); listVisibilityButtons.get(i).setY(y);
+            listDeleteButtons.get(i).setX(boxX + boxWidth - 25); listDeleteButtons.get(i).setY(y);
+        }
+    }
+
+    private void deleteFromAction(TrackerConfig.TrackingList list) {
+        if (shiftPressed()) { TrackerConfig.deleteList(list); ResourceTrackerClient.invalidateTargetItemCache(); this.init(); return; }
+        if (this.minecraft == null) return;
+        this.minecraft.setScreen(new ConfirmScreen(confirmed -> { if (confirmed) { TrackerConfig.deleteList(list); ResourceTrackerClient.invalidateTargetItemCache(); this.init(); } this.minecraft.setScreen(MainScreen.this); }, Component.translatable("gui.resourcetracker.delete"), Component.translatable("gui.resourcetracker.delete_confirm")));
     }
 }

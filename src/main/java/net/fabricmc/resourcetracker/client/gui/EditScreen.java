@@ -87,6 +87,15 @@ public class EditScreen extends Screen {
 
     private double scrollLeft = 0;
     private double scrollRight = 0;
+    private boolean narrowLayout;
+    private boolean compactLayout;
+    private int compactScrollY;
+    private int activeColorGroup;
+    private boolean showTrackedPane;
+    private final List<Button> colorTabButtons = new ArrayList<>();
+    private final List<Button> itemTabButtons = new ArrayList<>();
+    private final List<Button> availableActionButtons = new ArrayList<>();
+    private final List<Button> removeActionButtons = new ArrayList<>();
 
     // Layout
     private int listAreaY;
@@ -125,6 +134,10 @@ public class EditScreen extends Screen {
         this.labels.clear();
         this.itemCountFields.clear();
         this.invalidFields.clear();
+        this.colorTabButtons.clear();
+        this.itemTabButtons.clear();
+        this.availableActionButtons.clear();
+        this.removeActionButtons.clear();
         // Prevent click-through from ConfirmScreen or other parent screens
         this.wasMouseDown = minecraft != null && GLFW.glfwGetMouseButton(VersionCompat.getWindowHandle(minecraft.getWindow()), 0) == GLFW.GLFW_PRESS;
 
@@ -144,9 +157,12 @@ public class EditScreen extends Screen {
         int w = this.width;
         int h = this.height;
         int centerX = w / 2;
+        narrowLayout = w < 480;
+        compactLayout = h < 240;
 
         // === Row 1: Name, PosX, PosY, Scale ===
-        int row1Y = 21; // Increased Y margin
+        int compactOffset = compactLayout ? compactScrollY : 0;
+        int row1Y = (narrowLayout ? 26 : 21) - compactOffset;
         int nameW = 120, fieldW = 30, gap = 5;
         int row1Width = nameW + gap + fieldW + gap + fieldW + gap + fieldW;
         int startX = centerX - (row1Width / 2);
@@ -180,7 +196,7 @@ public class EditScreen extends Screen {
         this.addRenderableWidget(scaleField);
 
         // === Row 2: Buttons ===
-        int row2Y = row1Y + 21;
+        int row2Y = narrowLayout ? 46 : row1Y + 21;
         int btnW = 80, btnGap = 4, resetW = 60;
         int row2Width = btnW + btnGap + btnW + btnGap + btnW + btnGap + resetW;
         int btnStartX = centerX - (row2Width / 2);
@@ -204,7 +220,7 @@ public class EditScreen extends Screen {
                 .bounds(btnStartX + (btnW + btnGap) * 3, row2Y, resetW, 20).build());
 
         // === Row 3: Colors ===
-        int row3Y = row2Y + 37;
+        int row3Y = narrowLayout ? 82 : row2Y + 37;
         int groupW = 124; // 4 boxes + gaps
         int groupGap = 20;
         int row3Width = (groupW * 3) + (groupGap * 2);
@@ -219,7 +235,9 @@ public class EditScreen extends Screen {
         int[] fColors = {0xFFFF4444, 0xFF44FF44, 0xFF4488FF, 0xFFCCCCCC};
         int[] fWidths = {26, 26, 26, 34};
         
-        for (int i = 0; i < 3; i++) {
+        int colorFirst = narrowLayout ? activeColorGroup : 0;
+        int colorLast = narrowLayout ? activeColorGroup + 1 : 3;
+        for (int i = colorFirst; i < colorLast; i++) {
             int cx = colorStartX + i * (groupW + groupGap);
             int labelW = font.width(headers[i]);
             labels.add(new LabelData(headers[i], cx + (groupW - labelW) / 2, row3Y - 12, 0xFFFFFFFF));
@@ -254,8 +272,24 @@ public class EditScreen extends Screen {
             else bgRgbA = fields;
         }
 
+        if (narrowLayout) {
+            String[] colorKeys = {"gui.resourcetracker.edit.color_text", "gui.resourcetracker.edit.color_title", "gui.resourcetracker.edit.color_bg"};
+            int tabW = Math.max(64, Math.min(104, (w - 24) / 3));
+            int tabsX = centerX - (tabW * 3) / 2;
+            for (int i = 0; i < 3; i++) {
+                final int group = i;
+                Button tab = Button.builder(Component.translatable(colorKeys[i]), b -> {
+                    activeColorGroup = group;
+                    init();
+                }).bounds(tabsX + i * tabW, 70 - compactOffset, tabW - 2, 20).build();
+                tab.setFocused(i == activeColorGroup);
+                colorTabButtons.add(tab);
+                this.addRenderableWidget(tab);
+            }
+        }
+
         // === List Areas ===
-        listAreaY = row3Y + 40;
+        listAreaY = narrowLayout ? 134 - compactOffset : row3Y + 40;
         int bottomGap = 44;
         int midGap = 15;
         boolean wideLayout = w >= 480;
@@ -267,15 +301,14 @@ public class EditScreen extends Screen {
             rightBoxX = leftBoxX + boxWidth + midGap;
             leftBoxY = listAreaY;
             rightBoxY = listAreaY;
-        } else {
+        } else if (narrowLayout) {
             boxWidth = Math.min(280, Math.max(120, w - 16));
-            int verticalGap = 18;
-            int availableHeight = Math.max((MIN_LIST_BOX_HEIGHT * 2) + verticalGap, h - listAreaY - bottomGap);
-            boxHeight = Math.max(MIN_LIST_BOX_HEIGHT, (availableHeight - verticalGap) / 2);
+            int contentBottom = Math.max(listAreaY + SEARCH_HEIGHT + 8, h - 36);
+            boxHeight = Math.max(28, contentBottom - listAreaY);
             leftBoxX = centerX - (boxWidth / 2);
             rightBoxX = leftBoxX;
             leftBoxY = listAreaY;
-            rightBoxY = listAreaY + boxHeight + verticalGap;
+            rightBoxY = listAreaY;
         }
 
         // Left Search Field
@@ -291,10 +324,23 @@ public class EditScreen extends Screen {
         trackedSearchField.setBordered(false);
         trackedSearchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(trackedSearchField);
+        searchField.setVisible(!narrowLayout || !showTrackedPane);
+        trackedSearchField.setVisible(!narrowLayout || showTrackedPane);
 
         // Headers
-        addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, leftBoxY - 9, 0xFFFFFFFF);
-        addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, rightBoxY - 9, 0xFFFFFFFF);
+        if (!narrowLayout || !showTrackedPane) addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, leftBoxY - 9, 0xFFFFFFFF);
+        if (!narrowLayout || showTrackedPane) addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, rightBoxY - 9, 0xFFFFFFFF);
+
+        if (narrowLayout) {
+            int tabW = Math.max(90, Math.min(140, (w - 20) / 2));
+            int tabsX = centerX - tabW;
+            Button availableTab = Button.builder(Component.translatable("gui.resourcetracker.edit.available_items"), b -> { showTrackedPane = false; init(); })
+                    .bounds(tabsX, 112 - compactOffset, tabW - 3, 20).build();
+            Button trackedTab = Button.builder(Component.translatable("gui.resourcetracker.edit.tracked_items"), b -> { showTrackedPane = true; init(); })
+                    .bounds(centerX + 3, 112 - compactOffset, tabW - 3, 20).build();
+            itemTabButtons.add(availableTab); itemTabButtons.add(trackedTab);
+            this.addRenderableWidget(availableTab); this.addRenderableWidget(trackedTab);
+        }
 
         // Bottom Buttons (Clear & Done)
         int botBtnW = 100, botBtnGap = 15;
@@ -326,6 +372,7 @@ public class EditScreen extends Screen {
         refreshCountWidgets();
         updateSearch(searchField.getValue());
         updateTrackedSearch("");
+        rebuildItemActionButtons();
     }
 
     /**
@@ -401,6 +448,7 @@ public class EditScreen extends Screen {
             filteredItems.addAll(contains);
         }
         scrollLeft = 0;
+        if (searchField != null) rebuildItemActionButtons();
     }
 
     private void updateTrackedSearch(String query) {
@@ -420,6 +468,68 @@ public class EditScreen extends Screen {
             }
         }
         scrollRight = 0;
+        if (trackedSearchField != null) rebuildItemActionButtons();
+    }
+
+    private void rebuildItemActionButtons() {
+        for (Button button : availableActionButtons) removeWidget(button);
+        for (Button button : removeActionButtons) removeWidget(button);
+        availableActionButtons.clear();
+        removeActionButtons.clear();
+        for (Item item : filteredItems) {
+            Button button = Button.builder(Component.translatable("gui.resourcetracker.edit.add_item", getCachedItemName(item)), b -> addItem(item))
+                    .bounds(leftBoxX, leftBoxY + SEARCH_HEIGHT, Math.max(1, boxWidth - 10), ITEM_ROW_HEIGHT).build();
+            button.setAlpha(0.0F);
+            addRenderableWidget(button);
+            availableActionButtons.add(button);
+        }
+        for (TrackerConfig.TrackedItem item : filteredTrackedItems) {
+            Button button = Button.builder(Component.translatable("gui.resourcetracker.edit.remove_item", item.getDisplayName()), b -> confirmRemove(item))
+                    .bounds(rightBoxX + boxWidth - 32, rightBoxY + SEARCH_HEIGHT, 28, ITEM_ROW_HEIGHT).build();
+            button.setAlpha(0.0F);
+            addRenderableWidget(button);
+            removeActionButtons.add(button);
+        }
+    }
+
+    private void updateItemActionButtons() {
+        int leftStart = leftBoxY + SEARCH_HEIGHT + 2;
+        int rightStart = rightBoxY + SEARCH_HEIGHT + 2;
+        int visibleHeight = Math.max(1, boxHeight - SEARCH_HEIGHT - 2);
+        for (int i = 0; i < availableActionButtons.size(); i++) {
+            Button button = availableActionButtons.get(i);
+            int y = (int) (leftStart + i * ITEM_ROW_HEIGHT - scrollLeft);
+            button.setX(leftBoxX + 1); button.setY(y); button.setWidth(Math.max(1, boxWidth - 11));
+            button.visible = !narrowLayout || !showTrackedPane;
+            if (button.isFocused()) {
+                if (y < leftStart) scrollLeft = Math.max(0, i * ITEM_ROW_HEIGHT);
+                if (y + ITEM_ROW_HEIGHT > leftStart + visibleHeight) scrollLeft = Math.min(Math.max(0, filteredItems.size() * ITEM_ROW_HEIGHT - visibleHeight), (i + 1) * ITEM_ROW_HEIGHT - visibleHeight);
+            }
+        }
+        for (int i = 0; i < removeActionButtons.size(); i++) {
+            Button button = removeActionButtons.get(i);
+            int y = (int) (rightStart + i * ITEM_ROW_HEIGHT - scrollRight);
+            button.setX(rightBoxX + boxWidth - 32); button.setY(y); button.setWidth(28);
+            button.visible = !narrowLayout || showTrackedPane;
+            if (button.isFocused()) {
+                if (y < rightStart) scrollRight = Math.max(0, i * ITEM_ROW_HEIGHT);
+                if (y + ITEM_ROW_HEIGHT > rightStart + visibleHeight) scrollRight = Math.min(Math.max(0, filteredTrackedItems.size() * ITEM_ROW_HEIGHT - visibleHeight), (i + 1) * ITEM_ROW_HEIGHT - visibleHeight);
+            }
+        }
+    }
+
+    private void confirmRemove(TrackerConfig.TrackedItem item) {
+        if (this.minecraft == null) return;
+        this.minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                list.items.remove(item);
+                refreshCountWidgets();
+                updateTrackedSearch(trackedSearchField.getValue());
+                net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+            }
+            if (this.minecraft != null) this.minecraft.setScreen(this);
+        }, Component.translatable("gui.resourcetracker.delete_confirm_title"),
+                Component.translatable("gui.resourcetracker.edit.remove_confirm", item.getDisplayName())));
     }
 
     @Override
@@ -434,15 +544,17 @@ public class EditScreen extends Screen {
 
         handleInput(mouseX, mouseY);
 
-        // Left box background
-        RenderUtils.drawBoxFill(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
-        renderSearchBar(context, leftBoxX, leftBoxY, boxWidth, searchField);
-        renderItemList(context, mouseX, mouseY, leftBoxX, leftBoxY, boxWidth, boxHeight, filteredItems, scrollLeft);
-
-        // Right box background
-        RenderUtils.drawBoxFill(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
-        renderSearchBar(context, rightBoxX, rightBoxY, boxWidth, trackedSearchField);
-        renderAddedList(context, mouseX, mouseY, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        updateItemActionButtons();
+        if (!narrowLayout || !showTrackedPane) {
+            RenderUtils.drawBoxFill(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
+            renderSearchBar(context, leftBoxX, leftBoxY, boxWidth, searchField);
+            renderItemList(context, mouseX, mouseY, leftBoxX, leftBoxY, boxWidth, boxHeight, filteredItems, scrollLeft);
+        }
+        if (!narrowLayout || showTrackedPane) {
+            RenderUtils.drawBoxFill(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
+            renderSearchBar(context, rightBoxX, rightBoxY, boxWidth, trackedSearchField);
+            renderAddedList(context, mouseX, mouseY, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        }
 
         super.render(context, mouseX, mouseY, delta);
 
@@ -452,8 +564,8 @@ public class EditScreen extends Screen {
         }
 
         // Draw box outlines on top of everything (only tooltips and picker render above)
-        RenderUtils.drawBoxOutline(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
-        RenderUtils.drawBoxOutline(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        if (!narrowLayout || !showTrackedPane) RenderUtils.drawBoxOutline(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
+        if (!narrowLayout || showTrackedPane) RenderUtils.drawBoxOutline(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
 
         // Inline fields render automatically
 
@@ -596,10 +708,7 @@ public class EditScreen extends Screen {
 
                     if (mx >= crossX && mx < crossX + 24 && my >= crossY && my < crossY + 24) {
                         TrackerConfig.TrackedItem toRemove = filteredTrackedItems.get(idx);
-                        list.items.remove(toRemove);
-                        refreshCountWidgets();
-                        updateTrackedSearch(trackedSearchField.getValue());
-                        net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+                        confirmRemove(toRemove);
                     }
                 }
             }
@@ -804,6 +913,12 @@ public class EditScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (compactLayout && !(mouseX >= leftBoxX && mouseX <= leftBoxX + boxWidth && mouseY >= leftBoxY && mouseY <= leftBoxY + boxHeight)) {
+            int maxFormScroll = Math.max(0, 204 - (this.height - 36));
+            compactScrollY = Mth.clamp(compactScrollY - (int) (verticalAmount * 18), 0, maxFormScroll);
+            init();
+            return true;
+        }
         double amount = verticalAmount;
         int itemH = ITEM_ROW_HEIGHT;
         int leftContentY = leftBoxY + SEARCH_HEIGHT + 2;

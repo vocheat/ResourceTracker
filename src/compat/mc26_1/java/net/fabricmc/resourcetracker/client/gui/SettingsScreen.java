@@ -5,6 +5,7 @@ import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -18,6 +19,7 @@ public class SettingsScreen extends Screen {
     private final Map<EditBox, Component> invalidFields = new IdentityHashMap<>();
     private int scrollY = 0;
     private int contentBottom = 0;
+    private Component recoveryMessage;
 
     public SettingsScreen(Screen parent) {
         super(Component.translatable("gui.resourcetracker.settings.title"));
@@ -33,6 +35,22 @@ public class SettingsScreen extends Screen {
         int y = 34 - scrollY;
         int labelX = centerX - 150;
         int fieldX = centerX + 35;
+
+        if (TrackerConfig.isGlobalWriteBlocked()) {
+            Component warning = Component.translatable("gui.resourcetracker.config_recovery_warning", String.valueOf(TrackerConfig.getRecoveryBackupPath()));
+            this.addRenderableOnly((context, mouseX, mouseY, delta) -> context.text(this.font, warning, 12, 24 - scrollY, 0xFFFF6666, true));
+            this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.config_recovery"), button -> {
+                if (this.minecraft != null) this.minecraft.setScreen(new ConfirmScreen(confirmed -> {
+                    if (confirmed) {
+                        String result = TrackerConfig.recoverConfig().name();
+                        recoveryMessage = Component.translatable(result.equals("SUCCESS") ? "gui.resourcetracker.config_recovery_success" : "gui.resourcetracker.config_recovery_failed");
+                        init();
+                    }
+                    if (this.minecraft != null) this.minecraft.setScreen(this);
+                }, Component.translatable("gui.resourcetracker.config_recovery"), Component.translatable("gui.resourcetracker.config_recovery_confirm")));
+            }).bounds(centerX - 120, 62 - scrollY, 240, 20).build());
+            y = 94 - scrollY;
+        }
 
         addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_x", TrackerConfig.INSTANCE.defaultX, null, null,
                 Component.translatable("gui.resourcetracker.validation.integer"),
@@ -128,6 +146,7 @@ public class SettingsScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, this.width, this.height, 0xA0000000);
         context.centeredText(this.font, this.title, this.width / 2, 14, 0xFFFFFFFF);
+        if (recoveryMessage != null) context.centeredText(this.font, recoveryMessage, this.width / 2, this.height - 48, 0xFFFFAA55);
         super.extractRenderState(context, mouseX, mouseY, delta);
         showInvalidFieldTooltip(context, mouseX, mouseY);
     }
