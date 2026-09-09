@@ -11,5 +11,12 @@ pluginManagement {
 
 def selectedBuildFile = startParameter.projectProperties.get('profileBuild')
 if (selectedBuildFile != null && !selectedBuildFile.isBlank()) {
-    rootProject.buildFileName = selectedBuildFile
+    // Keep historical grouped selectors working while making every supported
+    // Minecraft version a canonical exact-version profile.
+    def profileAliases = [
+            'build-mc1.21.0-1.21.4.gradle': 'build-mc1.21.4.gradle',
+            'build-mc1.21.6-1.21.8.gradle': 'build-mc1.21.8.gradle',
+            'build-mc1.21.9-1.21.11.gradle': 'build-mc1.21.11.gradle'
+    ]
+    rootProject.buildFileName = profileAliases.getOrDefault(selectedBuildFile, selectedBuildFile)
 }

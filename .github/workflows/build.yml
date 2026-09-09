@@ -14,26 +14,66 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - profile: mc1_21_0_to_1_21_4
-            mc_range: "1.21.0-1.21.4"
-            build_file: build-mc1.21.0-1.21.4.gradle
+          - profile: mc1_21_0
+            mc_range: "1.21.0"
+            build_file: build-mc1.21.0.gradle
             java: "21"
-            libs_dir: build/mc1_21_0_to_1_21_4/libs
+            libs_dir: build/mc1_21_0/libs
+          - profile: mc1_21_1
+            mc_range: "1.21.1"
+            build_file: build-mc1.21.1.gradle
+            java: "21"
+            libs_dir: build/mc1_21_1/libs
+          - profile: mc1_21_2
+            mc_range: "1.21.2"
+            build_file: build-mc1.21.2.gradle
+            java: "21"
+            libs_dir: build/mc1_21_2/libs
+          - profile: mc1_21_3
+            mc_range: "1.21.3"
+            build_file: build-mc1.21.3.gradle
+            java: "21"
+            libs_dir: build/mc1_21_3/libs
+          - profile: mc1_21_4
+            mc_range: "1.21.4"
+            build_file: build-mc1.21.4.gradle
+            java: "21"
+            libs_dir: build/mc1_21_4/libs
           - profile: mc1_21_5
             mc_range: "1.21.5"
             build_file: build-mc1.21.5.gradle
             java: "21"
             libs_dir: build/mc1_21_5/libs
-          - profile: mc1_21_6_to_1_21_8
-            mc_range: "1.21.6-1.21.8"
-            build_file: build-mc1.21.6-1.21.8.gradle
+          - profile: mc1_21_6
+            mc_range: "1.21.6"
+            build_file: build-mc1.21.6.gradle
             java: "21"
-            libs_dir: build/mc1_21_6_to_1_21_8/libs
-          - profile: mc1_21_9_to_1_21_11
-            mc_range: "1.21.9-1.21.11"
-            build_file: build-mc1.21.9-1.21.11.gradle
+            libs_dir: build/mc1_21_6/libs
+          - profile: mc1_21_7
+            mc_range: "1.21.7"
+            build_file: build-mc1.21.7.gradle
             java: "21"
-            libs_dir: build/mc1_21_9_to_1_21_11/libs
+            libs_dir: build/mc1_21_7/libs
+          - profile: mc1_21_8
+            mc_range: "1.21.8"
+            build_file: build-mc1.21.8.gradle
+            java: "21"
+            libs_dir: build/mc1_21_8/libs
+          - profile: mc1_21_9
+            mc_range: "1.21.9"
+            build_file: build-mc1.21.9.gradle
+            java: "21"
+            libs_dir: build/mc1_21_9/libs
+          - profile: mc1_21_10
+            mc_range: "1.21.10"
+            build_file: build-mc1.21.10.gradle
+            java: "21"
+            libs_dir: build/mc1_21_10/libs
+          - profile: mc1_21_11
+            mc_range: "1.21.11"
+            build_file: build-mc1.21.11.gradle
+            java: "21"
+            libs_dir: build/mc1_21_11/libs
           - profile: mc26_1
             mc_range: "26.1"
             build_file: build-mc26.1.gradle

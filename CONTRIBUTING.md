@@ -23,14 +23,26 @@ Import the project as a Gradle project. The project uses Fabric Loom and Mojang 
 Use `-PprofileBuild=...`; do not use Gradle's old `-b` option.
 
 ```powershell
-.\gradlew.bat "-PprofileBuild=build-mc1.21.0-1.21.4.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.0.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.1.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.2.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.3.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.4.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
-.\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
-.\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.6.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.7.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.8.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.9.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.10.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.11.gradle" compileJava
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 .\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc26.2.gradle" compileJava
 ```
+
+The historical grouped selectors remain aliases to their upper exact target:
+1.21.0-1.21.4 resolves to 1.21.4, 1.21.6-1.21.8 resolves to 1.21.8,
+and 1.21.9-1.21.11 resolves to 1.21.11.
 
 ## Project structure
 

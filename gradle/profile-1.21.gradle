@@ -1,12 +1,20 @@
 version = "${project.mod_version}+${profile_suffix}"
 group = project.maven_group
 
+def compatibilitySourceProfile = project.ext.has('source_profile_id')
+        ? project.ext.source_profile_id
+        : profile_id
+def excludedMainSources = project.ext.has('excluded_main_sources')
+        ? project.ext.excluded_main_sources
+        : []
+
 layout.buildDirectory.set(layout.projectDirectory.dir("build/${profile_id}"))
 
 sourceSets {
     main {
         java {
-            srcDirs = ["src/main/java", "src/compat/${profile_id}/java"]
+            srcDirs = ["src/main/java", "src/compat/${compatibilitySourceProfile}/java"]
+            exclude excludedMainSources
             destinationDirectory.set(layout.buildDirectory.dir("classes/java/main"))
         }
         output.resourcesDir = layout.buildDirectory.dir("resources/main").get().asFile
@@ -57,8 +65,10 @@ loom {
 
 tasks.named('compileJava', JavaCompile) {
     source = files(
-            fileTree('src/main/java'),
-            fileTree("src/compat/${profile_id}/java")
+            fileTree('src/main/java') {
+                exclude excludedMainSources
+            },
+            fileTree("src/compat/${compatibilitySourceProfile}/java")
     )
 }
 
@@ -112,8 +122,10 @@ tasks.named('compileJava') {
 tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from files(
-            fileTree('src/main/java'),
-            fileTree("src/compat/${profile_id}/java")
+            fileTree('src/main/java') {
+                exclude excludedMainSources
+            },
+            fileTree("src/compat/${compatibilitySourceProfile}/java")
     )
 }
 

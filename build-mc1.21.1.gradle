@@ -1,0 +1,17 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version '1.14.7'
+    id 'maven-publish'
+}
+
+ext.profile_id = 'mc1_21_1'
+ext.source_profile_id = 'mc1_21_0_to_1_21_1'
+ext.excluded_main_sources = ['net/fabricmc/resourcetracker/client/gui/EditScreen.java']
+ext.profile_suffix = 'mc1.21.1'
+ext.minecraft_version = '1.21.1'
+ext.minecraft_min_version = '1.21.1'
+ext.minecraft_max_version = '1.21.1'
+ext.loader_version = '0.16.14'
+ext.fabric_version = '0.116.17+1.21.1'
+ext.modmenu_version = '11.0.4'
+ext.java_version = 21
+apply from: 'gradle/profile-1.21.gradle'

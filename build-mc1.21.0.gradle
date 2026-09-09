@@ -1,0 +1,18 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version '1.14.7'
+    id 'maven-publish'
+}
+
+ext.profile_id = 'mc1_21_0'
+ext.source_profile_id = 'mc1_21_0_to_1_21_1'
+ext.excluded_main_sources = ['net/fabricmc/resourcetracker/client/gui/EditScreen.java']
+ext.profile_suffix = 'mc1.21.0'
+// Mojang publishes the 1.21 release under the dependency coordinate 1.21.
+ext.minecraft_version = '1.21'
+ext.minecraft_min_version = '1.21.0'
+ext.minecraft_max_version = '1.21.0'
+ext.loader_version = '0.16.14'
+ext.fabric_version = '0.102.0+1.21'
+ext.modmenu_version = '11.0.4'
+ext.java_version = 21
+apply from: 'gradle/profile-1.21.gradle'

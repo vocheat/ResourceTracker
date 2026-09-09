@@ -12,10 +12,18 @@ Resource Tracker is a client-side Minecraft Fabric mod for tracking item collect
 
 ## Supported profiles
 
-- Minecraft 1.21.0-1.21.4, Java 21
+- Minecraft 1.21.0, Java 21
+- Minecraft 1.21.1, Java 21
+- Minecraft 1.21.2, Java 21
+- Minecraft 1.21.3, Java 21
+- Minecraft 1.21.4, Java 21
 - Minecraft 1.21.5, Java 21
-- Minecraft 1.21.6-1.21.8, Java 21
-- Minecraft 1.21.9-1.21.11, Java 21
+- Minecraft 1.21.6, Java 21
+- Minecraft 1.21.7, Java 21
+- Minecraft 1.21.8, Java 21
+- Minecraft 1.21.9, Java 21
+- Minecraft 1.21.10, Java 21
+- Minecraft 1.21.11, Java 21
 - Minecraft 26.1, Java 25
 - Minecraft 26.2, Java 25
 
@@ -30,7 +38,7 @@ Resource Tracker is a client-side Minecraft Fabric mod for tracking item collect
 
 ## Building
 
-Default compile target is Minecraft 1.21.9-1.21.11:
+Default compile target is Minecraft 1.21.11:
 
 ```powershell
 .\gradlew.bat compileJava
@@ -39,14 +47,27 @@ Default compile target is Minecraft 1.21.9-1.21.11:
 Compile a specific profile:
 
 ```powershell
-.\gradlew.bat "-PprofileBuild=build-mc1.21.0-1.21.4.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.0.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.1.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.2.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.3.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.4.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc1.21.5.gradle" compileJava
-.\gradlew.bat "-PprofileBuild=build-mc1.21.6-1.21.8.gradle" compileJava
-.\gradlew.bat "-PprofileBuild=build-mc1.21.9-1.21.11.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.6.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.7.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.8.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.9.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.10.gradle" compileJava
+.\gradlew.bat "-PprofileBuild=build-mc1.21.11.gradle" compileJava
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 .\gradlew.bat "-PprofileBuild=build-mc26.1.gradle" compileJava
 .\gradlew.bat "-PprofileBuild=build-mc26.2.gradle" compileJava
 ```
+
+The historical grouped selectors remain aliases to their upper exact target:
+`build-mc1.21.0-1.21.4.gradle` selects 1.21.4,
+`build-mc1.21.6-1.21.8.gradle` selects 1.21.8, and
+`build-mc1.21.9-1.21.11.gradle` selects 1.21.11.
 
 ## License
 
