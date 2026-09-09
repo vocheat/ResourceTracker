@@ -490,6 +490,7 @@ public class MainScreen extends Screen {
                         list.isVisible = !list.isVisible;
                         TrackerConfig.saveList(list);
                         ResourceTrackerClient.invalidateTargetItemCache();
+                        button.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
                     })
                     .bounds(boxX + 4, listTop, 25, 21)
                     .build();

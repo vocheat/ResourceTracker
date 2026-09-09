@@ -149,7 +149,8 @@ public class EditScreen extends Screen {
         narrowLayout = this.width < 480;
         compactLayout = this.height < 240;
 
-        int compactOffset = compactLayout ? compactScrollY : 0;
+        int compactBaseOffset = compactLayout ? Math.max(0, 204 - (this.height - 36)) : 0;
+        int compactOffset = compactLayout ? compactBaseOffset + compactScrollY : 0;
         int row1Y = (narrowLayout ? 26 : 21) - compactOffset;
         int nameW = 120;
         int fieldW = 30;
@@ -437,6 +438,7 @@ public class EditScreen extends Screen {
                     }
                 });
             }
+            widget.setVisible(!narrowLayout || showTrackedPane);
             newMap.put(item, widget);
             this.addRenderableWidget(widget);
         }
@@ -746,7 +748,7 @@ public class EditScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (compactLayout && !(mouseX >= leftBoxX && mouseX <= leftBoxX + boxWidth && mouseY >= leftBoxY && mouseY <= leftBoxY + boxHeight)) {
             int maxFormScroll = Math.max(0, 204 - (this.height - 36));
-            compactScrollY = Mth.clamp(compactScrollY - (int) (verticalAmount * 18), 0, maxFormScroll);
+            compactScrollY = Mth.clamp(compactScrollY - (int) (verticalAmount * 18), -maxFormScroll, 0);
             init();
             return true;
         }
@@ -961,6 +963,7 @@ public class EditScreen extends Screen {
     public void onClose() {
         TrackerConfig.saveList(list);
         net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+        if (parent instanceof MainScreen main) main.init();
         this.minecraft.setScreen(parent);
     }
 

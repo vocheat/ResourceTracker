@@ -479,7 +479,7 @@ public class MainScreen extends Screen {
                     .bounds(boxX + 31, listTop, Math.max(1, boxWidth - 66), 21).build();
             edit.setAlpha(0.0F); this.addRenderableWidget(edit); listEditButtons.add(edit);
             Button visibility = Button.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), button -> {
-                        list.isVisible = !list.isVisible; TrackerConfig.saveList(list); ResourceTrackerClient.invalidateTargetItemCache();
+                        list.isVisible = !list.isVisible; TrackerConfig.saveList(list); ResourceTrackerClient.invalidateTargetItemCache(); button.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
                     }).bounds(boxX + 4, listTop, 25, 21).build();
             visibility.setAlpha(0.0F); this.addRenderableWidget(visibility); listVisibilityButtons.add(visibility);
             Button delete = Button.builder(Component.translatable("gui.resourcetracker.delete_row", list.name), button -> deleteFromAction(list)).bounds(boxX + boxWidth - 25, listTop, 21, 21).build();

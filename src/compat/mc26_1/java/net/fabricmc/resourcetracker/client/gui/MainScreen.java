@@ -487,6 +487,7 @@ public class MainScreen extends Screen {
                 TrackerConfig.saveList(list);
                 ResourceTrackerClient.invalidateTargetItemCache();
                 playClickSound();
+                b.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
             }).bounds(boxX + 2, listTop, 25, itemHeight).build();
             visibility.setAlpha(0.0F);
             addRenderableWidget(visibility);
