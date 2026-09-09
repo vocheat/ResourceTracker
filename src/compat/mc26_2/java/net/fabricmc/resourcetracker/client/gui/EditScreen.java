@@ -552,7 +552,10 @@ public class EditScreen extends Screen {
     private void activateAvailableProxy(int slot) {
         if (slot >= 0 && slot < availableProxyIndices.size()) {
             int index = availableProxyIndices.get(slot);
-            if (index >= 0 && index < filteredItems.size()) addItem(filteredItems.get(index));
+            if (index >= 0 && index < filteredItems.size()) {
+                addItem(filteredItems.get(index));
+                if (trackedSearchField != null) updateTrackedSearch(trackedSearchField.getValue());
+            }
         }
     }
 
@@ -591,18 +594,26 @@ public class EditScreen extends Screen {
         if (focusedLeft >= 0) availableFocusIndex = focusedLeft;
         if (focusedRight >= 0) trackedFocusIndex = focusedRight;
 
-        int leftFirst = Math.max(0, (int) Math.floor((scrollLeft - 2) / ITEM_ROW_HEIGHT));
-        int rightFirst = Math.max(0, (int) Math.floor((scrollRight - 2) / ITEM_ROW_HEIGHT));
+        int leftFirst = Math.max(0, (int) Math.floor(scrollLeft / ITEM_ROW_HEIGHT));
+        int rightFirst = Math.max(0, (int) Math.floor(scrollRight / ITEM_ROW_HEIGHT));
         for (int slot = 0; slot < availableActionButtons.size(); slot++) {
             int index = leftFirst + slot;
             Button button = availableActionButtons.get(slot);
             availableProxyIndices.set(slot, index < filteredItems.size() ? index : -1);
             button.visible = !narrowLayout || !showTrackedPane;
             if (index >= 0 && index < filteredItems.size()) {
-                button.setX(leftBoxX + 1);
-                button.setY(leftStart + slot * ITEM_ROW_HEIGHT);
-                button.setWidth(Math.max(1, boxWidth - 11));
-                button.setMessage(Component.translatable("gui.resourcetracker.edit.add_item", getCachedItemName(filteredItems.get(index))));
+                int y = (int) (leftStart + index * ITEM_ROW_HEIGHT - scrollLeft);
+                boolean inViewport = y < leftStart + visibleHeight && y + ITEM_ROW_HEIGHT > leftStart;
+                button.visible = button.visible && inViewport;
+                if (inViewport) {
+                    int clippedY = Math.max(leftStart, y);
+                    int clippedBottom = Math.min(leftStart + visibleHeight, y + ITEM_ROW_HEIGHT);
+                    button.setX(leftBoxX + 1);
+                    button.setY(clippedY);
+                    button.setHeight(Math.max(1, clippedBottom - clippedY));
+                    button.setWidth(Math.max(1, boxWidth - 11));
+                    button.setMessage(Component.translatable("gui.resourcetracker.edit.add_item", getCachedItemName(filteredItems.get(index))));
+                }
             } else {
                 button.visible = false;
             }
@@ -613,10 +624,18 @@ public class EditScreen extends Screen {
             removeProxyIndices.set(slot, index < filteredTrackedItems.size() ? index : -1);
             button.visible = !narrowLayout || showTrackedPane;
             if (index >= 0 && index < filteredTrackedItems.size()) {
-                button.setX(rightBoxX + boxWidth - 32);
-                button.setY(rightStart + slot * ITEM_ROW_HEIGHT);
-                button.setWidth(28);
-                button.setMessage(Component.translatable("gui.resourcetracker.edit.remove_item", filteredTrackedItems.get(index).getDisplayName()));
+                int y = (int) (rightStart + index * ITEM_ROW_HEIGHT - scrollRight);
+                boolean inViewport = y < rightStart + visibleHeight && y + ITEM_ROW_HEIGHT > rightStart;
+                button.visible = button.visible && inViewport;
+                if (inViewport) {
+                    int clippedY = Math.max(rightStart, y);
+                    int clippedBottom = Math.min(rightStart + visibleHeight, y + ITEM_ROW_HEIGHT);
+                    button.setX(rightBoxX + boxWidth - 32);
+                    button.setY(clippedY);
+                    button.setHeight(Math.max(1, clippedBottom - clippedY));
+                    button.setWidth(28);
+                    button.setMessage(Component.translatable("gui.resourcetracker.edit.remove_item", filteredTrackedItems.get(index).getDisplayName()));
+                }
             } else {
                 button.visible = false;
             }
