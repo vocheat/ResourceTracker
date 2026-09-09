@@ -122,4 +122,3 @@ public class VersionCompat {
         context.renderTooltip(font, text, mouseX, mouseY);
     }
 }
-
