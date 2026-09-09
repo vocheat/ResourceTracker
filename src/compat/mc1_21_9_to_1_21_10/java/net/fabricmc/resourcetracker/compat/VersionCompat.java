@@ -124,4 +124,3 @@ public class VersionCompat {
         context.setTooltipForNextFrame(font, text, mouseX, mouseY);
     }
 }
-

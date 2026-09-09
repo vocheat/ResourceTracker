@@ -8,5 +8,3 @@ public class HudCompat {
         HudRenderCallback.EVENT.register(overlay::render);
     }
 }
-
-
