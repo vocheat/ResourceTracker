@@ -44,6 +44,16 @@ The historical grouped selectors remain aliases to their upper exact target:
 1.21.0-1.21.4 resolves to 1.21.4, 1.21.6-1.21.8 resolves to 1.21.8,
 and 1.21.9-1.21.11 resolves to 1.21.11.
 
+## Fabric Loader pins
+
+The eight newly split exact 1.21.x profiles (`1.21.0`, `1.21.1`, `1.21.2`,
+`1.21.3`, `1.21.6`, `1.21.7`, `1.21.9`, and `1.21.10`) pin Fabric Loader
+`0.19.5`, the latest stable release listed by the official Fabric Maven
+metadata. Existing exact targets keep their compatible pins: `1.21.4`,
+`1.21.5`, and `1.21.8` use `0.16.14`; `1.21.11` uses `0.19.1`; `26.1`
+uses `0.18.6`; and `26.2` uses `0.19.3`. The exact profile lockfiles are the
+source of truth for these pins.
+
 ## Project structure
 
 ```text
