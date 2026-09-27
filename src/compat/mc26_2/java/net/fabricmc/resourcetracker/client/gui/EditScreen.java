@@ -26,6 +26,8 @@ package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.client.render.HudRenderCache;
+import net.fabricmc.resourcetracker.client.render.HudRenderModel;
 import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -86,6 +88,7 @@ public class EditScreen extends Screen {
     private boolean compactLayout;
     private int compactScrollY;
     private boolean showTrackedPane;
+    private boolean showPreview;
     private int activeColorGroup;
     private final List<Button> colorTabButtons = new ArrayList<>();
     private final List<Button> itemTabButtons = new ArrayList<>();
@@ -325,8 +328,8 @@ public class EditScreen extends Screen {
         trackedSearchField.setBordered(false);
         trackedSearchField.setTextColor(0xFFFFFFFF);
         this.addRenderableWidget(trackedSearchField);
-        searchField.visible = !narrowLayout || !showTrackedPane;
-        trackedSearchField.visible = !narrowLayout || showTrackedPane;
+        searchField.visible = !showPreview && (!narrowLayout || !showTrackedPane);
+        trackedSearchField.visible = !showPreview && (!narrowLayout || showTrackedPane);
 
         if (!narrowLayout || !showTrackedPane) addLabel(Component.translatable("gui.resourcetracker.edit.available_items"), leftBoxX, boxWidth, leftBoxY - 9, 0xFFFFFFFF);
         if (!narrowLayout || showTrackedPane) addLabel(Component.translatable("gui.resourcetracker.edit.tracked_items"), rightBoxX, boxWidth, rightBoxY - 9, 0xFFFFFFFF);
@@ -339,9 +342,9 @@ public class EditScreen extends Screen {
             this.addRenderableWidget(availableTab); this.addRenderableWidget(trackedTab);
         }
 
-        int botBtnW = 100;
-        int botBtnGap = 15;
-        int botRowW = botBtnW + botBtnGap + botBtnW;
+        int botBtnW = Math.min(90, Math.max(58, (this.width - 32) / 3));
+        int botBtnGap = 6;
+        int botRowW = botBtnW * 3 + botBtnGap * 2;
         int botStartX = centerX - (botRowW / 2);
 
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.edit.clear"), b -> {
@@ -363,8 +366,18 @@ public class EditScreen extends Screen {
             }
         }).bounds(botStartX, this.height - 30, botBtnW, 20).build());
 
+        this.addRenderableWidget(Button.builder(Component.translatable(showPreview
+                ? "gui.resourcetracker.edit.items" : "gui.resourcetracker.edit.preview"), b -> {
+            showPreview = !showPreview;
+            b.setMessage(Component.translatable(showPreview
+                    ? "gui.resourcetracker.edit.items" : "gui.resourcetracker.edit.preview"));
+            searchField.visible = !showPreview && (!narrowLayout || !showTrackedPane);
+            trackedSearchField.visible = !showPreview && (!narrowLayout || showTrackedPane);
+            hoveredTooltipText = null;
+        }).bounds(botStartX + botBtnW + botBtnGap, this.height - 30, botBtnW, 20).build());
+
         this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
-                .bounds(botStartX + botBtnW + botBtnGap, this.height - 30, botBtnW, 20).build());
+                .bounds(botStartX + (botBtnW + botBtnGap) * 2, this.height - 30, botBtnW, 20).build());
 
         refreshCountWidgets();
         updateSearch(searchField.getValue());
@@ -382,12 +395,14 @@ public class EditScreen extends Screen {
         context.centeredText(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
 
         updateItemActionButtons();
-        if (!narrowLayout || !showTrackedPane) {
+        if (showPreview) {
+            for (EditBox widget : itemCountFields.values()) widget.visible = false;
+        } else if (!narrowLayout || !showTrackedPane) {
             RenderUtils.drawBoxFill(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
             renderSearchBar(context, leftBoxX, leftBoxY, boxWidth, searchField);
             renderItemList(context, mouseX, mouseY, leftBoxX, leftBoxY, boxWidth, boxHeight, filteredItems, scrollLeft);
         }
-        if (!narrowLayout || showTrackedPane) {
+        if (!showPreview && (!narrowLayout || showTrackedPane)) {
             RenderUtils.drawBoxFill(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
             renderSearchBar(context, rightBoxX, rightBoxY, boxWidth, trackedSearchField);
             renderAddedList(context, mouseX, mouseY, rightBoxX, rightBoxY, boxWidth, boxHeight);
@@ -399,14 +414,54 @@ public class EditScreen extends Screen {
             context.text(font, label.text, label.x, label.y, label.color, true);
         }
 
-        if (!narrowLayout || !showTrackedPane) RenderUtils.drawBoxOutline(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
-        if (!narrowLayout || showTrackedPane) RenderUtils.drawBoxOutline(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        if (showPreview) {
+            renderPreview(context);
+        } else {
+            if (!narrowLayout || !showTrackedPane) RenderUtils.drawBoxOutline(context, leftBoxX, leftBoxY, boxWidth, boxHeight);
+            if (!narrowLayout || showTrackedPane) RenderUtils.drawBoxOutline(context, rightBoxX, rightBoxY, boxWidth, boxHeight);
+        }
 
         if (hoveredTooltipText != null) {
             VersionCompat.setTooltip(context, font, hoveredTooltipText, mouseX, mouseY);
             hoveredTooltipText = null;
         }
         showInvalidFieldTooltip(context, mouseX, mouseY);
+    }
+
+    private void renderPreview(GuiGraphicsExtractor context) {
+        int panelX = leftBoxX;
+        int panelY = Math.min(listAreaY, height - 68);
+        int panelWidth = narrowLayout ? boxWidth : rightBoxX + boxWidth - leftBoxX;
+        int panelHeight = height - 36 - panelY;
+        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, 0xE0181820);
+        RenderUtils.drawBoxOutline(context, panelX, panelY, panelWidth, panelHeight);
+        context.centeredText(font, Component.translatable("gui.resourcetracker.edit.preview_title"),
+                panelX + panelWidth / 2, panelY + 5, 0xFFFFFFFF);
+
+        HudRenderModel model = HudRenderCache.preview(list, font, minecraft.getWindow().getGuiScaledHeight());
+        int modelWidth = Math.max(1, model.backgroundMaxX - model.backgroundMinX);
+        int modelHeight = Math.max(1, model.backgroundMaxY - model.backgroundMinY);
+        int availableWidth = Math.max(1, panelWidth - 16);
+        int availableHeight = Math.max(1, panelHeight - 25);
+        float scale = Math.min(TrackerConfig.clampScale(list.scale),
+                Math.min((float) availableWidth / modelWidth, (float) availableHeight / modelHeight));
+        float originX = panelX + 8 + (availableWidth - modelWidth * scale) / 2 - model.backgroundMinX * scale;
+        float originY = panelY + 19 + (availableHeight - modelHeight * scale) / 2 - model.backgroundMinY * scale;
+
+        context.enableScissor(panelX + 1, panelY + 17, panelX + panelWidth - 1, panelY + panelHeight - 1);
+        VersionCompat.push(context);
+        VersionCompat.translate(context, originX, originY);
+        VersionCompat.scale(context, scale, scale);
+        context.fill(model.backgroundMinX, model.backgroundMinY,
+                model.backgroundMaxX, model.backgroundMaxY, model.backgroundColor);
+        context.text(font, model.title, 0, 0, model.titleColor);
+        for (HudRenderModel.Row row : model.rows) {
+            if (model.showIcons && row.stack != null) context.item(row.stack, row.itemX, row.itemY);
+            context.text(font, row.nameText, row.nameX, row.nameY, row.nameColor);
+            context.text(font, row.countText, row.countX, row.countY, row.countColor);
+        }
+        VersionCompat.pop(context);
+        context.disableScissor();
     }
 
     private void resetSettings() {
@@ -581,6 +636,11 @@ public class EditScreen extends Screen {
     }
 
     private void updateItemActionButtons() {
+        if (showPreview) {
+            for (Button button : availableActionButtons) button.visible = false;
+            for (Button button : removeActionButtons) button.visible = false;
+            return;
+        }
         int leftStart = leftBoxY + SEARCH_HEIGHT + 2;
         int rightStart = rightBoxY + SEARCH_HEIGHT + 2;
         int visibleHeight = Math.max(1, boxHeight - SEARCH_HEIGHT - 2);
@@ -844,6 +904,7 @@ public class EditScreen extends Screen {
         if (super.mouseClicked(event, doubleClick)) {
             return true;
         }
+        if (showPreview) return false;
         if (event.button() != 0) {
             return false;
         }
@@ -896,6 +957,7 @@ public class EditScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (showPreview) return super.mouseDragged(event, dragX, dragY);
         if (isDraggingScrollLeft || isDraggingScrollRight) {
             updateScrollbarDrag(event.y());
             return true;
@@ -918,6 +980,7 @@ public class EditScreen extends Screen {
             init();
             return true;
         }
+        if (showPreview) return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         double amount = verticalAmount;
         int leftContentY = leftBoxY + SEARCH_HEIGHT + 2;
         int rightContentY = rightBoxY + SEARCH_HEIGHT + 2;

@@ -1,0 +1,117 @@
+// Each exact Minecraft version gets its own class namespace and Loom environment.
+def targets = [
+        mc1210 : ['1.21',    'mc1_21_0_to_1_21_1', '0.102.0+1.21',     '11.0.4'],
+        mc1211 : ['1.21.1',  'mc1_21_0_to_1_21_1', '0.116.17+1.21.1',  '11.0.4'],
+        mc1212 : ['1.21.2',  'mc1_21_0_to_1_21_4', '0.106.1+1.21.2',   '12.0.1'],
+        mc1213 : ['1.21.3',  'mc1_21_0_to_1_21_4', '0.114.1+1.21.3',   '12.0.1'],
+        mc1214 : ['1.21.4',  'mc1_21_0_to_1_21_4', '0.119.4+1.21.4',   '13.0.4'],
+        mc1215 : ['1.21.5',  'mc1_21_5',           '0.119.2+1.21.5',   '14.0.2'],
+        mc1216 : ['1.21.6',  'mc1_21_6_to_1_21_8', '0.128.2+1.21.6', '15.0.2'],
+        mc1217 : ['1.21.7',  'mc1_21_6_to_1_21_8', '0.129.0+1.21.7', '15.0.2'],
+        mc1218 : ['1.21.8',  'mc1_21_6_to_1_21_8', '0.136.1+1.21.8', '15.0.2'],
+        mc1219 : ['1.21.9',  'mc1_21_9_to_1_21_10', '0.134.1+1.21.9','16.0.1'],
+        mc12110: ['1.21.10', 'mc1_21_9_to_1_21_10', '0.138.4+1.21.10','16.0.1'],
+        mc12111: ['1.21.11', 'mc1_21_9_to_1_21_11', '0.141.3+1.21.11','17.0.0'],
+        mc261  : ['26.1',    'mc26_1',             '0.145.1+26.1',     '18.0.0-alpha.8'],
+        mc262  : ['26.2',    'mc26_2',             '0.158.0+26.2',     '20.0.1']
+]
+
+def target = targets[project.name]
+if (target == null) throw new GradleException("Unknown platform: ${project.name}")
+def named = project.name.startsWith('mc26')
+apply plugin: named ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap'
+
+def loaderVersion = named ? (project.name == 'mc261' ? '0.18.6' : '0.19.3') : '0.19.5'
+def generated = layout.buildDirectory.dir('generated/sources/platform/java')
+def originalRoot = 'net/fabricmc/resourcetracker/'
+def sourceRoot = rootProject.file('src/main/java')
+def compatRoot = rootProject.file("src/compat/${target[1]}/java")
+def namespace = "net.fabricmc.resourcetracker.platform.${project.name}"
+configurations.create('smokeMods')
+
+sourceSets.main.java.srcDir generated
+sourceSets.main.resources.srcDirs = []
+
+tasks.register('generatePlatformSources') {
+    inputs.files(rootProject.fileTree(sourceRoot) { include '**/*.java' })
+    inputs.files(rootProject.fileTree(compatRoot) { include '**/*.java' })
+    inputs.property('namespace', namespace)
+    outputs.dir generated
+    doLast {
+        def destination = generated.get().asFile
+        project.delete(destination)
+        def selected = [:]
+        [sourceRoot, compatRoot].each { base ->
+            rootProject.fileTree(base) { include '**/*.java' }.each { file ->
+                selected[base.toPath().relativize(file.toPath()).toString().replace('\\', '/')] = file
+            }
+        }
+        selected.each { relative, file ->
+            if (!relative.startsWith(originalRoot)) {
+                throw new GradleException("Unexpected source path: ${relative}")
+            }
+            def output = new File(destination,
+                    namespace.replace('.', '/') + '/' + relative.substring(originalRoot.length()))
+            output.parentFile.mkdirs()
+            output.setText(file.getText('UTF-8').replace('net.fabricmc.resourcetracker', namespace), 'UTF-8')
+        }
+        def entrypoint = new File(destination,
+                namespace.replace('.', '/') + '/ResourceTrackerPlatform.java')
+        entrypoint.setText("""package ${namespace};
+public final class ResourceTrackerPlatform implements net.fabricmc.resourcetracker.bootstrap.PlatformEntrypoint {
+    @Override public void initializeClient() {
+        new ${namespace}.client.ResourceTrackerClient().onInitializeClient();
+    }
+}
+""", 'UTF-8')
+    }
+}
+
+tasks.named('compileJava') { dependsOn tasks.named('generatePlatformSources') }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${target[0]}"
+    if (!named) mappings loom.officialMojangMappings()
+    if (named) {
+        implementation "net.fabricmc:fabric-loader:${loaderVersion}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${target[2]}"
+        compileOnly "maven.modrinth:modmenu:${target[3]}"
+    } else {
+        modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${target[2]}"
+        modCompileOnly "maven.modrinth:modmenu:${target[3]}"
+    }
+    compileOnly project(':bootstrap')
+    smokeMods "net.fabricmc.fabric-api:fabric-api:${target[2]}"
+    smokeMods "maven.modrinth:modmenu:${target[3]}"
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(named ? 25 : 21)
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = named ? 25 : 21
+}
+
+tasks.named('jar') { archiveClassifier = named ? 'payload' : 'dev' }
+if (!named) tasks.named('remapJar') { archiveClassifier = 'payload' }
+
+def productionTaskClass = plugins.getPlugin(named
+        ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap')
+        .class.classLoader.loadClass('net.fabricmc.loom.task.prod.ClientProductionRunTask')
+tasks.register('prodUniversalClient', productionTaskClass) {
+    group = 'verification'
+    description = "Run the final universal JAR on Minecraft ${target[0]}"
+    def externalJar = rootProject.findProperty('universalJarFile')
+    if (externalJar != null) {
+        mods.setFrom(rootProject.file(externalJar), configurations.smokeMods)
+    } else {
+        def jarTask = project(':universal').tasks.named('universalJar')
+        dependsOn jarTask
+        mods.setFrom(jarTask.flatMap { it.archiveFile }, configurations.smokeMods)
+    }
+    runDir = rootProject.file("run/universal/${project.name}")
+    useXVFB = System.getenv('CI') != null
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(named ? 25 : 21)
+    }
+}

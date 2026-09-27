@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "resourcetracker",
+  "version": "${version}",
+  "name": "ResourceTracker",
+  "description": "Mod that helps you to track your items",
+  "license": "MIT",
+  "icon": "assets/resourcetracker/icon.png",
+  "environment": "client",
+  "languageAdapters": {
+    "resourcetracker-dispatch": "net.fabricmc.resourcetracker.bootstrap.VersionDispatchLanguageAdapter"
+  },
+  "entrypoints": {
+    "client": ["net.fabricmc.resourcetracker.bootstrap.ResourceTrackerBootstrap"],
+    "modmenu": [{"adapter": "resourcetracker-dispatch", "value": "modmenu"}]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.6",
+    "minecraft": [
+      "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5",
+      "1.21.6", "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11",
+      "26.1", "26.2"
+    ],
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

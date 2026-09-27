@@ -37,6 +37,12 @@ public final class HudRenderCache {
         CACHE.clear();
     }
 
+    /** Builds a fresh model for settings that are being edited on the current frame. */
+    public static HudRenderModel preview(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
+        return buildModel(list, font, guiScaledHeight,
+                Component.translatable("gui.resourcetracker.overlay.need").getString());
+    }
+
     private static HudRenderModel buildModel(
             TrackerConfig.TrackingList list,
             Font font,

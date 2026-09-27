@@ -1,0 +1,31 @@
+plugins {
+    id 'base'
+    id 'net.fabricmc.fabric-loom-remap' version '1.17.20' apply false
+    id 'net.fabricmc.fabric-loom' version '1.17.20' apply false
+}
+
+allprojects {
+    group = rootProject.maven_group
+    version = rootProject.mod_version
+
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        mavenCentral()
+        maven { url = 'https://maven.terraformersmc.com/releases/' }
+        exclusiveContent {
+            forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+            filter { includeGroup 'maven.modrinth' }
+        }
+    }
+}
+
+subprojects { child ->
+    if (child.path.startsWith(':platform:')) {
+        apply from: rootProject.file('gradle/universal-platform.gradle')
+    }
+}
+
+tasks.register('universalJar') {
+    group = 'build'
+    dependsOn ':universal:universalJar'
+}

@@ -1,0 +1,94 @@
+import java.util.Collections
+
+plugins { id 'base' }
+
+def remapped = [
+        'mc1210', 'mc1211', 'mc1212', 'mc1213', 'mc1214', 'mc1215',
+        'mc1216', 'mc1217', 'mc1218', 'mc1219', 'mc12110', 'mc12111'
+]
+def named = ['mc261', 'mc262']
+
+def contents = { Project source, String taskName ->
+    source.tasks.named(taskName).flatMap { it.archiveFile }.map { zipTree(it.asFile) }
+}
+
+tasks.register('universalJar', Jar) {
+    group = 'build'
+    description = 'Assemble the exact-version ResourceTracker payloads into one JAR'
+    archiveBaseName = 'resourcetracker'
+    archiveVersion = rootProject.version.toString()
+    archiveClassifier = 'universal'
+    destinationDirectory = layout.buildDirectory.dir('libs')
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+
+    dependsOn project(':bootstrap').tasks.named('jar')
+    from(contents(project(':bootstrap'), 'jar')) {
+        exclude 'META-INF/MANIFEST.MF', 'fabric.mod.json'
+    }
+    remapped.each { id ->
+        def payload = project(":platform:${id}")
+        dependsOn payload.tasks.named('remapJar')
+        from(contents(payload, 'remapJar')) {
+            exclude 'META-INF/MANIFEST.MF', 'fabric.mod.json', 'LICENSE*'
+        }
+    }
+    named.each { id ->
+        def payload = project(":platform:${id}")
+        dependsOn payload.tasks.named('jar')
+        from(contents(payload, 'jar')) {
+            exclude 'META-INF/MANIFEST.MF', 'fabric.mod.json', 'LICENSE*'
+        }
+    }
+    from(rootProject.file('src/main/resources')) {
+        exclude 'fabric.mod.json'
+    }
+    from(rootProject.file('src/universal/resources')) {
+        expand version: rootProject.version
+    }
+    from(rootProject.file('LICENSE')) {
+        rename { 'LICENSE_resourcetracker' }
+    }
+}
+
+tasks.named('assemble') { dependsOn tasks.named('universalJar') }
+
+tasks.register('verifyUniversalJar') {
+    group = 'verification'
+    dependsOn tasks.named('universalJar')
+    doLast {
+        def artifact = tasks.named('universalJar').get().archiveFile.get().asFile
+        new java.util.zip.ZipFile(artifact).withCloseable { zip ->
+            def entries = Collections.list(zip.entries())*.name
+            if (entries.count { it == 'fabric.mod.json' } != 1) {
+                throw new GradleException('Universal JAR must contain exactly one fabric.mod.json')
+            }
+            (remapped + named).each { id ->
+                def path = "net/fabricmc/resourcetracker/platform/${id}/ResourceTrackerPlatform.class"
+                if (!entries.contains(path.toString())) throw new GradleException("Missing ${path} in ${artifact}")
+            }
+            entries.findAll { it.startsWith('net/fabricmc/resourcetracker/bootstrap/') && it.endsWith('.class') }
+                    .each { entry ->
+                def bytes = zip.getInputStream(zip.getEntry(entry)).bytes
+                def constantPoolText = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                ['net/minecraft/', 'net/fabricmc/fabric/api/', 'com/terraformersmc/modmenu/'].each { forbidden ->
+                    if (constantPoolText.contains(forbidden)) {
+                        throw new GradleException("${entry} links to platform API: ${forbidden}")
+                    }
+                }
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+            if (metadata.version != rootProject.version.toString()) {
+                throw new GradleException('Incorrect universal mod version')
+            }
+            if (metadata.entrypoints.client !=
+                    ['net.fabricmc.resourcetracker.bootstrap.ResourceTrackerBootstrap'] ||
+                    metadata.entrypoints.modmenu !=
+                    [[adapter: 'resourcetracker-dispatch', value: 'modmenu']]) {
+                throw new GradleException('Universal entrypoints bypass the version dispatcher')
+            }
+        }
+    }
+}
+
+tasks.named('check') { dependsOn tasks.named('verifyUniversalJar') }

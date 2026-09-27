@@ -287,8 +287,19 @@ public class MainScreen extends Screen {
                 iconTooltip = Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show");
             }
 
-            String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 66);
+            TrackerConfig.TrackingList.Progress progress = list.progress();
+            String progressText = progress.completed() + "/" + progress.total();
+            int badgeWidth = progress.total() > 0 && boxWidth >= 150 ? this.font.width(progressText) + 8 : 0;
+            String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 66 - badgeWidth - 5);
             context.drawString(this.font, Component.literal(nameText), x + 31, y + 8, 0xFFFFFFFF, true);
+
+            if (badgeWidth > 0) {
+                int badgeX = x + boxWidth - 30 - badgeWidth;
+                context.fill(badgeX, y + 5, badgeX + badgeWidth, y + 20,
+                        progress.completed() == progress.total() ? 0x80407040 : 0x80505050);
+                context.drawString(this.font, progressText, badgeX + 4, y + 8,
+                        progress.completed() == progress.total() ? 0xFFAAFFAA : 0xFFDDDDDD, true);
+            }
 
             // Trash Icon (Delete)
             int trashX = x + boxWidth - 25;

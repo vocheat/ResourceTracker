@@ -10,7 +10,22 @@ pluginManagement {
 }
 
 def selectedBuildFile = startParameter.projectProperties.get('profileBuild')
-if (selectedBuildFile != null && !selectedBuildFile.isBlank()) {
+if (selectedBuildFile == 'build-universal.gradle') {
+    rootProject.buildFileName = selectedBuildFile
+    include ':bootstrap', ':universal', ':platform'
+    project(':bootstrap').projectDir = file('gradle-projects/bootstrap')
+    project(':universal').projectDir = file('gradle-projects/universal')
+    project(':platform').projectDir = file('gradle-projects/platform')
+
+    [
+            'mc1210', 'mc1211', 'mc1212', 'mc1213', 'mc1214',
+            'mc1215', 'mc1216', 'mc1217', 'mc1218', 'mc1219',
+            'mc12110', 'mc12111', 'mc261', 'mc262'
+    ].each { id ->
+        include ":platform:${id}"
+        project(":platform:${id}").projectDir = file("gradle-projects/platform/${id}")
+    }
+} else if (selectedBuildFile != null && !selectedBuildFile.isBlank()) {
     // Keep historical grouped selectors working while making every supported
     // Minecraft version a canonical exact-version profile.
     def profileAliases = [

@@ -190,6 +190,20 @@ public class TrackerConfig {
         public List<TrackedItem> items = new ArrayList<>();
 
         public transient String storageFileName = null;
+
+        public Progress progress() {
+            int completed = 0;
+            int total = 0;
+            if (items == null) return new Progress(0, 0);
+            for (TrackedItem item : items) {
+                if (item == null || !item.isValid()) continue;
+                total++;
+                if (item.cachedCount >= item.targetCount) completed++;
+            }
+            return new Progress(completed, total);
+        }
+
+        public record Progress(int completed, int total) {}
     }
 
     public static class TrackedItem {

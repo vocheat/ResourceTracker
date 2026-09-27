@@ -1,0 +1,69 @@
+name: Publish to Modrinth
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version already published on GitHub
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Download GitHub release JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MODRINTH_TOKEN" || { echo 'MODRINTH_TOKEN is missing'; exit 1; }
+          mkdir -p release-artifact
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern "resourcetracker-$VERSION-universal.jar" --dir release-artifact
+          test -f "release-artifact/resourcetracker-$VERSION-universal.jar"
+
+      - name: Publish or verify Modrinth version
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="release-artifact/resourcetracker-$VERSION-universal.jar"
+          HASH=$(sha512sum "$JAR" | cut -d' ' -f1)
+          EXISTING=$(curl --fail-with-body --silent --show-error \
+            -H 'User-Agent: ResourceTracker release workflow (github.com/vocheat/ResourceTracker)' \
+            'https://api.modrinth.com/v2/project/QKduFlaB/version' \
+            | jq -r --arg v "$VERSION" '[.[] | select(.version_number == $v) | .files[0].hashes.sha512][0] // empty')
+          if [ -n "$EXISTING" ]; then
+            test "$EXISTING" = "$HASH" || { echo 'Modrinth version exists with another JAR'; exit 1; }
+            echo "Modrinth $VERSION already contains the verified JAR"
+            exit 0
+          fi
+          CHANGELOG=$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body -q .body)
+          jq -n --arg version "$VERSION" --arg changelog "$CHANGELOG" \
+            '{name:("ResourceTracker " + $version + " — universal JAR"),
+              version_number:$version, changelog:$changelog,
+              dependencies:[
+                {project_id:"P7dR8mSH",dependency_type:"required"},
+                {project_id:"mOgUt4GM",dependency_type:"optional"}
+              ],
+              game_versions:["1.21","1.21.1","1.21.2","1.21.3","1.21.4",
+                "1.21.5","1.21.6","1.21.7","1.21.8","1.21.9","1.21.10",
+                "1.21.11","26.1","26.2"],
+              version_type:"release",loaders:["fabric"],featured:true,
+              status:"listed",environment:"client_only",project_id:"QKduFlaB",
+              file_parts:["file"],primary_file:"file"}' > metadata.json
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -H 'User-Agent: ResourceTracker release workflow (github.com/vocheat/ResourceTracker)' \
+            -F 'data=<metadata.json;type=application/json' \
+            -F "file=@$JAR;type=application/java-archive" \
+            'https://api.modrinth.com/v2/version' > response.json
+          jq -e --arg v "$VERSION" --arg hash "$HASH" \
+            '.project_id == "QKduFlaB" and .version_number == $v and
+             any(.files[]; .hashes.sha512 == $hash)' response.json
+          jq -r '"Published Modrinth version: https://modrinth.com/mod/resourcetracker/version/" + .id' response.json
