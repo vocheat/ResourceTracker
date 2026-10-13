@@ -19,6 +19,7 @@ public final class VersionMatrix {
             case "1.21.11" -> "mc12111";
             case "26.1" -> "mc261";
             case "26.2" -> "mc262";
+            case "26.3" -> "mc263";
             default -> throw new UnsupportedOperationException("Unsupported Minecraft version: " + version);
         };
     }

@@ -7,6 +7,9 @@ def compatibilitySourceProfile = project.ext.has('source_profile_id')
 def excludedMainSources = project.ext.has('excluded_main_sources')
         ? project.ext.excluded_main_sources
         : []
+if (file("src/compat/${compatibilitySourceProfile}/java/net/fabricmc/resourcetracker/client/gui/TrackerButton.java").isFile()) {
+    excludedMainSources = excludedMainSources + ['net/fabricmc/resourcetracker/client/gui/TrackerButton.java']
+}
 
 layout.buildDirectory.set(layout.projectDirectory.dir("build/${profile_id}"))
 

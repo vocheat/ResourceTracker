@@ -1,5 +1,6 @@
 package net.fabricmc.resourcetracker.util;
 
+import net.fabricmc.resourcetracker.client.gui.UiTheme;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.gui.Font;
@@ -18,8 +19,8 @@ public class RenderUtils {
     }
 
     public static void drawBox(GuiGraphicsExtractor context, int x, int y, int w, int h) {
-        context.fill(x, y, x + w, y + h, 0x80000000);
-        int color = 0xFFFFFFFF;
+        context.fill(x, y, x + w, y + h, UiTheme.PANEL);
+        int color = UiTheme.BORDER;
         context.fill(x, y, x + w, y + 1, color);
         context.fill(x, y + h - 1, x + w, y + h, color);
         context.fill(x, y, x + 1, y + h, color);
@@ -27,11 +28,11 @@ public class RenderUtils {
     }
 
     public static void drawBoxFill(GuiGraphicsExtractor context, int x, int y, int w, int h) {
-        context.fill(x, y, x + w, y + h, 0x80000000);
+        context.fill(x, y, x + w, y + h, UiTheme.PANEL);
     }
 
     public static void drawBoxOutline(GuiGraphicsExtractor context, int x, int y, int w, int h) {
-        int color = 0xFF6B6B6B;
+        int color = UiTheme.BORDER;
         context.fill(x, y, x + w, y + 1, color);
         context.fill(x, y + h - 1, x + w, y + h, color);
         context.fill(x, y, x + 1, y + h, color);
@@ -39,20 +40,22 @@ public class RenderUtils {
     }
 
     public static void drawStyledScrollbar(GuiGraphicsExtractor context, int x, int y, int h, int contentH, double scroll) {
-        if (contentH <= h) return;
-        context.fill(x, y, x + 5, y + h, 0xFF000000);
-        int barH = Math.max(20, (int) ((float) h / contentH * h));
+        if (h <= 0 || contentH <= h) return;
+        context.fill(x, y, x + 5, y + h, UiTheme.HEADER);
+        int barH = Math.min(h, Math.max(12, (int) ((float) h / contentH * h)));
         int maxScroll = contentH - h;
-        int barY = y + (int) ((scroll / maxScroll) * (h - barH));
-        context.fill(x, barY, x + 5, barY + barH, 0xFF888888);
+        int barY = y + (int) ((Math.max(0, Math.min(scroll, maxScroll)) / maxScroll) * (h - barH));
+        context.fill(x, barY, x + 5, barY + barH, UiTheme.MUTED);
     }
 
     public static String shortenText(Font textRenderer, String text, int maxWidth) {
+        maxWidth = Math.max(0, maxWidth);
         if (textRenderer.width(text) <= maxWidth) {
             return text;
         }
         String suffix = "...";
         int suffixWidth = textRenderer.width(suffix);
+        if (suffixWidth > maxWidth) return textRenderer.plainSubstrByWidth(text, maxWidth);
         return textRenderer.plainSubstrByWidth(text, Math.max(0, maxWidth - suffixWidth)) + suffix;
     }
 

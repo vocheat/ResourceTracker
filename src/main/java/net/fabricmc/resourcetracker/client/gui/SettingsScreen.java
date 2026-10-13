@@ -3,22 +3,31 @@ package net.fabricmc.resourcetracker.client.gui;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.ComponentPath;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.navigation.FocusNavigationEvent;
+import net.minecraft.client.gui.narration.NarratableEntry;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-
+import net.minecraft.util.FormattedCharSequence;
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 public class SettingsScreen extends Screen {
     private final Screen parent;
-
-    private final EditBox[][] colorFields = new EditBox[3][4];
     private final Map<EditBox, Component> invalidFields = new IdentityHashMap<>();
-    private int scrollY = 0;
-    private int contentBottom = 0;
+    private final Map<AbstractWidget, Integer> contentWidgets = new IdentityHashMap<>();
+    private final List<Label> labels = new ArrayList<>();
+    private final List<Swatch> swatches = new ArrayList<>();
+    private int tab, left, top, windowWidth, windowHeight, contentTop, contentBottom, contentHeight, scrollY;
     private Component recoveryMessage;
 
     public SettingsScreen(Screen parent) {
@@ -28,315 +37,284 @@ public class SettingsScreen extends Screen {
 
     @Override
     protected void init() {
-        this.clearWidgets();
-        this.invalidFields.clear();
+        clearWidgets();
+        setFocused(null);
+        invalidFields.clear();
+        contentWidgets.clear();
+        labels.clear();
+        swatches.clear();
+        windowWidth = Math.min(440, width - 20);
+        windowHeight = Math.min(340, height - 16);
+        left = (width - windowWidth) / 2;
+        top = (height - windowHeight) / 2;
+        contentTop = top + 62;
+        contentBottom = top + windowHeight - 38;
+        int tabWidth = (windowWidth - 32) / 3;
+        String[] tabs = {"new_lists", "appearance", "files"};
+        for (int i = 0; i < tabs.length; i++) {
+            int selectedTab = i;
+            Button button = TrackerButton.builder(Component.translatable("gui.resourcetracker.settings." + tabs[i]), b -> {
+                if (tab == selectedTab) return;
+                tab = selectedTab;
+                scrollY = 0;
+                init();
+            }).bounds(left + 12 + i * (tabWidth + 4), top + 32, tabWidth, 20).build();
 
-        int centerX = this.width / 2;
-        int y = 34 - scrollY;
-        int labelX = centerX - 150;
-        int fieldX = centerX + 35;
-
+            addRenderableWidget(button);
+        }
+        int y = 4;
         if (TrackerConfig.isGlobalWriteBlocked()) {
-            Component warning = Component.translatable("gui.resourcetracker.config_recovery_warning",
-                    String.valueOf(TrackerConfig.getRecoveryBackupPath()));
-            this.addRenderableOnly((context, mouseX, mouseY, delta) ->
-                    context.drawWordWrap(this.font, warning, 12, 24 - scrollY, this.width - 24, 0xFFFF6666));
-            this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.config_recovery"), button -> {
-                if (this.minecraft != null) {
-                    this.minecraft.setScreen(new ConfirmScreen(confirmed -> {
-                        if (confirmed) {
-                            String result = TrackerConfig.recoverConfig().name();
-                            recoveryMessage = Component.translatable(result.equals("SUCCESS")
-                                    ? "gui.resourcetracker.config_recovery_success"
-                                    : "gui.resourcetracker.config_recovery_failed");
-                            init();
-                        }
-                        if (this.minecraft != null) this.minecraft.setScreen(this);
-                    }, Component.translatable("gui.resourcetracker.config_recovery"),
-                            Component.translatable("gui.resourcetracker.config_recovery_confirm")));
-                }
-            }).bounds(centerX - 120, 62 - scrollY, 240, 20).build());
-            y = 94 - scrollY;
+            y = wrapLabel(y, Component.translatable("gui.resourcetracker.config_recovery_warning",
+                    String.valueOf(TrackerConfig.getRecoveryBackupPath())), UiTheme.DANGER);
+            addContent(TrackerButton.builder(Component.translatable("gui.resourcetracker.config_recovery"), b -> recover())
+                    .bounds(left + 16, 0, windowWidth - 32, 20).build(), y + 4);
+            y += 32;
         }
+        if (recoveryMessage != null) y = wrapLabel(y, recoveryMessage, UiTheme.ACCENT) + 8;
+        if (tab == 0) y = defaults(y);
+        else if (tab == 1) y = appearance(y);
+        else y = files(y);
+        contentHeight = y + 8;
+        repositionContent();
+        addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
+                .bounds(width / 2 - 60, top + windowHeight - 28, 120, 20).primary().build());
+    }
 
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_x", TrackerConfig.INSTANCE.defaultX, null, null,
-                Component.translatable("gui.resourcetracker.validation.integer"),
-                value -> TrackerConfig.INSTANCE.defaultX = value);
-        y += 22;
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_y", TrackerConfig.INSTANCE.defaultY, null, null,
-                Component.translatable("gui.resourcetracker.validation.integer"),
-                value -> TrackerConfig.INSTANCE.defaultY = value);
-        y += 22;
-        addFloatField(labelX, fieldX, y, "gui.resourcetracker.settings.default_scale", TrackerConfig.INSTANCE.defaultScale,
-                TrackerConfig.MIN_SCALE, TrackerConfig.MAX_SCALE,
-                Component.translatable("gui.resourcetracker.validation.scale"),
-                value -> TrackerConfig.INSTANCE.defaultScale = value);
-        y += 22;
-        addIntField(labelX, fieldX, y, "gui.resourcetracker.settings.default_columns", TrackerConfig.INSTANCE.defaultColumns, 0, TrackerConfig.MAX_COLUMNS,
-                Component.translatable("gui.resourcetracker.validation.columns"),
-                value -> TrackerConfig.INSTANCE.defaultColumns = value);
+    private int defaults(int y) {
+        y = wrapLabel(y, Component.translatable("gui.resourcetracker.settings.new_lists_note"), UiTheme.MUTED) + 10;
+        y = intField(y, "gui.resourcetracker.settings.x", TrackerConfig.INSTANCE.defaultX, null, null,
+                "gui.resourcetracker.validation.integer", value -> TrackerConfig.INSTANCE.defaultX = value);
+        y = intField(y, "gui.resourcetracker.settings.y", TrackerConfig.INSTANCE.defaultY, null, null,
+                "gui.resourcetracker.validation.integer", value -> TrackerConfig.INSTANCE.defaultY = value);
+        addLabel(y + 5, Component.translatable("gui.resourcetracker.settings.scale"), UiTheme.TEXT);
+        EditBox scale = field(y, "gui.resourcetracker.settings.scale", String.valueOf(TrackerConfig.INSTANCE.defaultScale));
+        scale.setResponder(text -> {
+            Float value = parseFloat(text);
+            boolean valid = value != null && Float.isFinite(value) && value >= TrackerConfig.MIN_SCALE && value <= TrackerConfig.MAX_SCALE;
+            markValidity(scale, valid, "gui.resourcetracker.validation.scale");
+            if (valid) TrackerConfig.INSTANCE.defaultScale = value;
+        });
         y += 28;
+        y = intField(y, "gui.resourcetracker.settings.columns", TrackerConfig.INSTANCE.defaultColumns, 0, TrackerConfig.MAX_COLUMNS,
+                "gui.resourcetracker.validation.columns", value -> TrackerConfig.INSTANCE.defaultColumns = value);
+        y = wrapLabel(y, Component.translatable("gui.resourcetracker.settings.columns_note"), UiTheme.MUTED) + 8;
+        int buttonWidth = (windowWidth - 40) / 2;
+        addContent(TrackerButton.builder(modeLabel(), b -> {
+            TrackerConfig.INSTANCE.defaultShowRemaining = !TrackerConfig.INSTANCE.defaultShowRemaining;
+            b.setMessage(modeLabel());
+        }).bounds(left + 16, 0, buttonWidth, 20).build(), y);
+        addContent(TrackerButton.builder(iconsLabel(), b -> {
+            TrackerConfig.INSTANCE.defaultShowIcons = !TrackerConfig.INSTANCE.defaultShowIcons;
+            b.setMessage(iconsLabel());
+        }).bounds(left + 24 + buttonWidth, 0, buttonWidth, 20).build(), y);
+        y += 32;
+        addContent(TrackerButton.builder(Component.translatable("gui.resourcetracker.settings.reset_defaults"), b -> {
+            TrackerConfig.resetDefaultListSettings();
+            init();
+        }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
+        return y + 28;
+    }
 
-        addColorEditor(centerX - 175, y, 0, "gui.resourcetracker.settings.default_text_color");
-        y += 46;
-        addColorEditor(centerX - 175, y, 1, "gui.resourcetracker.settings.default_title_color");
-        y += 46;
-        addColorEditor(centerX - 175, y, 2, "gui.resourcetracker.settings.default_background_color");
-        y += 30;
+    private int appearance(int y) {
+        y = wrapLabel(y, Component.translatable("gui.resourcetracker.settings.new_lists_note"), UiTheme.MUTED) + 14;
+        String[] keys = {"text_color", "title_color", "background_color"};
+        for (int i = 0; i < keys.length; i++) {
+            int index = i;
+            Component label = Component.translatable("gui.resourcetracker.settings." + keys[i]);
+            addLabel(y + 5, label, UiTheme.TEXT);
+            int buttonX = left + windowWidth - 124;
+            Button button = TrackerButton.builder(Component.literal(String.format("#%06X", color(index) & 0xFFFFFF)), b -> {
+                if (minecraft != null) minecraft.setScreen(new ColorPickerScreen(this, label, color(index), value -> setColor(index, value)));
+            }).bounds(buttonX - 42, 0, 150, 20).build();
+            addContent(button, y);
+            swatches.add(new Swatch(buttonX - 38, y + 2, index));
+            y += 34;
+        }
+        return wrapLabel(y + 6, Component.translatable("gui.resourcetracker.settings.color_note"), UiTheme.MUTED);
+    }
 
-        this.addRenderableWidget(Button.builder(Component.translatable(TrackerConfig.INSTANCE.defaultShowRemaining
-                        ? "gui.resourcetracker.edit.mode_need"
-                        : "gui.resourcetracker.edit.mode_count"), button -> {
-                    TrackerConfig.INSTANCE.defaultShowRemaining = !TrackerConfig.INSTANCE.defaultShowRemaining;
-                    button.setMessage(Component.translatable(TrackerConfig.INSTANCE.defaultShowRemaining
-                            ? "gui.resourcetracker.edit.mode_need"
-                            : "gui.resourcetracker.edit.mode_count"));
-                })
-                .bounds(centerX - 155, y, 100, 20)
-                .build());
-
-        this.addRenderableWidget(Button.builder(Component.translatable(TrackerConfig.INSTANCE.defaultShowIcons
-                        ? "gui.resourcetracker.edit.icons_on"
-                        : "gui.resourcetracker.edit.icons_off"), button -> {
-                    TrackerConfig.INSTANCE.defaultShowIcons = !TrackerConfig.INSTANCE.defaultShowIcons;
-                    button.setMessage(Component.translatable(TrackerConfig.INSTANCE.defaultShowIcons
-                            ? "gui.resourcetracker.edit.icons_on"
-                            : "gui.resourcetracker.edit.icons_off"));
-                })
-                .bounds(centerX - 45, y, 90, 20)
-                .build());
-
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.settings.reset_defaults"), button -> {
-                    TrackerConfig.resetDefaultListSettings();
-                    this.init();
-                })
-                .bounds(centerX + 55, y, 100, 20)
-                .build());
+    private int files(int y) {
+        y = wrapLabel(y, Component.translatable("gui.resourcetracker.settings.files_note"), UiTheme.MUTED) + 12;
+        Button world = TrackerButton.builder(Component.translatable("gui.resourcetracker.open_world_lists"), b -> TrackerConfig.openActiveListsFolder())
+                .bounds(left + 16, 0, windowWidth - 32, 20).build();
+        world.active = TrackerConfig.hasActiveContext();
+        addContent(world, y);
         y += 28;
-
-        Button listScreen = Button.builder(Component.translatable("gui.resourcetracker.settings.open_lists_screen"), button -> {
-                    TrackerConfig.saveGlobalSettingsOnly();
-                    if (this.minecraft != null) {
-                        this.minecraft.setScreen(new MainScreen(parent));
-                    }
+        addContent(TrackerButton.builder(Component.translatable("gui.resourcetracker.open_all_lists"), b -> TrackerConfig.openListsRootFolder())
+                .bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
+        y += 28;
+        Button reload = TrackerButton.builder(Component.translatable("gui.resourcetracker.reload_lists"), b -> {
+                    TrackerConfig.reloadActiveContextLists();
+                    net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
                 })
-                .bounds(centerX - 50, y, 100, 20)
-                .build();
-        this.addRenderableWidget(listScreen);
-        y += 24;
-
-        Button openCurrent = Button.builder(Component.translatable("gui.resourcetracker.open_world_lists"),
-                        button -> TrackerConfig.openActiveListsFolder())
-                .bounds(centerX - 155, y, 150, 20)
-                .build();
-        openCurrent.active = TrackerConfig.hasActiveContext();
-        this.addRenderableWidget(openCurrent);
-
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.open_all_lists"),
-                        button -> TrackerConfig.openListsRootFolder())
-                .bounds(centerX + 5, y, 150, 20)
-                .build());
-
-        this.contentBottom = y + 54 + scrollY;
-
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), button -> onClose())
-                .bounds(centerX - 50, this.height - 30, 100, 20)
-                .build());
+                .bounds(left + 16, 0, windowWidth - 32, 20).build();
+        reload.active = TrackerConfig.hasActiveContext();
+        addContent(reload, y);
+        return y + 28;
     }
 
-    @Override
-    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        // No-op: custom background below.
+    private void recover() {
+        if (minecraft == null) return;
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) recoveryMessage = Component.translatable(TrackerConfig.recoverConfig().name().equals("SUCCESS")
+                    ? "gui.resourcetracker.config_recovery_success" : "gui.resourcetracker.config_recovery_failed");
+            if (minecraft != null) minecraft.setScreen(this);
+        }, Component.translatable("gui.resourcetracker.config_recovery"), Component.translatable("gui.resourcetracker.config_recovery_confirm")));
     }
 
-    @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, 0xA0000000);
-        context.drawCenteredString(this.font, this.title, this.width / 2, 14, 0xFFFFFFFF);
-        if (recoveryMessage != null) {
-            context.drawCenteredString(this.font, recoveryMessage, this.width / 2, this.height - 48, 0xFFFFAA55);
-        }
-        super.render(context, mouseX, mouseY, delta);
-        showInvalidFieldTooltip(context, mouseX, mouseY);
-    }
-
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        int maxScroll = Math.max(0, contentBottom - (this.height - 42));
-        if (maxScroll <= 0) {
-            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-        }
-        scrollY = Math.max(0, Math.min(maxScroll, scrollY - (int) (verticalAmount * 18)));
-        init();
-        return true;
-    }
-
-    @Override
-    public void onClose() {
-        TrackerConfig.saveGlobalSettingsOnly();
-        if (this.minecraft != null) {
-            this.minecraft.setScreen(parent);
-        }
-    }
-
-    private EditBox addIntField(int labelX, int fieldX, int y, String labelKey, int value, Integer min, Integer max, Component tooltip, IntSetter setter) {
-        addLabel(labelX, y + 4, labelKey);
-        EditBox field = new EditBox(font, fieldX, y, 110, 16, Component.translatable(labelKey));
-        field.setValue(String.valueOf(value));
-        field.setTextColor(0xFFFFFFFF);
+    private int intField(int y, String key, int value, Integer min, Integer max, String validation, IntConsumer setter) {
+        addLabel(y + 5, Component.translatable(key), UiTheme.TEXT);
+        EditBox field = field(y, key, String.valueOf(value));
         field.setResponder(text -> {
             Integer parsed = parseInteger(text);
             boolean valid = parsed != null && (min == null || parsed >= min) && (max == null || parsed <= max);
-            markFieldValidity(field, valid, tooltip);
-            if (valid) {
-                setter.set(parsed);
-            }
+            markValidity(field, valid, validation);
+            if (valid) setter.accept(parsed);
         });
-        this.addRenderableWidget(field);
+        return y + 28;
+    }
+
+    private EditBox field(int y, String key, String value) {
+        EditBox field = new EditBox(font, left + windowWidth - 124, 0, 108, 20, Component.translatable(key));
+        field.setMaxLength(16);
+        field.setValue(value);
+        field.setTextColor(UiTheme.TEXT);
+        addContent(field, y);
         return field;
     }
 
-    private EditBox addFloatField(int labelX, int fieldX, int y, String labelKey, float value, float min, float max, Component tooltip, FloatSetter setter) {
-        addLabel(labelX, y + 4, labelKey);
-        EditBox field = new EditBox(font, fieldX, y, 110, 16, Component.translatable(labelKey));
-        field.setValue(String.valueOf(value));
-        field.setTextColor(0xFFFFFFFF);
-        field.setResponder(text -> {
-            Float parsed = parseFloat(text);
-            boolean valid = parsed != null && Float.isFinite(parsed) && parsed >= min && parsed <= max;
-            markFieldValidity(field, valid, tooltip);
-            if (valid) {
-                setter.set(parsed);
-            }
+    private void addContent(AbstractWidget widget, int y) {
+        contentWidgets.put(widget, y);
+        addRenderableWidget(widget);
+        addWidget(new ScrollFocusTarget(widget));
+    }
+    private void addLabel(int y, Component text, int color) { labels.add(new Label(y, text.getVisualOrderText(), color)); }
+    private int wrapLabel(int y, Component text, int color) {
+        for (FormattedCharSequence line : font.split(text, windowWidth - 36)) {
+            labels.add(new Label(y, line, color));
+            y += 12;
+        }
+        return y;
+    }
+    private void repositionContent() {
+        scrollY = Math.max(0, Math.min(scrollY, Math.max(0, contentHeight - (contentBottom - contentTop))));
+        contentWidgets.forEach((widget, y) -> {
+            widget.setY(contentTop + y - scrollY);
+            widget.visible = widget.getY() >= contentTop && widget.getY() + widget.getHeight() <= contentBottom;
         });
-        this.addRenderableWidget(field);
-        return field;
+        if (getFocused() instanceof AbstractWidget focused && !focused.visible) setFocused(null);
     }
-
-    private void addColorEditor(int x, int y, int index, String labelKey) {
-        addLabel(x, y + 18, labelKey);
-
-        String[] labels = {"R", "G", "B", "Alpha"};
-        int[] labelColors = {0xFFFF4444, 0xFF44FF44, 0xFF4488FF, 0xFFCCCCCC};
-        int[] widths = {34, 34, 34, 48};
-        int startX = x + 145;
-        int[] values = colorToFields(getColorForIndex(index));
-
-        int fieldX = startX;
-        for (int i = 0; i < 4; i++) {
-            String label = labels[i];
-            int labelWidth = this.font.width(label);
-            int lx = fieldX + (widths[i] - labelWidth) / 2;
-            int ly = y;
-            int color = labelColors[i];
-            this.addRenderableOnly((context, mouseX, mouseY, delta) ->
-                    context.drawString(this.font, Component.literal(label), lx, ly, color, true));
-
-            EditBox field = new EditBox(this.font, fieldX, y + 12, widths[i], 16, Component.literal(label));
-            field.setValue(String.valueOf(values[i]));
-            field.setMaxLength(3);
-            field.setTextColor(0xFFFFFFFF);
-            int finalIndex = index;
-            field.setResponder(text -> applyColorFields(finalIndex));
-            this.addRenderableWidget(field);
-            colorFields[index][i] = field;
-            fieldX += widths[i] + 4;
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (mouseX >= left && mouseX <= left + windowWidth && mouseY >= contentTop && mouseY <= contentBottom) {
+            scrollY -= (int) (verticalAmount * 20);
+            repositionContent();
+            return true;
         }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
-
-    private void applyColorFields(int index) {
-        try {
-            Integer r = parseInteger(colorFields[index][0].getValue());
-            Integer g = parseInteger(colorFields[index][1].getValue());
-            Integer b = parseInteger(colorFields[index][2].getValue());
-            Integer a = parseInteger(colorFields[index][3].getValue());
-            Component tooltip = Component.translatable("gui.resourcetracker.validation.rgba");
-            markFieldValidity(colorFields[index][0], isByte(r), tooltip);
-            markFieldValidity(colorFields[index][1], isByte(g), tooltip);
-            markFieldValidity(colorFields[index][2], isByte(b), tooltip);
-            markFieldValidity(colorFields[index][3], isByte(a), tooltip);
-            if (!(isByte(r) && isByte(g) && isByte(b) && isByte(a))) return;
-            setColorForIndex(index, (a << 24) | (r << 16) | (g << 8) | b);
-        } catch (NumberFormatException | NullPointerException ignored) {
+    @Override
+    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {}
+    @Override
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        context.fill(0, 0, width, height, 0x90000000);
+        context.fill(left - 1, top - 1, left + windowWidth + 1, top + windowHeight + 1, UiTheme.BORDER);
+        context.fill(left, top, left + windowWidth, top + windowHeight, UiTheme.WINDOW);
+        context.fill(left, top, left + windowWidth, top + 26, UiTheme.HEADER);
+        context.drawCenteredString(font, title, width / 2, top + 9, UiTheme.TEXT);
+        int tabWidth = (windowWidth - 32) / 3;
+        int activeX = left + 12 + tab * (tabWidth + 4);
+        context.fill(activeX, top + 53, activeX + tabWidth, top + 55, UiTheme.ACCENT);
+        context.fill(left + 10, contentTop, left + windowWidth - 10, contentBottom, UiTheme.PANEL);
+        context.enableScissor(left + 12, contentTop, left + windowWidth - 12, contentBottom);
+        for (Label label : labels) context.drawString(font, label.text(), left + 16, contentTop + label.y() - scrollY, label.color(), false);
+        for (Swatch swatch : swatches) ColorPickerScreen.drawSwatch(context, swatch.x() + 7, contentTop + swatch.y() - scrollY, 16, 16, color(swatch.index()));
+        context.disableScissor();
+        super.render(context, mouseX, mouseY, delta);
+        if (contentHeight > contentBottom - contentTop) {
+            int trackHeight = contentBottom - contentTop;
+            int thumbHeight = Math.max(12, trackHeight * trackHeight / contentHeight);
+            int thumbY = contentTop + scrollY * (trackHeight - thumbHeight) / Math.max(1, contentHeight - trackHeight);
+            context.fill(left + windowWidth - 6, contentTop, left + windowWidth - 4, contentBottom, UiTheme.BORDER);
+            context.fill(left + windowWidth - 6, thumbY, left + windowWidth - 4, thumbY + thumbHeight, UiTheme.ACCENT);
         }
-    }
-
-    private int[] colorToFields(int color) {
-        return new int[] {
-                (color >> 16) & 0xFF,
-                (color >> 8) & 0xFF,
-                color & 0xFF,
-                (color >> 24) & 0xFF
-        };
-    }
-
-    private boolean isByte(Integer value) {
-        return value != null && value >= 0 && value <= 255;
-    }
-
-    private Integer parseInteger(String text) {
-        try {
-            return Integer.parseInt(text.trim());
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private Float parseFloat(String text) {
-        try {
-            return Float.parseFloat(text.trim());
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private void markFieldValidity(EditBox field, boolean valid, Component tooltip) {
-        field.setTextColor(valid ? 0xFFFFFFFF : 0xFFFF5555);
-        if (valid) invalidFields.remove(field);
-        else invalidFields.put(field, tooltip);
-    }
-
-    private void showInvalidFieldTooltip(GuiGraphics context, int mouseX, int mouseY) {
         for (Map.Entry<EditBox, Component> entry : invalidFields.entrySet()) {
-            EditBox field = entry.getKey();
-            if (field.isFocused() || (field.visible && mouseX >= field.getX() && mouseX < field.getX() + field.getWidth()
-                    && mouseY >= field.getY() && mouseY < field.getY() + field.getHeight())) {
+            if (entry.getKey().visible && (entry.getKey().isFocused() || entry.getKey().isMouseOver(mouseX, mouseY))) {
                 VersionCompat.setTooltip(context, font, entry.getValue(), mouseX, mouseY);
-                return;
+                break;
             }
         }
     }
-
-    private int getColorForIndex(int index) {
+    private void markValidity(EditBox field, boolean valid, String key) {
+        field.setTextColor(valid ? UiTheme.TEXT : UiTheme.DANGER);
+        if (valid) invalidFields.remove(field);
+        else invalidFields.put(field, Component.translatable(key));
+    }
+    private Integer parseInteger(String value) {
+        try { return Integer.parseInt(value.trim()); } catch (NumberFormatException ignored) { return null; }
+    }
+    private Float parseFloat(String value) {
+        try { return Float.parseFloat(value.trim()); } catch (NumberFormatException ignored) { return null; }
+    }
+    private Component modeLabel() {
+        return Component.translatable(TrackerConfig.INSTANCE.defaultShowRemaining ? "gui.resourcetracker.edit.mode_need" : "gui.resourcetracker.edit.mode_count");
+    }
+    private Component iconsLabel() {
+        return Component.translatable(TrackerConfig.INSTANCE.defaultShowIcons ? "gui.resourcetracker.edit.icons_on" : "gui.resourcetracker.edit.icons_off");
+    }
+    private int color(int index) {
         return switch (index) {
             case 0 -> TrackerConfig.INSTANCE.defaultTextColor;
             case 1 -> TrackerConfig.INSTANCE.defaultNameColor;
-            case 2 -> TrackerConfig.INSTANCE.defaultBackgroundColor;
-            default -> 0xFFFFFFFF;
+            default -> TrackerConfig.INSTANCE.defaultBackgroundColor;
         };
     }
-
-    private void setColorForIndex(int index, int color) {
+    private void setColor(int index, int value) {
         switch (index) {
-            case 0 -> TrackerConfig.INSTANCE.defaultTextColor = color;
-            case 1 -> TrackerConfig.INSTANCE.defaultNameColor = color;
-            case 2 -> TrackerConfig.INSTANCE.defaultBackgroundColor = color;
-            default -> {
-            }
+            case 0 -> TrackerConfig.INSTANCE.defaultTextColor = value;
+            case 1 -> TrackerConfig.INSTANCE.defaultNameColor = value;
+            default -> TrackerConfig.INSTANCE.defaultBackgroundColor = value;
+        }
+    }
+    @Override
+    public void onClose() {
+        TrackerConfig.saveGlobalSettingsOnly();
+        if (minecraft != null) minecraft.setScreen(parent);
+    }
+
+    @Override
+    public void setFocused(GuiEventListener focused) {
+        super.setFocused(focused);
+        if (focused instanceof AbstractWidget widget && contentWidgets.containsKey(widget)) {
+            int y = contentWidgets.get(widget);
+            int viewportHeight = contentBottom - contentTop;
+            if (y < scrollY) scrollY = y;
+            else if (y + widget.getHeight() > scrollY + viewportHeight) scrollY = y + widget.getHeight() - viewportHeight;
+            repositionContent();
         }
     }
 
-    private void addLabel(int x, int y, String key) {
-        this.addRenderableOnly((context, mouseX, mouseY, delta) ->
-                context.drawString(this.font, Component.translatable(key), x, y, 0xFFFFFFFF, true));
+    /** Allows native Tab navigation to reveal clipped controls without exposing them to mouse input. */
+    private static final class ScrollFocusTarget implements GuiEventListener, NarratableEntry {
+        private final AbstractWidget widget;
+        private ScrollFocusTarget(AbstractWidget widget) { this.widget = widget; }
+        @Override
+        public ComponentPath nextFocusPath(FocusNavigationEvent event) {
+            return event instanceof FocusNavigationEvent.TabNavigation && widget.active && !widget.visible && !widget.isFocused()
+                    ? ComponentPath.leaf(widget) : null;
+        }
+        @Override
+        public void setFocused(boolean focused) {}
+        @Override
+        public boolean isFocused() { return false; }
+        @Override
+        public boolean isActive() { return false; }
+        @Override
+        public NarrationPriority narrationPriority() { return NarrationPriority.NONE; }
+        @Override
+        public void updateNarration(NarrationElementOutput output) {}
     }
 
-    private interface IntSetter {
-        void set(int value);
-    }
-
-    private interface FloatSetter {
-        void set(float value);
-    }
+    private record Label(int y, FormattedCharSequence text, int color) {}
+    private record Swatch(int x, int y, int index) {}
 }

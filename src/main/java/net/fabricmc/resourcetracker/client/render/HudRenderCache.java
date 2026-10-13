@@ -1,208 +1,135 @@
 package net.fabricmc.resourcetracker.client.render;
 
+import net.fabricmc.resourcetracker.client.gui.UiTheme;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
-
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Builds and reuses immutable HUD draw models until the list or its counts are invalidated.
- */
+/** Shared card geometry for the game HUD, editor preview and positioning screen. */
 public final class HudRenderCache {
-    private static final int PADDING = 4;
-    private static final int HEADER_HEIGHT = 14;
+    private static final int PADDING = 6;
+    private static final int HEADER_HEIGHT = 20;
+    private static final int COLUMN_GAP = 8;
+    private static final int MAX_NAME_WIDTH = 180;
     private static final Map<TrackerConfig.TrackingList, Entry> CACHE = new IdentityHashMap<>();
-
-    private HudRenderCache() {
-    }
+    private HudRenderCache() {}
 
     public static HudRenderModel get(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
         Entry entry = CACHE.get(list);
-        if (entry != null && entry.font == font && entry.guiScaledHeight == guiScaledHeight) {
-            return entry.model;
-        }
-
-        String needPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
-        HudRenderModel model = buildModel(list, font, guiScaledHeight, needPrefix);
+        if (entry != null && entry.font == font && entry.guiScaledHeight == guiScaledHeight) return entry.model;
+        HudRenderModel model = preview(list, font, guiScaledHeight);
         CACHE.put(list, new Entry(font, guiScaledHeight, model));
         return model;
     }
+    public static void clear() { CACHE.clear(); }
 
-    public static void clear() {
-        CACHE.clear();
-    }
-
-    /** Builds a fresh model for settings that are being edited on the current frame. */
+    /** Fresh geometry for settings being edited, using tick-cached item counts. */
     public static HudRenderModel preview(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
-        return buildModel(list, font, guiScaledHeight,
-                Component.translatable("gui.resourcetracker.overlay.need").getString());
-    }
-
-    private static HudRenderModel buildModel(
-            TrackerConfig.TrackingList list,
-            Font font,
-            int guiScaledHeight,
-            String needPrefix
-    ) {
+        String needPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
         String title = list.name == null ? "" : list.name;
-        int itemRowHeight = list.showIcons ? 24 : 12;
-
-        List<TrackerConfig.TrackedItem> validItems = new ArrayList<>();
+        int rowHeight = list.showIcons ? 28 : 18;
+        int iconOffset = list.showIcons ? 22 : 0;
+        List<TrackerConfig.TrackedItem> items = new ArrayList<>();
         if (list.items != null) {
-            for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                if (trackedItem != null && trackedItem.isValid()) {
-                    validItems.add(trackedItem);
-                }
-            }
+            for (TrackerConfig.TrackedItem item : list.items) if (item != null && item.isValid()) items.add(item);
         }
-
-        if (validItems.isEmpty()) {
-            int boxWidth = font.width(title) + (PADDING * 2);
-            int boxHeight = HEADER_HEIGHT + PADDING;
-            return new HudRenderModel(
-                    title,
-                    list.nameColor,
-                    list.backgroundColor,
-                    -PADDING,
-                    -PADDING,
-                    boxWidth - PADDING,
-                    boxHeight - PADDING,
-                    list.showIcons,
-                    1,
-                    0,
-                    List.of()
-            );
+        int completed = 0, contentWidth = 72;
+        List<ItemText> texts = new ArrayList<>(items.size());
+        for (TrackerConfig.TrackedItem item : items) {
+            boolean done = item.cachedCount >= item.targetCount;
+            if (done) completed++;
+            String name = RenderUtils.shortenText(font, item.getDisplayName(), MAX_NAME_WIDTH);
+            String count = done ? item.cachedCount + " / " + item.targetCount
+                    : list.showRemaining ? needPrefix + Math.max(0, item.targetCount - item.cachedCount)
+                    : item.cachedCount + " / " + item.targetCount;
+            int countWidth = font.width(count) + (done ? PngIcons.SMALL_CHECK_ADVANCE : 0);
+            int entryWidth = list.showIcons ? iconOffset + Math.max(font.width(name), countWidth)
+                    : font.width(name) + 12 + countWidth;
+            contentWidth = Math.max(contentWidth, entryWidth);
+            texts.add(new ItemText(name, count, done));
         }
-
-        int maxTextWidth = font.width(title);
-        int iconOffset = list.showIcons ? 20 : 2;
-        List<ItemText> texts = new ArrayList<>(validItems.size());
-
-        for (TrackerConfig.TrackedItem trackedItem : validItems) {
-            String displayName = trackedItem.getDisplayName();
-            String countText = getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining, needPrefix);
-
-            int entryWidth;
-            int namePartWidth = 0;
-            if (list.showIcons) {
-                int nameWidth = font.width(displayName);
-                int countWidth = font.width(countText);
-                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
-            } else {
-                String namePart = displayName + ": ";
-                namePartWidth = font.width(namePart);
-                entryWidth = iconOffset + namePartWidth + font.width(countText);
+        String summary = items.isEmpty() ? "" : completed + " / " + items.size();
+        int[] layout = RenderUtils.calculateColumnLayout(list, items.size(), guiScaledHeight, HEADER_HEIGHT, PADDING, rowHeight);
+        int columns = layout[0], itemsPerColumn = layout[1];
+        int columnWidth = contentWidth + PADDING * 2;
+        int totalWidth = Math.max(columnWidth * columns + COLUMN_GAP * (columns - 1),
+                font.width(title) + (summary.isEmpty() ? 0 : font.width(summary) + 16) + PADDING * 2);
+        if (columns == 1) columnWidth = totalWidth;
+        int height = HEADER_HEIGHT + itemsPerColumn * rowHeight + PADDING;
+        int left = -PADDING, top = -PADDING, right = totalWidth - PADDING, bottom = height - PADDING;
+        List<HudRenderModel.Fill> fills = new ArrayList<>();
+        List<HudRenderModel.Row> rows = new ArrayList<>(items.size());
+        // Each background region is painted once so semi-transparent colors keep their alpha.
+        fills.add(new HudRenderModel.Fill(left, top, right, HEADER_HEIGHT - 6,
+                blend(list.backgroundColor, UiTheme.HEADER, 0.45f)));
+        fills.add(new HudRenderModel.Fill(left, HEADER_HEIGHT - 6, right, HEADER_HEIGHT - 3, list.backgroundColor));
+        for (int column = 0; column < columns; column++) {
+            int x = column * (columnWidth + COLUMN_GAP) - PADDING;
+            for (int row = 0; row < itemsPerColumn; row++) {
+                int y = HEADER_HEIGHT + row * rowHeight - 3;
+                boolean populated = column * itemsPerColumn + row < items.size();
+                int color = populated && (row & 1) == 0
+                        ? blend(list.backgroundColor, UiTheme.PANEL, 0.25f) : list.backgroundColor;
+                fills.add(new HudRenderModel.Fill(x, y, x + columnWidth, y + rowHeight, color));
             }
-
-            if (entryWidth > maxTextWidth) {
-                maxTextWidth = entryWidth;
-            }
-            texts.add(new ItemText(displayName, countText, namePartWidth));
+            if (column < columns - 1) fills.add(new HudRenderModel.Fill(x + columnWidth, HEADER_HEIGHT - 3,
+                    x + columnWidth + COLUMN_GAP, bottom, list.backgroundColor));
         }
-
-        int columnWidth = maxTextWidth + (PADDING * 2);
-        int[] layout = RenderUtils.calculateColumnLayout(
-                list,
-                validItems.size(),
-                guiScaledHeight,
-                HEADER_HEIGHT,
-                PADDING,
-                itemRowHeight
-        );
-        int numColumns = layout[0];
-        int itemsPerColumn = layout[1];
-
-        int totalWidth = (columnWidth * numColumns) + (PADDING * (numColumns - 1));
-        int boxHeight = HEADER_HEIGHT + (itemsPerColumn * itemRowHeight) + PADDING;
-        List<HudRenderModel.Row> rows = new ArrayList<>(validItems.size());
-
-        int currentY = HEADER_HEIGHT;
-        int currentColumn = 0;
-        int columnOffsetX = 0;
-
-        for (int drawn = 0; drawn < validItems.size(); drawn++) {
-            if (drawn > 0 && itemsPerColumn > 0 && drawn % itemsPerColumn == 0) {
-                currentColumn++;
-                columnOffsetX = currentColumn * (columnWidth + PADDING);
-                currentY = HEADER_HEIGHT;
-            }
-
-            TrackerConfig.TrackedItem trackedItem = validItems.get(drawn);
-            ItemText text = texts.get(drawn);
-            int itemColor = list.textColor;
-            int countColor = trackedItem.cachedCount >= trackedItem.targetCount
-                    ? (itemColor & 0xFF000000) | 0x0055FF55
-                    : itemColor;
-
-            if (list.showIcons) {
-                int availableWidth = maxTextWidth - iconOffset;
-                String itemName = RenderUtils.shortenText(font, text.displayName, availableWidth);
-                rows.add(new HudRenderModel.Row(
-                        trackedItem.getStack(),
-                        columnOffsetX,
-                        currentY + 1,
-                        itemName,
-                        columnOffsetX + iconOffset,
-                        currentY,
-                        itemColor,
-                        text.countText,
-                        columnOffsetX + iconOffset,
-                        currentY + 10,
-                        countColor
-                ));
-            } else {
-                String namePart = text.displayName + ": ";
-                rows.add(new HudRenderModel.Row(
-                        null,
-                        0,
-                        0,
-                        namePart,
-                        columnOffsetX + iconOffset,
-                        currentY + 2,
-                        itemColor,
-                        text.countText,
-                        columnOffsetX + iconOffset + text.namePartWidth,
-                        currentY + 2,
-                        countColor
-                ));
-            }
-
-            currentY += itemRowHeight;
+        int columnsRight = columns * columnWidth + COLUMN_GAP * (columns - 1) - PADDING;
+        if (columnsRight < right) fills.add(new HudRenderModel.Fill(columnsRight, HEADER_HEIGHT - 3,
+                right, bottom, list.backgroundColor));
+        fills.add(new HudRenderModel.Fill(left, HEADER_HEIGHT + itemsPerColumn * rowHeight - 3,
+                right, bottom, list.backgroundColor));
+        int borderColor = withAlpha(UiTheme.BORDER, list.backgroundColor >>> 24);
+        border(fills, left, top, right, bottom, borderColor);
+        fills.add(new HudRenderModel.Fill(left + 1, HEADER_HEIGHT - 6, right - 1, HEADER_HEIGHT - 5, borderColor));
+        for (int i = 0; i < items.size(); i++) {
+            TrackerConfig.TrackedItem item = items.get(i);
+            ItemText text = texts.get(i);
+            int column = i / itemsPerColumn, row = i % itemsPerColumn;
+            int x = column * (columnWidth + COLUMN_GAP), y = HEADER_HEIGHT + row * rowHeight;
+            int rowRight = x + columnWidth - PADDING * 2;
+            int progressY = y + rowHeight - 6;
+            int trackWidth = rowRight - x;
+            fills.add(new HudRenderModel.Fill(x, progressY, rowRight, progressY + 2,
+                    withAlpha(UiTheme.BORDER, (list.backgroundColor >>> 24) / 2)));
+            double fraction = Math.max(0, Math.min(1, (double) item.cachedCount / Math.max(1, item.targetCount)));
+            int filledWidth = (int) Math.round(trackWidth * fraction);
+            if (filledWidth > 0) fills.add(new HudRenderModel.Fill(x, progressY, x + filledWidth, progressY + 2,
+                    withAlpha(UiTheme.ACCENT, list.textColor >>> 24)));
+            int countColor = text.done ? withAlpha(UiTheme.ACCENT, list.textColor >>> 24)
+                    : blend(list.textColor, UiTheme.MUTED, 0.45f);
+            rows.add(new HudRenderModel.Row(list.showIcons ? item.getStack() : null, x, y + 1,
+                    text.name, x + iconOffset, y, list.textColor, text.count,
+                    list.showIcons ? x + iconOffset : rowRight - font.width(text.count)
+                            - (text.done ? PngIcons.SMALL_CHECK_ADVANCE : 0),
+                    list.showIcons ? y + 10 : y, countColor, text.done));
         }
-
-        return new HudRenderModel(
-                title,
-                list.nameColor,
-                list.backgroundColor,
-                -PADDING,
-                -PADDING,
-                totalWidth - PADDING,
-                boxHeight - PADDING,
-                list.showIcons,
-                numColumns,
-                itemsPerColumn,
-                rows
-        );
+        return new HudRenderModel(title, list.nameColor, list.backgroundColor, left, top, right, bottom,
+                list.showIcons, columns, itemsPerColumn, rows, fills, summary,
+                right - PADDING - font.width(summary),
+                withAlpha(completed == items.size() && !items.isEmpty() ? UiTheme.ACCENT : UiTheme.MUTED, list.nameColor >>> 24));
     }
-
-    private static String getCountText(int current, int target, boolean showRemaining, String needPrefix) {
-        if (current >= target) {
-            return "[\u2713] " + current + "/" + target;
-        }
-        if (showRemaining) {
-            return needPrefix + (target - current);
-        }
-        return current + " / " + target;
+    private static void border(List<HudRenderModel.Fill> fills, int x, int y, int right, int bottom, int color) {
+        fills.add(new HudRenderModel.Fill(x, y, right, y + 1, color));
+        fills.add(new HudRenderModel.Fill(x, bottom - 1, right, bottom, color));
+        fills.add(new HudRenderModel.Fill(x, y + 1, x + 1, bottom - 1, color));
+        fills.add(new HudRenderModel.Fill(right - 1, y + 1, right, bottom - 1, color));
     }
-
-    private record Entry(Font font, int guiScaledHeight, HudRenderModel model) {
+    private static int withAlpha(int color, int alpha) { return (alpha << 24) | (color & 0xFFFFFF); }
+    /** Keep the configured alpha, including a fully transparent background. */
+    private static int blend(int base, int tint, float amount) {
+        int red = Math.round(((base >> 16) & 255) * (1 - amount) + ((tint >> 16) & 255) * amount);
+        int green = Math.round(((base >> 8) & 255) * (1 - amount) + ((tint >> 8) & 255) * amount);
+        int blue = Math.round((base & 255) * (1 - amount) + (tint & 255) * amount);
+        return (base & 0xFF000000) | (red << 16) | (green << 8) | blue;
     }
-
-    private record ItemText(String displayName, String countText, int namePartWidth) {
-    }
+    private record Entry(Font font, int guiScaledHeight, HudRenderModel model) {}
+    private record ItemText(String name, String count, boolean done) {}
 }

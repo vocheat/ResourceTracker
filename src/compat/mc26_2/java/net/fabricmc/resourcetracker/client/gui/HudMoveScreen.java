@@ -1,22 +1,23 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
+import net.fabricmc.resourcetracker.client.render.HudRenderCache;
+import net.fabricmc.resourcetracker.client.render.HudRenderModel;
+import net.fabricmc.resourcetracker.client.render.HudRenderer;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
+/** Screen for repositioning HUD lists by dragging their rendered cards. */
 public class HudMoveScreen extends Screen {
     private final Screen parent;
-
-    private TrackerConfig.TrackingList draggingList = null;
-    private int dragOffsetX = 0;
-    private int dragOffsetY = 0;
-    private boolean wasMouseDown = false;
+    private TrackerConfig.TrackingList draggingList;
+    private int dragOffsetX;
+    private int dragOffsetY;
+    private boolean wasMouseDown;
 
     public HudMoveScreen(Screen parent) {
         super(Component.translatable("gui.resourcetracker.move.title"));
@@ -25,235 +26,111 @@ public class HudMoveScreen extends Screen {
 
     @Override
     protected void init() {
-        this.clearWidgets();
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.resourcetracker.done"), b -> {
-            onClose();
-        }).bounds(width / 2 - 50, height - 30, 100, 20).build());
+        clearWidgets();
+        addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
+                .bounds(width / 2 - 50, height - 30, 100, 20).primary().build());
     }
 
     @Override
     public void extractBackground(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, 0xA0000000);
+        // Keep the game world visible while the player positions cards.
+        context.fill(0, 0, width, height, 0x38000000);
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-        context.centeredText(font, Component.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 10, 0xFFFFFFFF);
-
         handleMouseInput(mouseX, mouseY);
+        context.fill(width / 2 - 118, 7, width / 2 + 118, 27, 0xD020231F);
+        context.fill(width / 2 - 118, 7, width / 2 + 118, 8, UiTheme.BORDER);
+        context.centeredText(font, Component.translatable("gui.resourcetracker.move.drag_hint"), width / 2, 13, UiTheme.TEXT);
 
+        int guiHeight = minecraft.getWindow().getGuiScaledHeight();
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
-            renderScaledList(context, list);
+            HudRenderModel model = HudRenderCache.preview(list, font, guiHeight);
+            float scale = TrackerConfig.clampScale(list.scale);
+            Bounds bounds = bounds(model, scale);
+            boolean hovered = contains(list, bounds, mouseX, mouseY);
+
+            VersionCompat.push(context);
+            VersionCompat.translate(context, (float) list.x, (float) list.y);
+            VersionCompat.scale(context, scale, scale);
+            HudRenderer.render(context, font, model);
+            int edge = list == draggingList ? UiTheme.ACCENT : hovered ? UiTheme.TEXT : UiTheme.BORDER;
+            int edgeAlpha = list == draggingList || hovered ? edge : (edge & 0x00FFFFFF) | 0x90000000;
+            outline(context, model.backgroundMinX - 1, model.backgroundMinY - 1,
+                    model.backgroundMaxX + 1, model.backgroundMaxY + 1, edgeAlpha);
+            VersionCompat.pop(context);
         }
 
+        if (draggingList != null) {
+            context.centeredText(font, Component.literal(draggingList.x + ", " + draggingList.y),
+                    width / 2, height - 43, UiTheme.MUTED);
+        }
         super.extractRenderState(context, mouseX, mouseY, delta);
     }
 
-    private void renderScaledList(GuiGraphicsExtractor context, TrackerConfig.TrackingList list) {
-        VersionCompat.push(context);
-        VersionCompat.translate(context, list.x, list.y);
-        float scale = TrackerConfig.clampScale(list.scale);
-        VersionCompat.scale(context, scale, scale);
-
-        BoxSize baseSize = calculateBaseSize(list);
-        int borderColor = (list == draggingList) ? 0xFF00FF00 : 0xFFFFFFFF;
-        int padding = 4;
-
-        renderBorder(context, -padding - 1, -padding - 1, baseSize.width + 2, baseSize.height + 2, borderColor);
-        context.fill(-padding, -padding, baseSize.width - padding, baseSize.height - padding, list.backgroundColor);
-        context.text(font, list.name, 0, 0, list.nameColor);
-
-        int headerHeight = 14;
-        int itemRowHeight = list.showIcons ? 24 : 12;
-        int currentY = headerHeight;
-        int iconOffset = list.showIcons ? 20 : 2;
-
-        int validItems = 0;
-        for (TrackerConfig.TrackedItem ti : list.items) {
-            if (ti.isValid()) validItems++;
-        }
-
-        int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
-                minecraft.getWindow().getGuiScaledHeight(), headerHeight, padding, itemRowHeight);
-        int numColumns = layout[0];
-        int itemsPerColumn = layout[1];
-
-        int colWidth = (baseSize.width - (padding * (numColumns - 1))) / numColumns;
-        if (numColumns == 1) colWidth = baseSize.width;
-
-        int currentColumn = 0;
-        int columnOffsetX = 0;
-        int drawn = 0;
-
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) continue;
-
-            if (drawn > 0 && drawn % itemsPerColumn == 0) {
-                currentColumn++;
-                columnOffsetX = currentColumn * (colWidth + padding);
-                currentY = headerHeight;
-            }
-
-            if (list.showIcons) {
-                context.item(trackedItem.getStack(), columnOffsetX, currentY + 1);
-            }
-
-            int currentCount = trackedItem.cachedCount;
-            boolean isDone = currentCount >= trackedItem.targetCount;
-
-            int itemColor = list.textColor;
-            int countColor = isDone ? 0xFF55FF55 : (itemColor & 0xAAFFFFFF);
-
-            if (list.showIcons) {
-                int availableWidth = colWidth - iconOffset;
-                String itemName = RenderUtils.shortenText(font, trackedItem.getDisplayName(), availableWidth);
-                context.text(font, itemName, columnOffsetX + iconOffset, currentY, itemColor);
-
-                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-                context.text(font, countLine, columnOffsetX + iconOffset, currentY + 10, countColor);
-            } else {
-                String namePart = trackedItem.getDisplayName() + ": ";
-                int nw = font.width(namePart);
-                String countLine = RenderUtils.getCountText(currentCount, trackedItem.targetCount, list.showRemaining);
-
-                context.text(font, namePart, columnOffsetX + iconOffset, currentY + 2, itemColor);
-                context.text(font, countLine, columnOffsetX + iconOffset + nw, currentY + 2, countColor);
-            }
-
-            currentY += itemRowHeight;
-            drawn++;
-        }
-
-        VersionCompat.pop(context);
-    }
-
-    private BoxSize calculateBaseSize(TrackerConfig.TrackingList list) {
-        int padding = 4;
-        int headerHeight = 14;
-        int itemRowHeight = list.showIcons ? 24 : 12;
-        int maxTextWidth = font.width(list.name);
-        int iconOffset = list.showIcons ? 20 : 2;
-
-        int validItems = 0;
-
-        for (TrackerConfig.TrackedItem trackedItem : list.items) {
-            if (!trackedItem.isValid()) continue;
-            validItems++;
-
-            String countText = RenderUtils.getCountText(trackedItem.cachedCount, trackedItem.targetCount, list.showRemaining);
-
-            int entryWidth;
-            if (list.showIcons) {
-                int nameWidth = font.width(trackedItem.getDisplayName());
-                int countWidth = font.width(countText);
-                entryWidth = iconOffset + Math.max(nameWidth, countWidth);
-            } else {
-                String combined = trackedItem.getDisplayName() + ": " + countText;
-                entryWidth = iconOffset + font.width(combined);
-            }
-
-            if (entryWidth > maxTextWidth) {
-                maxTextWidth = entryWidth;
-            }
-        }
-
-        int columnWidth = maxTextWidth + (padding * 2);
-
-        int[] layout = RenderUtils.calculateColumnLayout(list, validItems,
-                minecraft.getWindow().getGuiScaledHeight(), headerHeight, padding, itemRowHeight);
-        int numColumns = layout[0];
-        int itemsPerColumn = layout[1];
-
-        int width = (columnWidth * numColumns) + (padding * (numColumns - 1));
-        int height = headerHeight + (itemsPerColumn * itemRowHeight) + padding;
-
-        return new BoxSize(width, height);
-    }
-
-    private void renderBorder(GuiGraphicsExtractor context, int x, int y, int width, int height, int color) {
-        context.fill(x, y, x + width, y + 1, color);
-        context.fill(x, y + height - 1, x + width, y + height, color);
-        context.fill(x, y + 1, x + 1, y + height - 1, color);
-        context.fill(x + width - 1, y + 1, x + width, y + height - 1, color);
-    }
-
     private void handleMouseInput(int mouseX, int mouseY) {
-        long windowHandle = VersionCompat.getWindowHandle(minecraft.getWindow());
-        boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-
-        if (isMouseDown && !wasMouseDown) {
-            if (mouseY >= this.height - 34 && mouseX >= this.width / 2 - 55 && mouseX <= this.width / 2 + 55) {
-                this.wasMouseDown = true;
+        long handle = VersionCompat.getWindowHandle(minecraft.getWindow());
+        boolean down = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        if (down && !wasMouseDown) {
+            if (mouseY >= height - 34 && mouseX >= width / 2 - 55 && mouseX <= width / 2 + 55) {
+                wasMouseDown = true;
                 return;
             }
-
-            for (int index = TrackerConfig.INSTANCE.lists.size() - 1; index >= 0; index--) {
-                TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(index);
+            int guiHeight = minecraft.getWindow().getGuiScaledHeight();
+            for (int i = TrackerConfig.INSTANCE.lists.size() - 1; i >= 0; i--) {
+                TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(i);
                 if (!list.isVisible) continue;
-
-                BoxSize baseSize = calculateBaseSize(list);
-                VisualBounds bounds = calculateVisualBounds(baseSize, TrackerConfig.clampScale(list.scale));
-                double hitX = list.x + bounds.left;
-                double hitY = list.y + bounds.top;
-                double hitRight = list.x + bounds.right;
-                double hitBottom = list.y + bounds.bottom;
-
-                if (mouseX >= hitX && mouseX <= hitRight && mouseY >= hitY && mouseY <= hitBottom) {
-                    this.draggingList = list;
-                    this.dragOffsetX = mouseX - list.x;
-                    this.dragOffsetY = mouseY - list.y;
+                HudRenderModel model = HudRenderCache.preview(list, font, guiHeight);
+                if (contains(list, bounds(model, TrackerConfig.clampScale(list.scale)), mouseX, mouseY)) {
+                    draggingList = list;
+                    dragOffsetX = mouseX - list.x;
+                    dragOffsetY = mouseY - list.y;
                     break;
                 }
             }
-        } else if (isMouseDown && wasMouseDown) {
-            if (draggingList != null) {
-                int newX = mouseX - dragOffsetX;
-                int newY = mouseY - dragOffsetY;
-
-                BoxSize baseSize = calculateBaseSize(draggingList);
-                VisualBounds bounds = calculateVisualBounds(baseSize, TrackerConfig.clampScale(draggingList.scale));
-
-                int minX = (int) Math.ceil(-bounds.left);
-                int maxX = (int) Math.floor(this.width - bounds.right);
-                int minY = (int) Math.ceil(-bounds.top);
-                int maxY = (int) Math.floor(this.height - bounds.bottom);
-
-                draggingList.x = clamp(newX, minX, maxX);
-                draggingList.y = clamp(newY, minY, maxY);
-            }
-        } else if (!isMouseDown && wasMouseDown) {
-            if (draggingList != null) {
-                draggingList = null;
-                TrackerConfig.saveAllActiveContextLists();
-            }
+        } else if (down && wasMouseDown && draggingList != null) {
+            float scale = TrackerConfig.clampScale(draggingList.scale);
+            HudRenderModel model = HudRenderCache.preview(draggingList, font, minecraft.getWindow().getGuiScaledHeight());
+            Bounds b = bounds(model, scale);
+            int x = mouseX - dragOffsetX;
+            int y = mouseY - dragOffsetY;
+            draggingList.x = clamp(x, (int) Math.ceil(-b.left), (int) Math.floor(width - b.right));
+            draggingList.y = clamp(y, (int) Math.ceil(-b.top), (int) Math.floor(height - b.bottom));
+        } else if (!down && wasMouseDown && draggingList != null) {
+            draggingList = null;
+            TrackerConfig.saveAllActiveContextLists();
         }
-        this.wasMouseDown = isMouseDown;
+        wasMouseDown = down;
     }
 
-    private VisualBounds calculateVisualBounds(BoxSize baseSize, float scale) {
-        int padding = 4;
-        double left = (-padding - 1) * scale;
-        double top = (-padding - 1) * scale;
-        double right = (baseSize.width - padding + 1) * scale;
-        double bottom = (baseSize.height - padding + 1) * scale;
-        return new VisualBounds(left, top, right, bottom);
+    private static Bounds bounds(HudRenderModel model, float scale) {
+        return new Bounds((model.backgroundMinX - 1) * scale, (model.backgroundMinY - 1) * scale,
+                (model.backgroundMaxX + 1) * scale, (model.backgroundMaxY + 1) * scale);
     }
 
-    private int clamp(int value, int min, int max) {
-        if (max < min) return min;
-        return Math.max(min, Math.min(value, max));
+    private static boolean contains(TrackerConfig.TrackingList list, Bounds b, int x, int y) {
+        return x >= list.x + b.left && x <= list.x + b.right && y >= list.y + b.top && y <= list.y + b.bottom;
+    }
+
+    private static void outline(GuiGraphicsExtractor context, int left, int top, int right, int bottom, int color) {
+        context.fill(left, top, right, top + 1, color);
+        context.fill(left, bottom - 1, right, bottom, color);
+        context.fill(left, top + 1, left + 1, bottom - 1, color);
+        context.fill(right - 1, top + 1, right, bottom - 1, color);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return max < min ? min : Math.max(min, Math.min(value, max));
     }
 
     @Override
     public void onClose() {
         TrackerConfig.saveAllActiveContextLists();
         ResourceTrackerClient.invalidateTargetItemCache();
-        if (this.minecraft != null) {
-            this.minecraft.gui.setScreen(parent);
-        }
+        if (minecraft != null) minecraft.gui.setScreen(parent);
     }
 
-    private record BoxSize(int width, int height) {}
-    private record VisualBounds(double left, double top, double right, double bottom) {}
+    private record Bounds(double left, double top, double right, double bottom) {}
 }

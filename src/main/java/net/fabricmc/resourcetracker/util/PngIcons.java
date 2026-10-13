@@ -28,7 +28,9 @@ package net.fabricmc.resourcetracker.util;
  * Custom GUI icons packed into one 64x64 texture atlas.
  */
 public final class PngIcons {
-    public static final int ICON_SIZE = 15;
+    public static final int ICON_SIZE = 16;
+    public static final int SMALL_CHECK_SIZE = 6;
+    public static final int SMALL_CHECK_ADVANCE = SMALL_CHECK_SIZE + 4;
     public static final int ATLAS_SIZE = 64;
     public static final String ATLAS_NAMESPACE = "resourcetracker";
     public static final String ATLAS_PATH = "textures/gui/icons_atlas.png";
@@ -44,7 +46,10 @@ public final class PngIcons {
         EYE(16, 16),
         EYE_CROSSED(32, 16),
         TRASH(48, 16),
-        CROSS(0, 32);
+        CROSS(0, 32),
+        MORE(16, 32),
+        CHECK(32, 32),
+        CHECK_SMALL(48, 32, SMALL_CHECK_SIZE, SMALL_CHECK_SIZE);
 
         private final int u;
         private final int v;

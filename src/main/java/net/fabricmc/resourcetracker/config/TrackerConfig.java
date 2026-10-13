@@ -94,9 +94,9 @@ public class TrackerConfig {
     public boolean defaultShowRemaining = false;
     public boolean defaultShowIcons = true;
     public int defaultColumns = 0;
-    public int defaultTextColor = 0xFFFFFFFF;
-    public int defaultNameColor = 0xFFFFFFFF;
-    public int defaultBackgroundColor = 0xA0505050;
+    public int defaultTextColor = 0xFFF0F0E6;
+    public int defaultNameColor = 0xFFF0F0E6;
+    public int defaultBackgroundColor = 0xA020231F;
 
     private static ActiveContext activeContext = ActiveContext.none();
     private static List<TrackingList> pendingLegacyLists = new ArrayList<>();
@@ -184,9 +184,9 @@ public class TrackerConfig {
         public boolean showRemaining = false;
         public boolean showIcons = true;
         public int columns = 0;
-        public int textColor = 0xFFFFFFFF;
-        public int nameColor = 0xFFFFFFFF;
-        public int backgroundColor = 0xA0505050;
+        public int textColor = 0xFFF0F0E6;
+        public int nameColor = 0xFFF0F0E6;
+        public int backgroundColor = 0xA020231F;
         public List<TrackedItem> items = new ArrayList<>();
 
         public transient String storageFileName = null;
@@ -283,6 +283,13 @@ public class TrackerConfig {
         }
 
         if (loaded.lists == null) loaded.lists = new ArrayList<>();
+        // Upgrade only the complete stock palette; retain custom colors and opacity.
+        if (isLegacyPalette(loaded.defaultTextColor, loaded.defaultNameColor, loaded.defaultBackgroundColor)) {
+            loaded.defaultTextColor = 0xFFF0F0E6;
+            loaded.defaultNameColor = 0xFFF0F0E6;
+            loaded.defaultBackgroundColor = 0xA020231F;
+        }
+        for (TrackingList list : loaded.lists) upgradeLegacyPalette(list);
         INSTANCE.hudVisible = loaded.hudVisible;
         INSTANCE.legacyListsMigrated = loaded.legacyListsMigrated;
         INSTANCE.legacyListsMigratedToActiveContext = loaded.legacyListsMigratedToActiveContext;
@@ -438,9 +445,9 @@ public class TrackerConfig {
         INSTANCE.defaultShowRemaining = false;
         INSTANCE.defaultShowIcons = true;
         INSTANCE.defaultColumns = 0;
-        INSTANCE.defaultTextColor = 0xFFFFFFFF;
-        INSTANCE.defaultNameColor = 0xFFFFFFFF;
-        INSTANCE.defaultBackgroundColor = 0xA0505050;
+        INSTANCE.defaultTextColor = 0xFFF0F0E6;
+        INSTANCE.defaultNameColor = 0xFFF0F0E6;
+        INSTANCE.defaultBackgroundColor = 0xA020231F;
         saveGlobalSettingsOnly();
     }
 
@@ -683,6 +690,7 @@ public class TrackerConfig {
         }
         if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
         if (list.name == null || list.name.isBlank()) list.name = stripTxt(file.getFileName().toString());
+        upgradeLegacyPalette(list);
         normalizeList(list);
         return list;
     }
@@ -921,6 +929,18 @@ public class TrackerConfig {
         return Math.max(1, Math.min(MAX_TARGET_COUNT, value));
     }
 
+    private static boolean isLegacyPalette(int text, int name, int background) {
+        return text == 0xFFFFFFFF && name == 0xFFFFFFFF && background == 0xA0505050;
+    }
+
+    private static void upgradeLegacyPalette(TrackingList list) {
+        if (list != null && isLegacyPalette(list.textColor, list.nameColor, list.backgroundColor)) {
+            list.textColor = 0xFFF0F0E6;
+            list.nameColor = 0xFFF0F0E6;
+            list.backgroundColor = 0xA020231F;
+        }
+    }
+
     private static void normalizeList(TrackingList list) {
         if (list == null) return;
         if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
@@ -1045,8 +1065,8 @@ public class TrackerConfig {
         boolean defaultShowRemaining = false;
         boolean defaultShowIcons = true;
         int defaultColumns = 0;
-        int defaultTextColor = 0xFFFFFFFF;
-        int defaultNameColor = 0xFFFFFFFF;
-        int defaultBackgroundColor = 0xA0505050;
+        int defaultTextColor = 0xFFF0F0E6;
+        int defaultNameColor = 0xFFF0F0E6;
+        int defaultBackgroundColor = 0xA020231F;
     }
 }

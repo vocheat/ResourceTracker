@@ -1,0 +1,274 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 vocheat
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+package net.fabricmc.resourcetracker.client;
+
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.resourcetracker.client.gui.MainScreen;
+import net.fabricmc.resourcetracker.compat.HudCompat;
+import net.fabricmc.resourcetracker.client.render.HudOverlay;
+import net.fabricmc.resourcetracker.client.render.HudRenderCache;
+import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.util.InventoryUtils;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.world.level.storage.LevelResource;
+
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import net.minecraft.world.item.Item;
+
+/**
+ * The main client-side entry point for the Resource Tracker mod.
+ * <p>
+ * This class handles initialization of client-specific features such as:
+ * <ul>
+ * <li>Loading configuration.</li>
+ * <li>Registering keybindings.</li>
+ * <li>Handling client tick events (input and data caching).</li>
+ * <li>Registering the HUD overlay.</li>
+ * </ul>
+ * </p>
+ *
+ * @author vocheat
+ */
+public class ResourceTrackerClient implements ClientModInitializer {
+
+    /**
+     * Key binding to open the main configuration GUI.
+     * Default key: M.
+     */
+    public static KeyMapping openMenuKey;
+
+    /**
+     * Key binding to toggle global HUD visibility (all tracking lists at once).
+     * No default key — configurable in MC Controls settings.
+     */
+    public static KeyMapping toggleHudKey;
+    private static TrackerConfig.ActiveContext lastContext = TrackerConfig.ActiveContext.none();
+    private static final Set<Item> cachedTargetItems = new HashSet<>();
+    private static String cachedTargetSignature = "";
+
+    /**
+     * Discards clicks already handled directly by an open screen.
+     */
+    public static void discardHandledOpenMenuKeyClicks() {
+        while (openMenuKey != null && openMenuKey.consumeClick()) {
+            // Drain the click queue so END_CLIENT_TICK does not reopen the screen.
+        }
+    }
+
+    @Override
+    public void onInitializeClient() {
+        TrackerConfig.load();
+
+        // Register keybindings — via VersionCompat for cross-version support
+        openMenuKey = VersionCompat.registerOpenKey();
+        toggleHudKey = VersionCompat.registerToggleHudKey();
+        VersionCompat.registerClientResourceReloadListener(() -> {
+            TrackerConfig.invalidateDisplayNameCache();
+            HudRenderCache.clear();
+        });
+
+        // Register the client tick event to handle input and update inventory counts
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            updateActiveListContext(client);
+
+            // Always use the registered KeyMapping so the Controls screen remains the
+            // single source of truth for the binding, including user reassignment.
+            while (openMenuKey.consumeClick()) {
+                Screen currentScreen = client.gui.screen();
+                if (currentScreen instanceof MainScreen) {
+                    currentScreen.onClose();
+                } else if (currentScreen == null) {
+                    client.gui.setScreen(new MainScreen(null));
+                }
+            }
+
+            // Toggle global HUD visibility
+            while (toggleHudKey.consumeClick()) {
+                TrackerConfig.INSTANCE.hudVisible = !TrackerConfig.INSTANCE.hudVisible;
+                invalidateTargetItemCache();
+                TrackerConfig.saveGlobalSettingsOnly();
+            }
+
+            if (client.player != null && client.level != null && client.player.tickCount % 10 == 0) {
+                updateCachedCounts(client);
+            }
+        });
+
+        // Register the HUD renderer through the profile-specific Fabric API.
+        HudCompat.register(new HudOverlay());
+    }
+
+
+    public static void invalidateTargetItemCache() {
+        cachedTargetSignature = "";
+        cachedTargetItems.clear();
+        HudRenderCache.clear();
+    }
+
+    private static void updateCachedCounts(Minecraft client) {
+        if (!TrackerConfig.INSTANCE.hudVisible) return;
+
+        Set<Item> targetItems = getTargetItemsForVisibleLists();
+        if (targetItems.isEmpty()) {
+            if (clearVisibleCachedCounts()) {
+                HudRenderCache.clear();
+            }
+            return;
+        }
+
+        Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
+        boolean countsChanged = false;
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (!list.isVisible) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                if (trackedItem.isValid()) {
+                    int cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
+                    if (trackedItem.cachedCount != cachedCount) {
+                        trackedItem.cachedCount = cachedCount;
+                        countsChanged = true;
+                    }
+                }
+            }
+        }
+        if (countsChanged) {
+            HudRenderCache.clear();
+        }
+    }
+
+    private static Set<Item> getTargetItemsForVisibleLists() {
+        String signature = buildTargetSignature();
+        if (signature.equals(cachedTargetSignature)) {
+            return cachedTargetItems;
+        }
+
+        cachedTargetItems.clear();
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (!list.isVisible || list.items == null) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                if (trackedItem.isValid()) {
+                    Item item = trackedItem.getItem();
+                    if (item != null) cachedTargetItems.add(item);
+                } else {
+                    trackedItem.cachedCount = 0;
+                }
+            }
+        }
+        cachedTargetSignature = signature;
+        return cachedTargetItems;
+    }
+
+    private static String buildTargetSignature() {
+        if (!TrackerConfig.INSTANCE.hudVisible || TrackerConfig.INSTANCE.lists == null) return "hidden";
+        StringBuilder signature = new StringBuilder();
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (list == null || !list.isVisible || list.items == null) continue;
+            signature.append(list.id).append(':').append(list.isVisible).append('|');
+            for (TrackerConfig.TrackedItem item : list.items) {
+                if (item != null) {
+                    signature.append(item.itemId).append('=').append(item.targetCount).append(';');
+                }
+            }
+        }
+        return signature.toString();
+    }
+
+    private static boolean clearVisibleCachedCounts() {
+        boolean countsChanged = false;
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            if (list == null || !list.isVisible || list.items == null) continue;
+            for (TrackerConfig.TrackedItem trackedItem : list.items) {
+                if (trackedItem.cachedCount != 0) {
+                    trackedItem.cachedCount = 0;
+                    countsChanged = true;
+                }
+            }
+        }
+        return countsChanged;
+    }
+
+    private static void updateActiveListContext(Minecraft client) {
+        TrackerConfig.ActiveContext context = getCurrentListContext(client);
+        if (!lastContext.equals(context)) {
+            TrackerConfig.setActiveContext(context);
+            invalidateTargetItemCache();
+            lastContext = context;
+        }
+    }
+
+    private static TrackerConfig.ActiveContext getCurrentListContext(Minecraft client) {
+        if (client == null || client.player == null || client.level == null) {
+            return TrackerConfig.ActiveContext.none();
+        }
+
+        if (client.hasSingleplayerServer() && client.getSingleplayerServer() != null) {
+            try {
+                String worldFolderName = getWorldFolderName(client.getSingleplayerServer().getWorldPath(LevelResource.ROOT));
+                if (worldFolderName != null) {
+                    return TrackerConfig.makeSingleplayerContext(worldFolderName);
+                }
+            } catch (Exception ignored) {
+            }
+            return TrackerConfig.makeSingleplayerContext(client.getSingleplayerServer().getWorldData().getLevelName());
+        }
+
+        ServerData server = client.getCurrentServer();
+        if (server != null) {
+            return TrackerConfig.makeServerContext(server.ip);
+        }
+
+        return TrackerConfig.ActiveContext.none();
+    }
+
+    private static String getWorldFolderName(Path worldRootPath) {
+        if (worldRootPath == null) return null;
+
+        Path normalized = worldRootPath.toAbsolutePath().normalize();
+        Path fileName = normalized.getFileName();
+        if (isUsablePathName(fileName)) {
+            return fileName.toString();
+        }
+
+        Path parent = normalized.getParent();
+        if (parent != null && isUsablePathName(parent.getFileName())) {
+            return parent.getFileName().toString();
+        }
+
+        return null;
+    }
+
+    private static boolean isUsablePathName(Path path) {
+        if (path == null) return false;
+        String name = path.toString();
+        return !name.isBlank() && !name.equals(".") && !name.equals("..");
+    }
+}

@@ -25,6 +25,7 @@
 package net.fabricmc.resourcetracker.client.render;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.fabricmc.resourcetracker.client.gui.HudMoveScreen;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -47,6 +48,8 @@ public class HudOverlay {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.options.hideGui) return;
         if (!TrackerConfig.INSTANCE.hudVisible) return;
+        // The positioning screen draws these same cards with drag outlines.
+        if (client.screen instanceof HudMoveScreen) return;
 
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             if (!list.isVisible) continue;
@@ -65,21 +68,6 @@ public class HudOverlay {
     private void renderListContent(GuiGraphics context, Minecraft client, TrackerConfig.TrackingList list) {
         HudRenderModel model = HudRenderCache.get(list, client.font, client.getWindow().getGuiScaledHeight());
 
-        context.fill(
-                model.backgroundMinX,
-                model.backgroundMinY,
-                model.backgroundMaxX,
-                model.backgroundMaxY,
-                model.backgroundColor
-        );
-        context.drawString(client.font, model.title, 0, 0, model.titleColor);
-
-        for (HudRenderModel.Row row : model.rows) {
-            if (model.showIcons && row.stack != null) {
-                context.renderItem(row.stack, row.itemX, row.itemY);
-            }
-            context.drawString(client.font, row.nameText, row.nameX, row.nameY, row.nameColor);
-            context.drawString(client.font, row.countText, row.countX, row.countY, row.countColor);
-        }
+        HudRenderer.render(context, client.font, model);
     }
 }

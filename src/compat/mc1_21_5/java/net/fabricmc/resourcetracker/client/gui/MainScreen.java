@@ -29,56 +29,33 @@ import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
-import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The main menu screen for the Resource Tracker.
- * <p>
- * Allows users to:
- * <ul>
- * <li>Create new tracking lists.</li>
- * <li>Toggle visibility of lists (Eye icon).</li>
- * <li>Delete lists (Trash icon + Shift).</li>
- * <li>Navigate to the HUD editing screen.</li>
- * </ul>
- * This screen implements a custom scrollable list container.
- * </p>
- *
- * @author vocheat
- */
+/** A compact, keyboard-accessible overview of the current world's lists. */
 public class MainScreen extends Screen {
+    private static final int ROW_HEIGHT = 32;
     private final Screen parent;
+    private final List<Button> editButtons = new ArrayList<>();
+    private final List<Button> visibilityButtons = new ArrayList<>();
+    private final List<Button> menuButtons = new ArrayList<>();
+    private final List<Action> actions = new ArrayList<>();
+    private double scrollOffset;
+    private boolean filesExpanded;
+    private TrackerConfig.TrackingList menuList;
+    private Button lastRowFocus;
+    private Button filesButton;
+    private int panelX, panelY, panelWidth, panelHeight;
+    private int listX, listWidth, listTop, listBottom;
 
-    private double scrollOffset = 0;
-    private int listTop = 60;
-    private int listBottom;
-    private final int itemHeight = 25;
-    private boolean wasMouseDown = false;
-    private int addIconX;
-    private int addIconY;
-    private int reloadIconX;
-    private int reloadIconY;
-    private int worldFolderIconX;
-    private int worldFolderIconY;
-    private int allFolderIconX;
-    private int allFolderIconY;
-    private Button addListButton;
-    private Button reloadListsButton;
-    private Button settingsButton;
-    private Button openWorldFolderButton;
-    private final List<Button> listEditButtons = new java.util.ArrayList<>();
-    private final List<Button> listVisibilityButtons = new java.util.ArrayList<>();
-    private final List<Button> listDeleteButtons = new java.util.ArrayList<>();
+    private record Action(Button button, boolean primary, boolean danger) {}
 
     public MainScreen(Screen parent) {
         super(Component.translatable("gui.resourcetracker.title"));
@@ -88,293 +65,311 @@ public class MainScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.clearWidgets();
-        this.listEditButtons.clear();
-        this.listVisibilityButtons.clear();
-        this.listDeleteButtons.clear();
-        this.listTop = 82;
-        this.listBottom = this.height - 50;
-
-        int centerX = this.width / 2;
-        int boxWidth = getBoxWidth();
-        int boxX = getBoxX(boxWidth);
-        int toolY = this.listTop - 21;
-        int sideWidth = getActionButtonWidth();
-        int sideX = boxX + boxWidth + 12;
-        int sideY = this.listTop;
-        if (sideX + sideWidth > this.width - 8) {
-            sideX = boxX;
-            this.listBottom = Math.max(this.listTop + 50, this.height - 126);
-            sideY = this.listBottom + 6;
+        clearWidgets();
+        setFocused(null);
+        actions.clear();
+        editButtons.clear();
+        visibilityButtons.clear();
+        menuButtons.clear();
+        lastRowFocus = null;
+        if (!TrackerConfig.INSTANCE.lists.contains(menuList)) menuList = null;
+        panelWidth = Math.min(460, Math.max(1, width - 16));
+        int innerWidth = Math.max(1, panelWidth - 20);
+        boolean narrow = innerWidth < 340;
+        int listTopOffset = (narrow ? 110 : 84) + (filesExpanded ? 26 : 0);
+        int menuSpace = menuList == null ? 0 : 28;
+        int desiredViewport = TrackerConfig.INSTANCE.lists.isEmpty()
+                ? 72 : TrackerConfig.INSTANCE.lists.size() * ROW_HEIGHT;
+        int desiredPanelHeight = listTopOffset + desiredViewport + 36 + menuSpace;
+        panelHeight = Math.min(Math.min(350, Math.max(1, height - 16)), desiredPanelHeight);
+        panelX = (width - panelWidth) / 2;
+        panelY = (height - panelHeight) / 2;
+        listX = panelX + 10;
+        int toolbarY = panelY + 43;
+        int createWidth = narrow ? (innerWidth - 6) / 2 : 112;
+        Button create = action(listX, toolbarY, createWidth, "gui.resourcetracker.main.create", b -> createList(), true, false);
+        create.active = TrackerConfig.hasActiveContext();
+        int secondaryWidth = narrow ? innerWidth - createWidth - 6 : (innerWidth - createWidth - 18) / 3;
+        Button move = action(listX + createWidth + 6, toolbarY, secondaryWidth, "gui.resourcetracker.main.place_hud", b -> {
+            if (minecraft != null) minecraft.setScreen(new HudMoveScreen(this));
+        }, false, false);
+        move.active = TrackerConfig.hasActiveContext();
+        int secondY = narrow ? toolbarY + 26 : toolbarY;
+        int settingsX = narrow ? listX : listX + createWidth + secondaryWidth + 12;
+        int settingsWidth = narrow ? createWidth : secondaryWidth;
+        action(settingsX, secondY, settingsWidth, "gui.resourcetracker.settings", b -> {
+            if (minecraft != null) minecraft.setScreen(new SettingsScreen(this));
+        }, false, false);
+        int filesX = narrow ? listX + createWidth + 6 : settingsX + secondaryWidth + 6;
+        filesButton = action(filesX, secondY, listX + innerWidth - filesX, filesExpanded ? "gui.resourcetracker.main.files_close" : "gui.resourcetracker.main.files", b -> {
+            filesExpanded = !filesExpanded;
+            menuList = null;
+            init();
+            setFocused(filesButton);
+        }, false, false);
+        int afterToolbar = secondY + 26;
+        if (filesExpanded) {
+            int fileWidth = (innerWidth - 12) / 3;
+            Button world = action(listX, afterToolbar, fileWidth, "gui.resourcetracker.main.world_folder", b -> TrackerConfig.openActiveListsFolder(), false, false);
+            world.active = TrackerConfig.hasActiveContext();
+            action(listX + fileWidth + 6, afterToolbar, fileWidth, "gui.resourcetracker.main.root_folder", b -> TrackerConfig.openListsRootFolder(), false, false);
+            Button reload = action(listX + 2 * (fileWidth + 6), afterToolbar, innerWidth - 2 * (fileWidth + 6), "gui.resourcetracker.main.reload", b -> {
+                TrackerConfig.reloadActiveContextLists();
+                ResourceTrackerClient.invalidateTargetItemCache();
+                menuList = null;
+                init();
+            }, false, false);
+            reload.active = TrackerConfig.hasActiveContext();
+            afterToolbar += 26;
         }
+        listTop = afterToolbar + 15;
+        listBottom = Math.max(listTop + 1, panelY + panelHeight - 36 - (menuList == null ? 0 : 28));
+        listWidth = Math.max(1, innerWidth - 9); // The scrollbar has its own gutter.
+        createRowButtons();
+        if (TrackerConfig.hasActiveContext() && TrackerConfig.INSTANCE.lists.isEmpty() && listBottom - listTop >= 54) {
+            int ctaWidth = Math.max(1, Math.min(160, listWidth - 12));
+            action(listX + (listWidth - ctaWidth) / 2, listTop + Math.max(27, (listBottom - listTop) / 2), ctaWidth,
+                    "gui.resourcetracker.main.create", b -> createList(), true, false);
+        }
+        if (menuList != null) {
+            int menuY = panelY + panelHeight - 61;
+            int cancelWidth = Math.min(64, innerWidth / 3);
+            int deleteWidth = Math.min(96, innerWidth - cancelWidth - 6);
+            action(listX + innerWidth - cancelWidth - deleteWidth - 6, menuY, deleteWidth, "gui.resourcetracker.delete",
+                    b -> confirmDelete(menuList), false, true);
+            action(listX + innerWidth - cancelWidth, menuY, cancelWidth, "gui.cancel", b -> {
+                menuList = null;
+                init();
+            }, false, false);
+        }
+        action(panelX + (panelWidth - 100) / 2, panelY + panelHeight - 27, 100, "gui.resourcetracker.close", b -> onClose(), false, false);
+        updateRows();
+    }
 
-        createListActionButtons(boxX, boxWidth);
+    private Button action(int x, int y, int w, String key, Button.OnPress press, boolean primary, boolean danger) {
+        Button button = Button.builder(Component.translatable(key), press).bounds(x, y, Math.max(1, w), 21).build();
+        button.setAlpha(0);
+        addRenderableWidget(button);
+        actions.add(new Action(button, primary, danger));
+        return button;
+    }
 
-        this.addIconX = boxX;
-        this.addIconY = toolY;
-        this.reloadIconX = boxX + boxWidth - 21;
-        this.reloadIconY = toolY;
-        this.worldFolderIconX = sideX;
-        this.worldFolderIconY = sideY;
-        this.allFolderIconX = sideX;
-        this.allFolderIconY = sideY + 25;
+    private void createList() {
+        if (!TrackerConfig.hasActiveContext() || minecraft == null) return;
+        TrackerConfig.TrackingList list = TrackerConfig.createList(Component.translatable("gui.resourcetracker.default_list", TrackerConfig.INSTANCE.lists.size() + 1).getString());
+        list.isVisible = true;
+        TrackerConfig.INSTANCE.lists.add(list);
+        TrackerConfig.saveList(list);
+        ResourceTrackerClient.invalidateTargetItemCache();
+        scrollOffset = Double.MAX_VALUE;
+        menuList = null;
+        minecraft.setScreen(new EditScreen(this, list));
+    }
 
-        this.addListButton = this.addRenderableWidget(
-                Button.builder(
-                                Component.literal(""),
-                                button -> {
-                                    TrackerConfig.TrackingList newList = TrackerConfig.createList(Component.translatable("gui.resourcetracker.default_list", TrackerConfig.INSTANCE.lists.size() + 1).getString());
-                                    newList.isVisible = true;
-                                    TrackerConfig.INSTANCE.lists.add(newList);
-                                    TrackerConfig.saveList(newList);
-                                    ResourceTrackerClient.invalidateTargetItemCache();
-                                    this.scrollOffset = Double.MAX_VALUE;
-                                    this.init();
-                                }
-                        )
-                        .bounds(this.addIconX, this.addIconY, 21, 21)
-                        .build()
-        );
-        this.addListButton.active = TrackerConfig.hasActiveContext();
-
-        this.reloadListsButton = Button.builder(
-                        Component.literal(""),
-                        button -> {
-                            TrackerConfig.reloadActiveContextLists();
-                            ResourceTrackerClient.invalidateTargetItemCache();
-                            this.scrollOffset = 0;
-                            this.init();
-                        }
-                )
-                .bounds(this.reloadIconX, this.reloadIconY, 21, 21)
-                .build();
-        this.reloadListsButton.active = TrackerConfig.hasActiveContext();
-        this.addRenderableWidget(this.reloadListsButton);
-
-        this.addRenderableWidget(
-                Button.builder(
-                                Component.translatable("gui.resourcetracker.move_hud"),
-                                button -> {
-                                    if (this.minecraft != null) {
-                                        this.minecraft.setScreen(new HudMoveScreen(this));
-                                    }
-                                }
-                        )
-                        .bounds(boxX + 29, toolY, boxWidth - 58, 21)
-                        .build()
-        );
-
-        this.openWorldFolderButton = createActionButton(sideX, sideY,
-                Component.translatable("gui.resourcetracker.open_world_lists"),
-                button -> TrackerConfig.openActiveListsFolder());
-        this.openWorldFolderButton.active = TrackerConfig.hasActiveContext();
-        this.addRenderableWidget(this.openWorldFolderButton);
-
-        this.addRenderableWidget(createActionButton(sideX, sideY + 25,
-                Component.translatable("gui.resourcetracker.open_all_lists"),
-                button -> TrackerConfig.openListsRootFolder()));
-
-        this.settingsButton = this.addRenderableWidget(createActionButton(sideX, sideY + 50,
-                Component.translatable("gui.resourcetracker.settings"),
-                button -> {
-                    if (this.minecraft != null) {
-                        this.minecraft.setScreen(new SettingsScreen(this));
+    private void createRowButtons() {
+        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
+            Button edit = Button.builder(Component.translatable("gui.resourcetracker.edit_row", list.name), b -> {
+                if (minecraft != null) minecraft.setScreen(new EditScreen(this, list));
+            }).bounds(listX + 4, listTop, Math.max(1, listWidth - 54), ROW_HEIGHT - 2).build();
+            Button eye = Button.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), b -> {
+                list.isVisible = !list.isVisible;
+                TrackerConfig.saveList(list);
+                ResourceTrackerClient.invalidateTargetItemCache();
+                b.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
+            }).bounds(listX + listWidth - 48, listTop, 22, ROW_HEIGHT - 2).build();
+            Button menu = Button.builder(Component.translatable("gui.resourcetracker.main.list_actions", list.name), b -> {
+                menuList = menuList == list ? null : list;
+                filesExpanded = false;
+                init();
+                if (menuList != null) {
+                    for (Action action : actions) {
+                        if (action.danger()) { setFocused(action.button()); break; }
                     }
-                }));
+                }
+            }).bounds(listX + listWidth - 24, listTop, 22, ROW_HEIGHT - 2).build();
+            for (Button button : List.of(edit, eye, menu)) {
+                button.setAlpha(0);
+                addRenderableWidget(button);
+            }
+            editButtons.add(edit);
+            visibilityButtons.add(eye);
+            menuButtons.add(menu);
+        }
+    }
 
-        this.addRenderableWidget(
-                Button.builder(
-                                Component.translatable("gui.resourcetracker.close"),
-                                button -> onClose()
-                        )
-                        .bounds(centerX - 50, this.height - 30, 100, 20)
-                        .build()
-        );
+    /** Focus-driven scrolling runs only when focus changes, so wheel scrolling stays put. */
+    private void updateRows() {
+        int viewport = Math.max(1, listBottom - listTop);
+        int maxScroll = Math.max(0, editButtons.size() * ROW_HEIGHT - viewport);
+        Button focus = getFocused() instanceof Button button ? button : null;
+        if (focus != lastRowFocus) {
+            int index = editButtons.indexOf(focus);
+            if (index < 0) index = visibilityButtons.indexOf(focus);
+            if (index < 0) index = menuButtons.indexOf(focus);
+            if (index >= 0) {
+                int top = index * ROW_HEIGHT;
+                if (top < scrollOffset) scrollOffset = top;
+                else if (top + ROW_HEIGHT > scrollOffset + viewport) scrollOffset = top + ROW_HEIGHT - viewport;
+            }
+            lastRowFocus = focus;
+        }
+        scrollOffset = Mth.clamp(scrollOffset, 0, maxScroll);
+        for (int i = 0; i < editButtons.size(); i++) {
+            int y = listTop + i * ROW_HEIGHT - (int) scrollOffset;
+            editButtons.get(i).setY(y);
+            visibilityButtons.get(i).setY(y);
+            menuButtons.get(i).setY(y);
+        }
     }
 
     @Override
-    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        // No-op: we draw our own semi-transparent background in render()
-    }
+    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {}
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, 0xA0000000);
-
-        updateListActionButtons(getBoxX(getBoxWidth()), getBoxWidth());
-
-        String titleText = this.title.getString();
-        int titleWidth = this.font.width(titleText);
-        int titleX = (this.width - titleWidth) / 2;
-        context.fill(titleX - 2, 8, titleX + titleWidth + 2, 20, 0xFF222222);
-        context.drawString(this.font, this.title, titleX, 10, 0xFFFFFFFF, true);
-
-        if (!TrackerConfig.hasActiveContext()) {
-            Component noWorld = Component.translatable("gui.resourcetracker.no_world");
-            context.drawString(this.font, noWorld, (this.width - this.font.width(noWorld)) / 2, 72, 0xFFFFAA55, true);
-        } else if (TrackerConfig.INSTANCE.lists.isEmpty()) {
-            Component empty = Component.translatable("gui.resourcetracker.no_lists");
-            context.drawString(this.font, empty, (this.width - this.font.width(empty)) / 2, 72, 0xFFAAAAAA, true);
+        updateRows();
+        context.fill(0, 0, width, height, 0x98000000);
+        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, UiTheme.WINDOW);
+        border(context, panelX, panelY, panelWidth, panelHeight, UiTheme.BORDER);
+        context.fill(panelX + 1, panelY + 1, panelX + panelWidth - 1, panelY + 34, UiTheme.HEADER);
+        text(context, title.getString(), listX, panelY + 8, panelWidth - 20, UiTheme.TEXT);
+        text(context, Component.translatable("gui.resourcetracker.main.subtitle").getString(), listX, panelY + 21, panelWidth - 20, UiTheme.MUTED);
+        text(context, Component.translatable("gui.resourcetracker.main.lists", TrackerConfig.INSTANCE.lists.size()).getString(), listX, listTop - 12, listWidth, UiTheme.MUTED);
+        context.fill(listX, listTop, listX + listWidth, listBottom, UiTheme.PANEL);
+        context.enableScissor(listX, listTop, listX + listWidth, listBottom);
+        renderRows(context, mouseX, mouseY);
+        if (!TrackerConfig.hasActiveContext() || TrackerConfig.INSTANCE.lists.isEmpty()) {
+            String key = TrackerConfig.hasActiveContext() ? "gui.resourcetracker.main.empty" : "gui.resourcetracker.no_world";
+            String message = Component.translatable(key).getString();
+            String fitted = RenderUtils.shortenText(font, message, Math.max(0, listWidth - 16));
+            int y = listTop + Math.max(8, (listBottom - listTop) / 2 - 12);
+            context.drawString(font, fitted, listX + (listWidth - font.width(fitted)) / 2, y, UiTheme.MUTED, false);
         }
-
-        renderScrollableList(context, mouseX, mouseY);
-
-        super.render(context, mouseX, mouseY, delta);
-        drawButtonIcon(context, Icon.PLUS, this.addIconX, this.addIconY, 21, 21, iconColor(this.addListButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.RELOAD, this.reloadIconX, this.reloadIconY, 21, 21, iconColor(this.reloadListsButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.FOLDER, this.worldFolderIconX, this.worldFolderIconY, 21, 21, iconColor(this.openWorldFolderButton, 0xFFFFFFFF));
-        drawButtonIcon(context, Icon.FOLDER, this.allFolderIconX, this.allFolderIconY, 21, 21, 0xFFFFFFFF);
-        drawButtonIcon(context, Icon.GEAR, this.allFolderIconX, this.allFolderIconY + 25, 21, 21, 0xFFFFFFFF);
-        showButtonTooltip(context, mouseX, mouseY, this.addListButton, Component.translatable("gui.resourcetracker.add_list"));
-        showButtonTooltip(context, mouseX, mouseY, this.reloadListsButton, Component.translatable("gui.resourcetracker.reload_lists"));
-        showButtonTooltip(context, mouseX, mouseY, this.settingsButton, Component.translatable("gui.resourcetracker.settings"));
-    }
-
-    /**
-     * Renders the custom scrollable list of tracking groups.
-     * Handles clipping (scissor test) and item interactions.
-     */
-    private void renderScrollableList(GuiGraphics context, int mouseX, int mouseY) {
-        List<TrackerConfig.TrackingList> lists = TrackerConfig.INSTANCE.lists;
-        int contentHeight = lists.size() * itemHeight;
-
-        int boxWidth = getBoxWidth();
-        int boxHeight = this.listBottom - this.listTop;
-        int boxX = getBoxX(boxWidth);
-
-        int maxScroll = Math.max(0, contentHeight - boxHeight);
-        this.scrollOffset = Mth.clamp(this.scrollOffset, 0, maxScroll);
-
-        RenderUtils.drawBox(context, boxX, listTop, boxWidth, boxHeight);
-
-        // Enable scissor to clip content outside the list box
-        context.enableScissor(boxX, listTop, boxX + boxWidth, listBottom);
-
-        // Flag: is the mouse hovering over any trash icon?
-        boolean isHoveringTrash = false;
-        Component iconTooltip = null;
-
-        for (int i = 0; i < lists.size(); i++) {
-            TrackerConfig.TrackingList list = lists.get(i);
-
-            int y = (int) (listTop + (i * itemHeight) - scrollOffset + 2);
-            int x = boxX;
-
-            // Optimization: Skip rendering if item is outside the viewable area
-            if (y + itemHeight < listTop || y > listBottom) {
-                continue;
-            }
-
-            boolean isRowHovered = (mouseX >= x + 1 && mouseX < x + boxWidth - 1 && mouseY >= y && mouseY < y + itemHeight);
-
-            // Highlight row on hover
-            if (isRowHovered) {
-                context.fill(x + 1, y, x + boxWidth - 1, y + itemHeight, 0x30FFFFFF);
-            }
-
-            // Separator line
-            if (i > 0) {
-                context.fill(x + 1, y - 1, x + boxWidth - 1, y, 0xFF333333);
-            }
-
-            // Eye Icon (Visibility Toggle)
-            int eyeX = x + 4;
-            int eyeY = y + 2;
-            boolean eyeHovered = (mouseX >= eyeX && mouseX < eyeX + 21 && mouseY >= eyeY && mouseY < eyeY + 21);
-            drawPixelEye(context, eyeX, eyeY, list.isVisible, eyeHovered);
-            if (eyeHovered) {
-                iconTooltip = Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show");
-            }
-
-            TrackerConfig.TrackingList.Progress progress = list.progress();
-            String progressText = progress.completed() + "/" + progress.total();
-            int badgeWidth = progress.total() > 0 && boxWidth >= 150 ? this.font.width(progressText) + 8 : 0;
-            String nameText = RenderUtils.shortenText(this.font, list.name, boxWidth - 66 - badgeWidth - 5);
-            context.drawString(this.font, Component.literal(nameText), x + 31, y + 8, 0xFFFFFFFF, true);
-
-            if (badgeWidth > 0) {
-                int badgeX = x + boxWidth - 30 - badgeWidth;
-                context.fill(badgeX, y + 5, badgeX + badgeWidth, y + 20,
-                        progress.completed() == progress.total() ? 0x80407040 : 0x80505050);
-                context.drawString(this.font, progressText, badgeX + 4, y + 8,
-                        progress.completed() == progress.total() ? 0xFFAAFFAA : 0xFFDDDDDD, true);
-            }
-
-            // Trash Icon (Delete)
-            int trashX = x + boxWidth - 25;
-            int trashY = y + 2;
-            boolean trashHovered = (mouseX >= trashX && mouseX < trashX + 21 && mouseY >= trashY && mouseY < trashY + 21);
-
-            if (trashHovered) {
-                isHoveringTrash = true;
-            }
-
-            boolean canDelete = trashHovered && shiftPressed();
-            drawPixelDeleteIcon(context, trashX, trashY, trashHovered, canDelete);
-        }
-
         context.disableScissor();
-
-        if (maxScroll > 0) {
-            RenderUtils.drawStyledScrollbar(context, boxX + boxWidth - 6, listTop, boxHeight, contentHeight, scrollOffset);
+        int viewport = listBottom - listTop;
+        int contentHeight = editButtons.size() * ROW_HEIGHT;
+        RenderUtils.drawStyledScrollbar(context, listX + listWidth + 3, listTop, viewport, contentHeight, scrollOffset);
+        if (menuList != null) {
+            int available = panelWidth - 20 - Math.min(64, (panelWidth - 20) / 3) - Math.min(96, (panelWidth - 20) * 2 / 3 - 6) - 14;
+            if (available > 30) text(context, menuList.name, listX, panelY + panelHeight - 55, available, UiTheme.MUTED);
         }
-
-        // Render Tooltip ABOVE the scissor cut (after disableScissor)
-        if (isHoveringTrash) {
-            if (shiftPressed()) {
-                // Red text "Delete"
-                VersionCompat.setTooltip(context, font, Component.translatable("gui.resourcetracker.delete").withStyle(ChatFormatting.RED), mouseX, mouseY);
-            } else {
-                // Gray text "Hold Shift"
-                VersionCompat.setTooltip(context, font, Component.translatable("gui.resourcetracker.hold_shift").withStyle(ChatFormatting.GRAY), mouseX, mouseY);
-            }
-        } else if (iconTooltip != null) {
-            VersionCompat.setTooltip(context, font, iconTooltip, mouseX, mouseY);
-        }
-    }
-
-    private void handleMouseInput(int mouseX, int mouseY) {
-        long windowHandle = VersionCompat.getWindowHandle(this.minecraft.getWindow());
-        boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-
-        if (isMouseDown && !wasMouseDown) {
-            if (mouseY >= listTop && mouseY <= listBottom) {
-                List<TrackerConfig.TrackingList> lists = TrackerConfig.INSTANCE.lists;
-                int boxWidth = getBoxWidth();
-                int boxX = getBoxX(boxWidth);
-
-                double relativeY = mouseY - listTop + scrollOffset - 2;
-                if (relativeY >= 0) {
-                    int index = (int) (relativeY / itemHeight);
-
-                    if (index >= 0 && index < lists.size()) {
-                        TrackerConfig.TrackingList list = lists.get(index);
-
-                        int eyeX = boxX + 4;
-                        int trashX = boxX + boxWidth - 25;
-
-                        if (mouseX >= eyeX && mouseX < eyeX + 25) {
-                            list.isVisible = !list.isVisible;
-                            TrackerConfig.saveList(list);
-                            ResourceTrackerClient.invalidateTargetItemCache();
-                            playClickSound();
-                        } else if (mouseX >= trashX && mouseX < trashX + 21) {
-                            if (shiftPressed()) {
-                                TrackerConfig.deleteList(list);
-                                ResourceTrackerClient.invalidateTargetItemCache();
-                                playClickSound();
-                            }
-                        } else if (mouseX > boxX + 31 && mouseX < trashX - 4) {
-                            if (this.minecraft != null) {
-                                this.minecraft.setScreen(new EditScreen(this, list));
-                            }
-                            playClickSound();
-                        }
-                    }
+        super.render(context, mouseX, mouseY, delta);
+        for (Action action : actions) renderAction(context, action, mouseX, mouseY);
+        if (mouseX >= listX && mouseX < listX + listWidth && mouseY >= listTop && mouseY < listBottom) {
+            for (int i = 0; i < editButtons.size(); i++) {
+                if (hovered(visibilityButtons.get(i), mouseX, mouseY)) {
+                    VersionCompat.setTooltip(context, font, visibilityButtons.get(i).getMessage(), mouseX, mouseY);
+                } else if (hovered(menuButtons.get(i), mouseX, mouseY)) {
+                    VersionCompat.setTooltip(context, font, menuButtons.get(i).getMessage(), mouseX, mouseY);
+                } else if (hovered(editButtons.get(i), mouseX, mouseY) && font.width(TrackerConfig.INSTANCE.lists.get(i).name) > listWidth - 64) {
+                    VersionCompat.setTooltip(context, font, Component.literal(TrackerConfig.INSTANCE.lists.get(i).name), mouseX, mouseY);
                 }
             }
         }
-        wasMouseDown = isMouseDown;
+        for (Action action : actions) {
+            Button button = action.button();
+            if (hovered(button, mouseX, mouseY) && font.width(button.getMessage()) > button.getWidth() - 8) {
+                VersionCompat.setTooltip(context, font, button.getMessage(), mouseX, mouseY);
+            }
+        }
+    }
+
+    private void renderRows(GuiGraphics context, int mouseX, int mouseY) {
+        for (int i = 0; i < editButtons.size(); i++) {
+            Button edit = editButtons.get(i);
+            int y = edit.getY();
+            if (y + ROW_HEIGHT <= listTop || y >= listBottom) continue;
+            TrackerConfig.TrackingList list = TrackerConfig.INSTANCE.lists.get(i);
+            if (hovered(edit, mouseX, mouseY)) context.fill(listX, y, listX + listWidth, y + ROW_HEIGHT - 1, UiTheme.HOVER);
+            if (menuList == list) context.fill(listX, y, listX + 2, y + ROW_HEIGHT - 1, UiTheme.ACCENT);
+            context.fill(listX, y + ROW_HEIGHT - 1, listX + listWidth, y + ROW_HEIGHT, UiTheme.WINDOW);
+            text(context, list.name, listX + 8, y + 5, listWidth - 64, UiTheme.TEXT);
+            TrackerConfig.TrackingList.Progress progress = list.progress(); // Uses tick-cached item counts.
+            String status = Component.translatable(list.isVisible ? "gui.resourcetracker.main.visible" : "gui.resourcetracker.main.hidden").getString();
+            String goals = Component.translatable("gui.resourcetracker.main.goals", progress.completed(), progress.total()).getString();
+            boolean complete = progress.total() > 0 && progress.completed() == progress.total();
+            String statusPrefix = status + " · ";
+            int statusWidth = Math.min(font.width(statusPrefix), Math.max(0, listWidth - 64));
+            text(context, statusPrefix, listX + 8, y + 18, statusWidth, UiTheme.MUTED);
+            int goalsX = listX + 8 + statusWidth;
+            int goalsWidth = Math.max(0, listWidth - 64 - statusWidth);
+            boolean showCompleteIcon = complete && goalsWidth >= PngIcons.SMALL_CHECK_ADVANCE;
+            if (showCompleteIcon) {
+                RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CHECK_SMALL,
+                        goalsX, y + 17, PngIcons.SMALL_CHECK_ADVANCE, PngIcons.SMALL_CHECK_ADVANCE, UiTheme.ACCENT);
+            }
+            text(context, goals, goalsX + (showCompleteIcon ? PngIcons.SMALL_CHECK_ADVANCE : 0), y + 18,
+                    goalsWidth - (showCompleteIcon ? PngIcons.SMALL_CHECK_ADVANCE : 0), complete ? UiTheme.ACCENT : UiTheme.MUTED);
+            Button eye = visibilityButtons.get(i);
+            if (hovered(eye, mouseX, mouseY)) context.fill(eye.getX(), y + 3, eye.getX() + eye.getWidth(), y + ROW_HEIGHT - 4, UiTheme.HOVER);
+            RenderUtils.drawPngIconInBox(context, list.isVisible ? PngIcons.Icon.EYE : PngIcons.Icon.EYE_CROSSED,
+                    eye.getX(), y + 3, eye.getWidth(), ROW_HEIGHT - 6, list.isVisible ? UiTheme.TEXT : UiTheme.MUTED);
+            Button menu = menuButtons.get(i);
+            if (hovered(menu, mouseX, mouseY)) context.fill(menu.getX(), y + 3, menu.getX() + menu.getWidth(), y + ROW_HEIGHT - 4, UiTheme.HOVER);
+            RenderUtils.drawPngIconInBox(context, PngIcons.Icon.MORE,
+                    menu.getX(), y + 3, menu.getWidth(), ROW_HEIGHT - 6, UiTheme.MUTED);
+            for (Button button : List.of(edit, eye, menu)) {
+                if (button.isFocused()) border(context, button.getX(), y, button.getWidth(), button.getHeight(), UiTheme.ACCENT);
+            }
+        }
+    }
+
+    private void renderAction(GuiGraphics context, Action action, int mouseX, int mouseY) {
+        Button button = action.button();
+        int x = button.getX(), y = button.getY(), w = button.getWidth(), h = button.getHeight();
+        boolean hover = button.active && hovered(button, mouseX, mouseY);
+        boolean quietFiles = button == filesButton && !filesExpanded;
+        if (!quietFiles || hover) {
+            context.fill(x, y, x + w, y + h, hover ? UiTheme.HOVER : action.primary() ? UiTheme.HEADER : UiTheme.PANEL);
+        }
+        if (!quietFiles || hover || button.isFocused()) {
+            border(context, x, y, w, h, button.isFocused() ? UiTheme.ACCENT : action.primary() && button.active ? UiTheme.ACCENT : UiTheme.BORDER);
+        }
+        int color = !button.active || quietFiles ? UiTheme.MUTED : action.danger() ? UiTheme.DANGER : UiTheme.TEXT;
+        String label = RenderUtils.shortenText(font, button.getMessage().getString(), Math.max(0, w - 8));
+        context.drawString(font, label, x + (w - font.width(label)) / 2, y + (h - 8) / 2, color, false);
+    }
+
+    private void text(GuiGraphics context, String value, int x, int y, int maxWidth, int color) {
+        context.drawString(font, RenderUtils.shortenText(font, value, Math.max(0, maxWidth)), x, y, color, false);
+    }
+
+    private void border(GuiGraphics context, int x, int y, int w, int h, int color) {
+        context.fill(x, y, x + w, y + 1, color);
+        context.fill(x, y + h - 1, x + w, y + h, color);
+        context.fill(x, y, x + 1, y + h, color);
+        context.fill(x + w - 1, y, x + w, y + h, color);
+    }
+
+    private boolean hovered(Button button, double mouseX, double mouseY) {
+        return mouseX >= button.getX() && mouseX < button.getX() + button.getWidth()
+                && mouseY >= button.getY() && mouseY < button.getY() + button.getHeight();
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        updateRows();
+        List<Button> rows = new ArrayList<>(editButtons);
+        rows.addAll(visibilityButtons);
+        rows.addAll(menuButtons);
+        // Hidden row hit areas must never intercept toolbar/footer clicks.
+        boolean inside = mouseX >= listX && mouseX < listX + listWidth && mouseY >= listTop && mouseY < listBottom;
+        if (!inside) rows.forEach(rowButton -> rowButton.visible = false);
+        try {
+            return super.mouseClicked(mouseX, mouseY, button);
+        } finally {
+            rows.forEach(rowButton -> rowButton.visible = true);
+        }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (mouseX >= listX && mouseX < listX + listWidth + 9 && mouseY >= listTop && mouseY < listBottom) {
+            scrollOffset -= verticalAmount * ROW_HEIGHT;
+            updateRows();
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override
@@ -384,135 +379,25 @@ public class MainScreen extends Screen {
             ResourceTrackerClient.discardHandledOpenMenuKeyClicks();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        boolean handled = super.keyPressed(keyCode, scanCode, modifiers);
+        updateRows();
+        return handled;
     }
 
-    @Override
-    public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        return super.keyReleased(keyCode, scanCode, modifiers);
+    private void confirmDelete(TrackerConfig.TrackingList list) {
+        if (minecraft == null || list == null) return;
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                TrackerConfig.deleteList(list);
+                ResourceTrackerClient.invalidateTargetItemCache();
+            }
+            menuList = null;
+            if (minecraft != null) minecraft.setScreen(this);
+        }, Component.translatable("gui.resourcetracker.delete_confirm_title"), Component.translatable("gui.resourcetracker.delete_confirm", list.name)));
     }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (mouseY >= listTop && mouseY <= listBottom) {
-            this.scrollOffset -= (verticalAmount * 20);
-            return true;
-        }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-    }
-
-    private void playClickSound() {
-        if (this.minecraft != null && this.minecraft.player != null) {
-            this.minecraft.player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 1.0F, 1.0F);
-        }
-    }
-
-    private int getBoxWidth() {
-        return Math.min(280, Math.max(80, this.width - 16));
-    }
-
-    private int getBoxX(int boxWidth) {
-        return (this.width - boxWidth) / 2;
-    }
-
-    private Button createActionButton(int x, int y, Component text, Button.OnPress onPress) {
-        return Button.builder(Component.literal("   ").append(text), onPress)
-                .bounds(x, y, getActionButtonWidth(), 21)
-                .build();
-    }
-
-    private int getActionButtonWidth() {
-        return Math.min(150, Math.max(80, this.width - 16));
-    }
-
-
-    private void showButtonTooltip(GuiGraphics context, int mouseX, int mouseY, Button button, Component text) {
-        if (button != null && mouseX >= button.getX() && mouseX < button.getX() + button.getWidth()
-                && mouseY >= button.getY() && mouseY < button.getY() + button.getHeight()) {
-            VersionCompat.setTooltip(context, font, text, mouseX, mouseY);
-        }
-    }
-
-    private enum Icon {
-        PLUS(PngIcons.Icon.PLUS),
-        RELOAD(PngIcons.Icon.RELOAD),
-        FOLDER(PngIcons.Icon.FOLDER),
-        GEAR(PngIcons.Icon.SETTINGS);
-
-        private final PngIcons.Icon texture;
-
-        Icon(PngIcons.Icon texture) {
-            this.texture = texture;
-        }
-    }
-
-    private int iconColor(Button button, int enabledColor) {
-        return button != null && !button.active ? 0xFF777777 : enabledColor;
-    }
-
-    private void drawButtonIcon(GuiGraphics context, Icon icon, int buttonX, int buttonY, int buttonW, int buttonH, int color) {
-        RenderUtils.drawPngIconInBox(context, icon.texture, buttonX, buttonY, buttonW, buttonH, color);
-    }
-
-    private void drawPixelEye(GuiGraphics context, int x, int y, boolean isVisible, boolean isHovered) {
-        int color = isHovered ? 0xFFCCCCCC : 0xFF888888;
-        RenderUtils.drawPngIconInBox(context, isVisible ? PngIcons.Icon.EYE : PngIcons.Icon.EYE_CROSSED, x, y, 21, 21, isVisible ? color : 0xFFFF5555);
-    }
-
-    private void drawPixelDeleteIcon(GuiGraphics context, int x, int y, boolean isHovered, boolean isDanger) {
-        int mainColor;
-        if (isDanger) {
-            mainColor = 0xFFFF5555;
-        } else {
-            mainColor = isHovered ? 0xFFCCCCCC : 0xFF888888;
-        }
-        RenderUtils.drawPngIconInBox(context, PngIcons.Icon.TRASH, x, y, 21, 21, mainColor);
-    }
-
 
     @Override
     public void onClose() {
-        if (this.minecraft != null) {
-            this.minecraft.setScreen(this.parent);
-        }
-    }
-
-    private boolean shiftPressed() {
-        if (this.minecraft == null) return false;
-        long windowHandle = VersionCompat.getWindowHandle(this.minecraft.getWindow());
-        return GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-    }
-
-    private void createListActionButtons(int boxX, int boxWidth) {
-        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            Button edit = Button.builder(Component.translatable("gui.resourcetracker.edit_row", list.name), button -> {
-                        if (this.minecraft != null) this.minecraft.setScreen(new EditScreen(this, list));
-                    }).bounds(boxX + 31, listTop, Math.max(1, boxWidth - 66), 21).build();
-            edit.setAlpha(0.0F); this.addRenderableWidget(edit); listEditButtons.add(edit);
-            Button visibility = Button.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), button -> {
-                        list.isVisible = !list.isVisible; TrackerConfig.saveList(list); ResourceTrackerClient.invalidateTargetItemCache(); button.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
-                    }).bounds(boxX + 4, listTop, 25, 21).build();
-            visibility.setAlpha(0.0F); this.addRenderableWidget(visibility); listVisibilityButtons.add(visibility);
-            Button delete = Button.builder(Component.translatable("gui.resourcetracker.delete_row", list.name), button -> deleteFromAction(list))
-                    .bounds(boxX + boxWidth - 25, listTop, 21, 21).build();
-            delete.setAlpha(0.0F); this.addRenderableWidget(delete); listDeleteButtons.add(delete);
-        }
-    }
-
-    private void updateListActionButtons(int boxX, int boxWidth) {
-        for (int i = 0; i < TrackerConfig.INSTANCE.lists.size(); i++) {
-            int y = (int) (listTop + i * itemHeight - scrollOffset + 2);
-            listEditButtons.get(i).setX(boxX + 31); listEditButtons.get(i).setY(y); listEditButtons.get(i).setWidth(Math.max(1, boxWidth - 66));
-            listVisibilityButtons.get(i).setX(boxX + 4); listVisibilityButtons.get(i).setY(y);
-            listDeleteButtons.get(i).setX(boxX + boxWidth - 25); listDeleteButtons.get(i).setY(y);
-        }
-    }
-
-    private void deleteFromAction(TrackerConfig.TrackingList list) {
-        if (shiftPressed()) { TrackerConfig.deleteList(list); ResourceTrackerClient.invalidateTargetItemCache(); this.init(); return; }
-        if (this.minecraft == null) return;
-        this.minecraft.setScreen(new ConfirmScreen(confirmed -> { if (confirmed) { TrackerConfig.deleteList(list); ResourceTrackerClient.invalidateTargetItemCache(); this.init(); } this.minecraft.setScreen(MainScreen.this); },
-                Component.translatable("gui.resourcetracker.delete"), Component.translatable("gui.resourcetracker.delete_confirm")));
+        if (minecraft != null) minecraft.setScreen(parent);
     }
 }

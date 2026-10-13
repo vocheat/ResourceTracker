@@ -107,8 +107,10 @@ tasks.named('compileJava', JavaCompile) {
     dependsOn tasks.named('verifyProfileMetadata')
     source = files(
             fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/**'
+                exclude 'net/fabricmc/resourcetracker/client/gui/*Screen.java'
+                exclude 'net/fabricmc/resourcetracker/client/gui/TrackerButton.java'
                 exclude 'net/fabricmc/resourcetracker/client/render/HudOverlay.java'
+                exclude 'net/fabricmc/resourcetracker/client/render/HudRenderer.java'
                 exclude 'net/fabricmc/resourcetracker/util/RenderUtils.java'
                 exclude 'net/fabricmc/resourcetracker/util/InventoryUtils.java'
             },
@@ -120,8 +122,10 @@ tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from files(
             fileTree('src/main/java') {
-                exclude 'net/fabricmc/resourcetracker/client/gui/**'
+                exclude 'net/fabricmc/resourcetracker/client/gui/*Screen.java'
+                exclude 'net/fabricmc/resourcetracker/client/gui/TrackerButton.java'
                 exclude 'net/fabricmc/resourcetracker/client/render/HudOverlay.java'
+                exclude 'net/fabricmc/resourcetracker/client/render/HudRenderer.java'
                 exclude 'net/fabricmc/resourcetracker/util/RenderUtils.java'
                 exclude 'net/fabricmc/resourcetracker/util/InventoryUtils.java'
             },

@@ -13,15 +13,17 @@ def targets = [
         mc12110: ['1.21.10', 'mc1_21_9_to_1_21_10', '0.138.4+1.21.10','16.0.1'],
         mc12111: ['1.21.11', 'mc1_21_9_to_1_21_11', '0.141.3+1.21.11','17.0.0'],
         mc261  : ['26.1',    'mc26_1',             '0.145.1+26.1',     '18.0.0-alpha.8'],
-        mc262  : ['26.2',    'mc26_2',             '0.158.0+26.2',     '20.0.1']
+        mc262  : ['26.2',    'mc26_2',             '0.158.0+26.2',     '20.0.1'],
+        mc263  : ['26.3',    'mc26_3',             '0.162.0+26.3',     '21.0.0']
 ]
 
 def target = targets[project.name]
 if (target == null) throw new GradleException("Unknown platform: ${project.name}")
+ext.minecraftTargetVersion = target[0]
 def named = project.name.startsWith('mc26')
 apply plugin: named ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap'
 
-def loaderVersion = named ? (project.name == 'mc261' ? '0.18.6' : '0.19.3') : '0.19.5'
+def loaderVersion = named ? (project.name == 'mc261' ? '0.18.6' : project.name == 'mc262' ? '0.19.3' : '0.19.5') : '0.19.5'
 def generated = layout.buildDirectory.dir('generated/sources/platform/java')
 def originalRoot = 'net/fabricmc/resourcetracker/'
 def sourceRoot = rootProject.file('src/main/java')

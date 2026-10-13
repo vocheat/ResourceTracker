@@ -6,7 +6,7 @@ def remapped = [
         'mc1210', 'mc1211', 'mc1212', 'mc1213', 'mc1214', 'mc1215',
         'mc1216', 'mc1217', 'mc1218', 'mc1219', 'mc12110', 'mc12111'
 ]
-def named = ['mc261', 'mc262']
+def named = ['mc261', 'mc262', 'mc263']
 
 def contents = { Project source, String taskName ->
     source.tasks.named(taskName).flatMap { it.archiveFile }.map { zipTree(it.asFile) }
@@ -80,6 +80,33 @@ tasks.register('verifyUniversalJar') {
                     zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
             if (metadata.version != rootProject.version.toString()) {
                 throw new GradleException('Incorrect universal mod version')
+            }
+            def expectedVersions = (remapped + named).collect { id ->
+                project(":platform:${id}").minecraftTargetVersion
+            }
+            if (metadata.depends.minecraft != expectedVersions) {
+                throw new GradleException('Universal supported versions do not match the compiled payloads')
+            }
+            new java.net.URLClassLoader([artifact.toURI().toURL()] as java.net.URL[], (ClassLoader) null).withCloseable { loader ->
+                def matrix = loader.loadClass('net.fabricmc.resourcetracker.bootstrap.VersionMatrix')
+                def platformId = matrix.getMethod('platformId', String)
+                (remapped + named).eachWithIndex { id, index ->
+                    if (platformId.invoke(null, expectedVersions[index]) != id) {
+                        throw new GradleException("Incorrect bootstrap dispatch for ${expectedVersions[index]}")
+                    }
+                    ['client/gui/ColorPickerScreen', 'client/render/HudRenderer'].each { className ->
+                        def entry = "net/fabricmc/resourcetracker/platform/${id}/${className}.class"
+                        if (!entries.contains(entry.toString())) throw new GradleException("Missing interface class ${entry}")
+                    }
+                }
+            }
+            ['check': 16, 'check_small': 6].each { name, size ->
+                def icon = zip.getEntry("assets/resourcetracker/textures/gui/icons/${name}.png")
+                if (icon == null) throw new GradleException("Missing ${name} icon")
+                def image = javax.imageio.ImageIO.read(zip.getInputStream(icon))
+                if (image == null || image.width != size || image.height != size) {
+                    throw new GradleException("Incorrect dimensions for ${name} icon")
+                }
             }
             if (metadata.entrypoints.client !=
                     ['net.fabricmc.resourcetracker.bootstrap.ResourceTrackerBootstrap'] ||

@@ -19,6 +19,10 @@ public final class HudRenderModel {
     public final int columns;
     public final int itemsPerColumn;
     public final List<Row> rows;
+    public final List<Fill> fills;
+    public final String summary;
+    public final int summaryX;
+    public final int summaryColor;
 
     HudRenderModel(
             String title,
@@ -31,7 +35,11 @@ public final class HudRenderModel {
             boolean showIcons,
             int columns,
             int itemsPerColumn,
-            List<Row> rows
+            List<Row> rows,
+            List<Fill> fills,
+            String summary,
+            int summaryX,
+            int summaryColor
     ) {
         this.title = title;
         this.titleColor = titleColor;
@@ -44,7 +52,14 @@ public final class HudRenderModel {
         this.columns = columns;
         this.itemsPerColumn = itemsPerColumn;
         this.rows = List.copyOf(rows);
+        this.fills = List.copyOf(fills);
+        this.summary = summary;
+        this.summaryX = summaryX;
+        this.summaryColor = summaryColor;
     }
+
+    /** Precomputed panels, borders and progress strips; no inventory work during rendering. */
+    public record Fill(int left, int top, int right, int bottom, int color) {}
 
     public static final class Row {
         public final ItemStack stack;
@@ -58,6 +73,7 @@ public final class HudRenderModel {
         public final int countX;
         public final int countY;
         public final int countColor;
+        public final boolean completed;
 
         Row(
                 ItemStack stack,
@@ -70,7 +86,8 @@ public final class HudRenderModel {
                 String countText,
                 int countX,
                 int countY,
-                int countColor
+                int countColor,
+                boolean completed
         ) {
             this.stack = stack;
             this.itemX = itemX;
@@ -83,6 +100,7 @@ public final class HudRenderModel {
             this.countX = countX;
             this.countY = countY;
             this.countColor = countColor;
+            this.completed = completed;
         }
     }
 }

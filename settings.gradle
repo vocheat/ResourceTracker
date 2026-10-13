@@ -20,7 +20,7 @@ if (selectedBuildFile == 'build-universal.gradle') {
     [
             'mc1210', 'mc1211', 'mc1212', 'mc1213', 'mc1214',
             'mc1215', 'mc1216', 'mc1217', 'mc1218', 'mc1219',
-            'mc12110', 'mc12111', 'mc261', 'mc262'
+            'mc12110', 'mc12111', 'mc261', 'mc262', 'mc263'
     ].each { id ->
         include ":platform:${id}"
         project(":platform:${id}").projectDir = file("gradle-projects/platform/${id}")

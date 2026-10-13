@@ -82,6 +82,11 @@ jobs:
             build_file: build-mc26.2.gradle
             java: "25"
             libs_dir: build/mc26_2/libs
+          - profile: mc26_3
+            mc_range: "26.3"
+            build_file: build-mc26.3.gradle
+            java: "25"
+            libs_dir: build/mc26_3/libs
 
     steps:
       - uses: actions/checkout@v4
@@ -167,6 +172,7 @@ jobs:
           - { id: mc12111, mc: '1.21.11' }
           - { id: mc261, mc: '26.1' }
           - { id: mc262, mc: '26.2' }
+          - { id: mc263, mc: '26.3' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
