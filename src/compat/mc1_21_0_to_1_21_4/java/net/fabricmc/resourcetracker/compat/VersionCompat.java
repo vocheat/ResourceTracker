@@ -19,6 +19,26 @@ import net.minecraft.world.item.Item;
 import org.lwjgl.glfw.GLFW;
 
 public class VersionCompat {
+    public static void showCompletionMessage(net.minecraft.client.Minecraft client, Component message) {
+        client.gui.setOverlayMessage(message, false);
+    }
+
+    public static boolean isUndoPressed(net.minecraft.client.Minecraft client) {
+        long window = getWindowHandle(client.getWindow());
+        return (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS)
+                && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_Z) == GLFW.GLFW_PRESS;
+    }
+
+    /** Screen navigation across the client GUI API move in 26.3. */
+    public static void setScreen(net.minecraft.client.Minecraft client, net.minecraft.client.gui.screens.Screen screen) {
+        client.setScreen(screen);
+    }
+
+    public static net.minecraft.client.gui.screens.Screen currentScreen(net.minecraft.client.Minecraft client) {
+        return client.screen;
+    }
+
     private static final ResourceLocation ICONS_ATLAS = ResourceLocation.fromNamespaceAndPath(
             PngIcons.ATLAS_NAMESPACE,
             PngIcons.ATLAS_PATH
@@ -62,8 +82,30 @@ public class VersionCompat {
                 "key.resourcetracker.open",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_M,
-                "key.categories.misc"
+                "key.categories.resourcetracker"
         ));
+    }
+
+    public static KeyMapping registerQuickAddKey() {
+        return KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.resourcetracker.quick_add",
+                InputConstants.Type.KEYSYM,
+                GLFW.GLFW_KEY_K,
+                "key.categories.resourcetracker"
+        ));
+    }
+
+    /** Screen events respect the Controls binding while vanilla inventory input is active. */
+    public static void registerQuickAddInput(KeyMapping key) {
+        net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (!(screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>)) return;
+            net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents.allowKeyPress(screen).register(
+                    (current, keyCode, scanCode, modifiers) -> !key.matches(keyCode, scanCode)
+                            || !net.fabricmc.resourcetracker.client.QuickAddController.tryOpen(current));
+            net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents.allowMouseClick(screen).register(
+                    (current, mouseX, mouseY, button) -> !key.matchesMouse(button)
+                            || !net.fabricmc.resourcetracker.client.QuickAddController.tryOpen(current));
+        });
     }
 
     public static KeyMapping registerToggleHudKey() {
@@ -71,7 +113,7 @@ public class VersionCompat {
                 "key.resourcetracker.toggle_hud",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_UNKNOWN,
-                "key.categories.misc"
+                "key.categories.resourcetracker"
         ));
     }
 

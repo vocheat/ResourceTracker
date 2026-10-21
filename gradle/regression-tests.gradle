@@ -1,0 +1,12 @@
+// Standalone checks exercise the selected profile's real registry/DFU adapter.
+tasks.register('regressionTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'net.fabricmc.resourcetracker.RegressionSuite'
+    maxHeapSize = '1G'
+}
+tasks.named('test') {
+    dependsOn tasks.named('regressionTest')
+    // Tests run through the dependency-free entry point above instead of JUnit.
+    failOnNoDiscoveredTests = false
+}

@@ -26,6 +26,7 @@ package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.config.TrackerHistory;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.util.PngIcons;
 import net.fabricmc.resourcetracker.util.RenderUtils;
@@ -78,7 +79,7 @@ public class MainScreen extends Screen {
         panelWidth = Math.min(460, Math.max(1, width - 16));
         int innerWidth = Math.max(1, panelWidth - 20);
         boolean narrow = innerWidth < 340;
-        int listTopOffset = (narrow ? 110 : 84) + (filesExpanded ? 26 : 0);
+        int listTopOffset = (narrow ? 136 : 110) + (filesExpanded ? 26 : 0);
         int menuSpace = menuList == null ? 0 : 28;
         int desiredViewport = TrackerConfig.INSTANCE.lists.isEmpty()
                 ? 72 : TrackerConfig.INSTANCE.lists.size() * ROW_HEIGHT;
@@ -110,6 +111,11 @@ public class MainScreen extends Screen {
             setFocused(filesButton);
         }, false, false);
         int afterToolbar = secondY + 26;
+        Button importButton = action(listX, afterToolbar, innerWidth, "gui.resourcetracker.import.title", b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new ImportScreen(this));
+        }, false, false);
+        importButton.active = TrackerConfig.hasActiveContext();
+        afterToolbar += 26;
         if (filesExpanded) {
             int fileWidth = (innerWidth - 12) / 3;
             Button world = action(listX, afterToolbar, fileWidth, "gui.resourcetracker.main.world_folder", b -> TrackerConfig.openActiveListsFolder(), false, false);
@@ -144,7 +150,15 @@ public class MainScreen extends Screen {
                 init();
             }, false, false);
         }
-        action(panelX + (panelWidth - 100) / 2, panelY + panelHeight - 27, 100, "gui.resourcetracker.close", b -> onClose(), false, false);
+        int footerWidth = Math.max(1, (innerWidth - 6) / 2);
+        Button undo = action(listX, panelY + panelHeight - 27, footerWidth, "gui.resourcetracker.undo_delete", b -> {
+            if (TrackerHistory.undoDeletion()) {
+                menuList = null;
+                init();
+            }
+        }, false, false);
+        undo.active = TrackerHistory.canUndoDeletion();
+        action(listX + footerWidth + 6, panelY + panelHeight - 27, footerWidth, "gui.resourcetracker.close", b -> onClose(), false, false);
         updateRows();
     }
 
@@ -390,6 +404,7 @@ public class MainScreen extends Screen {
         if (minecraft == null || list == null) return;
         minecraft.setScreen(new ConfirmScreen(confirmed -> {
             if (confirmed) {
+                TrackerHistory.recordDeletion(list, TrackerConfig.INSTANCE.lists.indexOf(list));
                 TrackerConfig.deleteList(list);
                 ResourceTrackerClient.invalidateTargetItemCache();
             }

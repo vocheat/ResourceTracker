@@ -9,6 +9,7 @@
   "license": "MIT",
   "icon": "assets/resourcetracker/icon.png",
   "environment": "client",
+  "mixins": ["resourcetracker.quickadd.mixins.json"],
   "entrypoints": {
     "client": [
       "net.fabricmc.resourcetracker.client.ResourceTrackerClient"

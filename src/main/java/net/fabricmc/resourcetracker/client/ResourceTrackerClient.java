@@ -32,17 +32,14 @@ import net.fabricmc.resourcetracker.client.render.HudOverlay;
 import net.fabricmc.resourcetracker.client.render.HudRenderCache;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
-import net.fabricmc.resourcetracker.util.InventoryUtils;
+import net.fabricmc.resourcetracker.crafting.CraftingRuntime;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import net.minecraft.world.item.Item;
 
 /**
  * The main client-side entry point for the Resource Tracker mod.
@@ -71,9 +68,8 @@ public class ResourceTrackerClient implements ClientModInitializer {
      * No default key — configurable in MC Controls settings.
      */
     public static KeyMapping toggleHudKey;
+    private static int inventoryUpdateTicks;
     private static TrackerConfig.ActiveContext lastContext = TrackerConfig.ActiveContext.none();
-    private static final Set<Item> cachedTargetItems = new HashSet<>();
-    private static String cachedTargetSignature = "";
 
     /**
      * Discards clicks already handled directly by an open screen.
@@ -87,12 +83,16 @@ public class ResourceTrackerClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         TrackerConfig.load();
+        CraftingRuntime.initialize();
+        QuickAddController.initialize();
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> TrackerConfig.save());
 
         // Register keybindings — via VersionCompat for cross-version support
         openMenuKey = VersionCompat.registerOpenKey();
         toggleHudKey = VersionCompat.registerToggleHudKey();
         VersionCompat.registerClientResourceReloadListener(() -> {
             TrackerConfig.invalidateDisplayNameCache();
+            CraftingRuntime.invalidate();
             HudRenderCache.clear();
         });
 
@@ -117,7 +117,7 @@ public class ResourceTrackerClient implements ClientModInitializer {
                 TrackerConfig.saveGlobalSettingsOnly();
             }
 
-            if (client.player != null && client.level != null && client.player.tickCount % 10 == 0) {
+            if (client.player != null && client.level != null && (++inventoryUpdateTicks % 10 == 0 || CraftingRuntime.needsUpdate())) {
                 updateCachedCounts(client);
             }
         });
@@ -128,96 +128,21 @@ public class ResourceTrackerClient implements ClientModInitializer {
 
 
     public static void invalidateTargetItemCache() {
-        cachedTargetSignature = "";
-        cachedTargetItems.clear();
+        CraftingRuntime.invalidate();
         HudRenderCache.clear();
     }
 
     private static void updateCachedCounts(Minecraft client) {
-        if (!TrackerConfig.INSTANCE.hudVisible) return;
-
-        Set<Item> targetItems = getTargetItemsForVisibleLists();
-        if (targetItems.isEmpty()) {
-            if (clearVisibleCachedCounts()) {
-                HudRenderCache.clear();
-            }
-            return;
-        }
-
-        Map<Item, Integer> counts = InventoryUtils.countItems(client.player, targetItems);
-        boolean countsChanged = false;
-        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            if (!list.isVisible) continue;
-            for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                if (trackedItem.isValid()) {
-                    int cachedCount = counts.getOrDefault(trackedItem.getItem(), 0);
-                    if (trackedItem.cachedCount != cachedCount) {
-                        trackedItem.cachedCount = cachedCount;
-                        countsChanged = true;
-                    }
-                }
-            }
-        }
-        if (countsChanged) {
-            HudRenderCache.clear();
-        }
-    }
-
-    private static Set<Item> getTargetItemsForVisibleLists() {
-        String signature = buildTargetSignature();
-        if (signature.equals(cachedTargetSignature)) {
-            return cachedTargetItems;
-        }
-
-        cachedTargetItems.clear();
-        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            if (!list.isVisible || list.items == null) continue;
-            for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                if (trackedItem.isValid()) {
-                    Item item = trackedItem.getItem();
-                    if (item != null) cachedTargetItems.add(item);
-                } else {
-                    trackedItem.cachedCount = 0;
-                }
-            }
-        }
-        cachedTargetSignature = signature;
-        return cachedTargetItems;
-    }
-
-    private static String buildTargetSignature() {
-        if (!TrackerConfig.INSTANCE.hudVisible || TrackerConfig.INSTANCE.lists == null) return "hidden";
-        StringBuilder signature = new StringBuilder();
-        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            if (list == null || !list.isVisible || list.items == null) continue;
-            signature.append(list.id).append(':').append(list.isVisible).append('|');
-            for (TrackerConfig.TrackedItem item : list.items) {
-                if (item != null) {
-                    signature.append(item.itemId).append('=').append(item.targetCount).append(';');
-                }
-            }
-        }
-        return signature.toString();
-    }
-
-    private static boolean clearVisibleCachedCounts() {
-        boolean countsChanged = false;
-        for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            if (list == null || !list.isVisible || list.items == null) continue;
-            for (TrackerConfig.TrackedItem trackedItem : list.items) {
-                if (trackedItem.cachedCount != 0) {
-                    trackedItem.cachedCount = 0;
-                    countsChanged = true;
-                }
-            }
-        }
-        return countsChanged;
+        CraftingRuntime.update(client.player);
+        CompletionNotifications.update(client);
     }
 
     private static void updateActiveListContext(Minecraft client) {
         TrackerConfig.ActiveContext context = getCurrentListContext(client);
         if (!lastContext.equals(context)) {
             TrackerConfig.setActiveContext(context);
+            CraftingRuntime.reset();
+            CompletionNotifications.reset();
             invalidateTargetItemCache();
             lastContext = context;
         }

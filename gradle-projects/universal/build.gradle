@@ -7,6 +7,24 @@ def remapped = [
         'mc1216', 'mc1217', 'mc1218', 'mc1219', 'mc12110', 'mc12111'
 ]
 def named = ['mc261', 'mc262', 'mc263']
+def mixinConfigs = (remapped + named).collect { "resourcetracker.${it}.quickadd.mixins.json".toString() }
+def generatedMetadata = layout.buildDirectory.file('generated/resources/universal/fabric.mod.json')
+
+tasks.register('generateUniversalMetadata') {
+    def template = rootProject.file('src/universal/resources/fabric.mod.json')
+    inputs.file template
+    inputs.property('version', rootProject.version.toString())
+    inputs.property('mixinConfigs', mixinConfigs)
+    outputs.file generatedMetadata
+    doLast {
+        def metadata = new groovy.json.JsonSlurper().parseText(
+                template.getText('UTF-8').replace('${version}', rootProject.version.toString()))
+        metadata.mixins = mixinConfigs
+        def output = generatedMetadata.get().asFile
+        output.parentFile.mkdirs()
+        output.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(metadata)) + '\n', 'UTF-8')
+    }
+}
 
 def contents = { Project source, String taskName ->
     source.tasks.named(taskName).flatMap { it.archiveFile }.map { zipTree(it.asFile) }
@@ -40,11 +58,14 @@ tasks.register('universalJar', Jar) {
         }
     }
     from(rootProject.file('src/main/resources')) {
-        exclude 'fabric.mod.json'
+        exclude 'fabric.mod.json', 'resourcetracker.quickadd.mixins.json'
     }
     from(rootProject.file('src/universal/resources')) {
+        exclude 'fabric.mod.json'
         expand version: rootProject.version
     }
+    dependsOn tasks.named('generateUniversalMetadata')
+    from(generatedMetadata)
     from(rootProject.file('LICENSE')) {
         rename { 'LICENSE_resourcetracker' }
     }
@@ -80,6 +101,24 @@ tasks.register('verifyUniversalJar') {
                     zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
             if (metadata.version != rootProject.version.toString()) {
                 throw new GradleException('Incorrect universal mod version')
+            }
+            if (metadata.mixins != mixinConfigs || entries.contains('resourcetracker.quickadd.mixins.json')) {
+                throw new GradleException('Universal mixin configs must use the version dispatcher')
+            }
+            (remapped + named).each { id ->
+                def configName = "resourcetracker.${id}.quickadd.mixins.json".toString()
+                if (!entries.contains(configName)) throw new GradleException("Missing ${configName}")
+                def config = new groovy.json.JsonSlurper().parseText(
+                        zip.getInputStream(zip.getEntry(configName)).getText('UTF-8'))
+                if (config.package != "net.fabricmc.resourcetracker.platform.${id}.mixin" ||
+                        config.plugin != 'net.fabricmc.resourcetracker.bootstrap.QuickAddMixinPlugin' ||
+                        config.compatibilityLevel != 'JAVA_21' || config.client != [] || config.mixins) {
+                    throw new GradleException("Unsafe universal mixin config: ${configName}")
+                }
+                ['ContainerScreenAccessor', 'QuickAddNavigationMixin'].each { className ->
+                    def path = "net/fabricmc/resourcetracker/platform/${id}/mixin/${className}.class".toString()
+                    if (!entries.contains(path)) throw new GradleException("Missing ${path}")
+                }
             }
             def expectedVersions = (remapped + named).collect { id ->
                 project(":platform:${id}").minecraftTargetVersion

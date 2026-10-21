@@ -122,6 +122,8 @@ tasks.named('compileJava') {
     dependsOn tasks.named('verifyProfileMetadata')
 }
 
+apply from: 'gradle/regression-tests.gradle'
+
 tasks.matching { it.name == 'sourcesJar' }.configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from files(

@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "net.fabricmc.resourcetracker.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ContainerScreenAccessor",
+    "QuickAddNavigationMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

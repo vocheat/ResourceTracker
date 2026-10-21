@@ -11,6 +11,12 @@ Resource Tracker is a client-side Minecraft Fabric mod for tracking item collect
 - Uses the same HUD rendering in game, in the live editor preview, and while dragging lists into position.
 - Provides item search by translated name or item id.
 - Stores lists as editable `.txt` files under the Minecraft config folder.
+- Imports `.litematic` schematics, Litematica material-list JSON, and ResourceTracker TXT through a file browser and explicit preview.
+- Calculates linked raw materials using vanilla crafting and stonecutting recipes, with recipe/ingredient choices and shared inventory accounting.
+- Supports persistent manual completion, pinned HUD rows, completed-row filtering, remaining-count sorting, row limits, and item/stack/shulker units.
+- Quickly adds a hovered inventory/container item with a configurable key (K by default), quantity confirmation, and list selection.
+- Announces resource/list completion with optional sound and volume settings, without repeating notifications on every update.
+- Provides session undo for resource edits, removal, clearing, recipe choices, and deleted lists.
 
 ## Supported profiles
 
@@ -44,6 +50,12 @@ It contains one compiled payload per Minecraft version and selects it at startup
 4. Use **Items** to set target counts and **HUD appearance** to adjust position, scale, columns, icons, and colors alongside a live preview. Preview zoom starts at **200%**; its **100% / 200% / 300%** controls do not change the saved HUD scale. Large previews fit the panel and show the effective zoom. The color picker offers a palette, RGB HEX, opacity, and optional exact RGBA values. Changes are saved when you leave the editor.
 5. Click **Place HUD** and drag visible lists into place. Toggle a list's eye icon to show or hide it; use its **…** menu to delete it with confirmation.
 6. Use **Files** to open folders or reload editable list files. **Settings** separates new-list defaults, their appearance, and file tools.
+7. Use **Import** in the main menu to browse a scheme or list, inspect its materials, then create a new list. Litematica JSON uses `Total`; its multiplier is already included. Native schematics use all regions and block placement materials, without checking the current world, container contents, entities, or decorative NBT. Unsupported states and invalid quantities block import instead of creating incomplete totals.
+8. In the editor, switch to **Raw materials** for the linked crafting plan. Select recipes or ingredient variants, or stop expansion at a particular item. Stonecutting is preferred; smelting and fuel are excluded. This uses the current game's vanilla recipes, which can differ from server datapacks. Completed goods and intermediates in your inventory reduce the remaining crafting work.
+9. Mark a row **Already collected** when you have finished collecting it. The annotation survives moving the items out of inventory and restarting the game; it does not create virtual inventory. Increasing that row's requirement clears its annotation. Raw-material annotations are independent of finished-item annotations.
+10. Hover an item in an inventory or container and press **K** to add it to a tracking list. Confirm the quantity and destination; existing targets increase by that quantity. Find all mod bindings under **Controls → Key Binds → ResourceTracker**.
+11. Use **Undo** or **Ctrl+Z** in the editor to reverse recent resource edits. **Restore list** in the overview restores a recently deleted list. History lasts for the current world/server session and is cleared when lists are reloaded.
+12. Configure resource/list completion messages, sound, and volume in **Settings → New lists → Completion notifications**. Messages also work when the global HUD is hidden; opening a world with completed lists stays quiet.
 
 The stock grey/white HUD palette is upgraded to the olive theme when lists or settings are loaded. Custom palettes retain their saved colors and alpha. Turning item icons off switches to compact rows with names on the left and counts on the right; automatic and fixed column layouts remain available.
 
@@ -63,6 +75,12 @@ Default compile target is Minecraft 1.21.11:
 
 ```powershell
 .\gradlew.bat compileJava
+```
+
+Run the dependency-free regression suite (including actual Minecraft registry and block-state conversion checks):
+
+```powershell
+.\gradlew.bat test compileJava
 ```
 
 Compile a specific profile:

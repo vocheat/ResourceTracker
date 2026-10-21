@@ -4,6 +4,8 @@ import net.fabricmc.resourcetracker.client.gui.UiTheme;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.util.RenderUtils;
 import net.fabricmc.resourcetracker.util.PngIcons;
+import net.fabricmc.resourcetracker.model.CountFormatter;
+import net.fabricmc.resourcetracker.model.HudSelection;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import java.util.ArrayList;
@@ -36,25 +38,32 @@ public final class HudRenderCache {
         int rowHeight = list.showIcons ? 28 : 18;
         int iconOffset = list.showIcons ? 22 : 0;
         List<TrackerConfig.TrackedItem> items = new ArrayList<>();
-        if (list.items != null) {
-            for (TrackerConfig.TrackedItem item : list.items) if (item != null && item.isValid()) items.add(item);
+        if (list.displayItems() != null) {
+            for (TrackerConfig.TrackedItem item : list.displayItems()) if (item != null && item.isValid()) items.add(item);
         }
-        int completed = 0, contentWidth = 72;
+        HudSelection.Selection<TrackerConfig.TrackedItem> selection = HudSelection.select(items,
+                list.hideCompleted, list.sortRemaining, list.maxVisibleRows);
+        items = new ArrayList<>(selection.rows());
+        int completed = selection.completed(), contentWidth = 72;
         List<ItemText> texts = new ArrayList<>(items.size());
         for (TrackerConfig.TrackedItem item : items) {
-            boolean done = item.cachedCount >= item.targetCount;
-            if (done) completed++;
+            boolean done = item.isCompleted();
             String name = RenderUtils.shortenText(font, item.getDisplayName(), MAX_NAME_WIDTH);
-            String count = done ? item.cachedCount + " / " + item.targetCount
-                    : list.showRemaining ? needPrefix + Math.max(0, item.targetCount - item.cachedCount)
-                    : item.cachedCount + " / " + item.targetCount;
+            String count = item.isManuallyCollected()
+                    ? Component.translatable("gui.resourcetracker.collected").getString()
+                    : list.showRemaining && !done ? needPrefix + formatCount(list, item, item.remaining())
+                    : formatCount(list, item, item.cachedCount) + " / " + formatCount(list, item, item.targetCount);
             int countWidth = font.width(count) + (done ? PngIcons.SMALL_CHECK_ADVANCE : 0);
             int entryWidth = list.showIcons ? iconOffset + Math.max(font.width(name), countWidth)
                     : font.width(name) + 12 + countWidth;
             contentWidth = Math.max(contentWidth, entryWidth);
             texts.add(new ItemText(name, count, done));
         }
-        String summary = items.isEmpty() ? "" : completed + " / " + items.size();
+        String summary = selection.total() == 0 ? "" : completed + " / " + selection.total();
+        if (selection.hiddenByLimit() > 0) summary += " · "
+                + Component.translatable("gui.resourcetracker.hud.more", selection.hiddenByLimit()).getString();
+        if (list.hudRaw && selection.total() == 0) summary = Component.translatable(list.rawPlanValid
+                ? "gui.resourcetracker.overlay.done" : "gui.resourcetracker.raw.unavailable").getString();
         int[] layout = RenderUtils.calculateColumnLayout(list, items.size(), guiScaledHeight, HEADER_HEIGHT, PADDING, rowHeight);
         int columns = layout[0], itemsPerColumn = layout[1];
         int columnWidth = contentWidth + PADDING * 2;
@@ -99,7 +108,8 @@ public final class HudRenderCache {
             int trackWidth = rowRight - x;
             fills.add(new HudRenderModel.Fill(x, progressY, rowRight, progressY + 2,
                     withAlpha(UiTheme.BORDER, (list.backgroundColor >>> 24) / 2)));
-            double fraction = Math.max(0, Math.min(1, (double) item.cachedCount / Math.max(1, item.targetCount)));
+            double fraction = item.isManuallyCollected() ? 1
+                    : Math.max(0, Math.min(1, (double) item.cachedCount / Math.max(1, item.targetCount)));
             int filledWidth = (int) Math.round(trackWidth * fraction);
             if (filledWidth > 0) fills.add(new HudRenderModel.Fill(x, progressY, x + filledWidth, progressY + 2,
                     withAlpha(UiTheme.ACCENT, list.textColor >>> 24)));
@@ -114,7 +124,15 @@ public final class HudRenderCache {
         return new HudRenderModel(title, list.nameColor, list.backgroundColor, left, top, right, bottom,
                 list.showIcons, columns, itemsPerColumn, rows, fills, summary,
                 right - PADDING - font.width(summary),
-                withAlpha(completed == items.size() && !items.isEmpty() ? UiTheme.ACCENT : UiTheme.MUTED, list.nameColor >>> 24));
+                withAlpha(completed == selection.total() && selection.total() > 0 ? UiTheme.ACCENT : UiTheme.MUTED, list.nameColor >>> 24));
+    }
+    public static String formatCount(TrackerConfig.TrackingList list, TrackerConfig.TrackedItem item, long count) {
+        return CountFormatter.format(count, item.getStack().getMaxStackSize(),
+                item.getStack().getItem().canFitInsideContainerItems(),
+                CountFormatter.Unit.valueOf(list.countUnit.name()),
+                new CountFormatter.Labels(Component.translatable("gui.resourcetracker.unit.items").getString(),
+                        Component.translatable("gui.resourcetracker.unit.stacks").getString(),
+                        Component.translatable("gui.resourcetracker.unit.shulkers").getString()));
     }
     private static void border(List<HudRenderModel.Fill> fills, int x, int y, int right, int bottom, int color) {
         fills.add(new HudRenderModel.Fill(x, y, right, y + 1, color));

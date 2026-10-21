@@ -28,6 +28,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.fabricmc.resourcetracker.model.ResourceState;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -48,6 +49,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 /**
  * Manages Resource Tracker configuration and per-world/per-server TXT list storage.
@@ -67,7 +72,7 @@ public class TrackerConfig {
     public static final float MIN_SCALE = 0.25f;
     public static final float MAX_SCALE = 4.0f;
     public static final int MAX_COLUMNS = 5;
-    public static final int MAX_TARGET_COUNT = 99999;
+    public static final int MAX_TARGET_COUNT = Integer.MAX_VALUE;
     private static final int MAX_FILE_BASENAME_LENGTH = 80;
     private static final int MAX_CONTEXT_SEGMENT_LENGTH = 120;
 
@@ -78,6 +83,11 @@ public class TrackerConfig {
 
     /** Global HUD visibility toggle. */
     public boolean hudVisible = true;
+    public boolean notifyResources = true;
+    public boolean notifyLists = true;
+    /** 0: silent, 1: soft pickup, 2: level-up. */
+    public int completionSound = 1;
+    public int completionVolume = 70;
 
     /** Set after legacy JSON lists have been copied to an active context. */
     public boolean legacyListsMigrated = false;
@@ -174,6 +184,8 @@ public class TrackerConfig {
         }
     }
 
+    public enum CountUnit { ITEMS, STACKS, SHULKERS }
+
     public static class TrackingList {
         public String id = UUID.randomUUID().toString();
         public String name = "New List";
@@ -188,17 +200,48 @@ public class TrackerConfig {
         public int nameColor = 0xFFF0F0E6;
         public int backgroundColor = 0xA020231F;
         public List<TrackedItem> items = new ArrayList<>();
+        public boolean hudRaw;
+        public CountUnit countUnit = CountUnit.ITEMS;
+        public boolean hideCompleted;
+        public boolean sortRemaining;
+        public int maxVisibleRows;
+        public Map<String, String> recipeChoices = new LinkedHashMap<>();
+        public Map<String, String> ingredientChoices = new LinkedHashMap<>();
+        public Set<String> terminalItems = new LinkedHashSet<>();
+        public Map<String, RawState> rawState = new LinkedHashMap<>();
+        public transient List<TrackedItem> rawItems = new ArrayList<>();
+        public transient List<String> rawDiagnostics = new ArrayList<>();
+        public transient boolean rawPlanValid;
 
         public transient String storageFileName = null;
+
+        public List<TrackedItem> getRawItems() {
+            return rawItems == null ? List.of() : rawItems;
+        }
+
+        public List<TrackedItem> displayItems() {
+            return hudRaw ? getRawItems() : items;
+        }
+
+        /** Capture only user intent, never derived quantities or observed inventory. */
+        public void captureRawState() {
+            if (rawItems == null) return;
+            for (TrackedItem item : rawItems) {
+                if (item.manuallyCollectedTarget != 0 || item.pinned) {
+                    rawState.put(item.itemId, new RawState(item.manuallyCollectedTarget, item.pinned));
+                } else rawState.remove(item.itemId);
+            }
+        }
 
         public Progress progress() {
             int completed = 0;
             int total = 0;
-            if (items == null) return new Progress(0, 0);
-            for (TrackedItem item : items) {
+            List<TrackedItem> displayed = displayItems();
+            if (displayed == null) return new Progress(0, 0);
+            for (TrackedItem item : displayed) {
                 if (item == null || !item.isValid()) continue;
                 total++;
-                if (item.cachedCount >= item.targetCount) completed++;
+                if (item.isCompleted()) completed++;
             }
             return new Progress(completed, total);
         }
@@ -206,19 +249,23 @@ public class TrackerConfig {
         public record Progress(int completed, int total) {}
     }
 
-    public static class TrackedItem {
-        public String itemId;
-        public int targetCount;
+    public static class RawState {
+        public int collectedTarget;
+        public boolean pinned;
+        public RawState(int collectedTarget, boolean pinned) {
+            this.collectedTarget = collectedTarget;
+            this.pinned = pinned;
+        }
+    }
 
-        public transient int cachedCount = 0;
+    public static class TrackedItem extends ResourceState {
         private transient Item cachedItem = null;
         private transient ItemStack cachedStack = null;
         private transient String displayName = null;
         private transient Boolean validItemId = null;
 
         public TrackedItem(String itemId, int targetCount) {
-            this.itemId = itemId;
-            this.targetCount = targetCount;
+            super(itemId, targetCount);
         }
 
         public Item getItem() {
@@ -253,6 +300,7 @@ public class TrackerConfig {
     }
 
     public static void load() {
+        TrackerHistory.clear();
         loadStatus = ConfigLoadStatus.NOT_LOADED;
         globalWriteBlocked = false;
         recoveryBackupPath = null;
@@ -291,6 +339,10 @@ public class TrackerConfig {
         }
         for (TrackingList list : loaded.lists) upgradeLegacyPalette(list);
         INSTANCE.hudVisible = loaded.hudVisible;
+        INSTANCE.notifyResources = loaded.notifyResources;
+        INSTANCE.notifyLists = loaded.notifyLists;
+        INSTANCE.completionSound = Math.max(0, Math.min(2, loaded.completionSound));
+        INSTANCE.completionVolume = Math.max(0, Math.min(100, loaded.completionVolume));
         INSTANCE.legacyListsMigrated = loaded.legacyListsMigrated;
         INSTANCE.legacyListsMigratedToActiveContext = loaded.legacyListsMigratedToActiveContext;
         INSTANCE.legacyMigrationTargetContextKey = loaded.legacyMigrationTargetContextKey;
@@ -364,6 +416,7 @@ public class TrackerConfig {
         if (activeContext.equals(context)) return;
 
         saveAllActiveContextLists();
+        TrackerHistory.clear();
         activeContext = context;
         INSTANCE.lists = new ArrayList<>();
         if (!activeContext.isNone()) {
@@ -388,11 +441,15 @@ public class TrackerConfig {
             for (TrackedItem item : list.items) {
                 if (item != null) item.displayName = null;
             }
+            for (TrackedItem item : list.getRawItems()) {
+                if (item != null) item.displayName = null;
+            }
         }
     }
 
     public static void reloadActiveContextLists() {
         if (activeContext.isNone()) return;
+        TrackerHistory.clear();
         INSTANCE.lists = new ArrayList<>();
         loadActiveContextLists();
     }
@@ -433,6 +490,11 @@ public class TrackerConfig {
         list.showRemaining = INSTANCE.defaultShowRemaining;
         list.showIcons = INSTANCE.defaultShowIcons;
         list.columns = clampColumns(INSTANCE.defaultColumns);
+        list.hudRaw = false;
+        list.countUnit = CountUnit.ITEMS;
+        list.hideCompleted = false;
+        list.sortRemaining = false;
+        list.maxVisibleRows = 0;
         list.textColor = INSTANCE.defaultTextColor;
         list.nameColor = INSTANCE.defaultNameColor;
         list.backgroundColor = INSTANCE.defaultBackgroundColor;
@@ -523,6 +585,10 @@ public class TrackerConfig {
         try {
             GlobalSettings settings = new GlobalSettings();
             settings.hudVisible = INSTANCE.hudVisible;
+            settings.notifyResources = INSTANCE.notifyResources;
+            settings.notifyLists = INSTANCE.notifyLists;
+            settings.completionSound = INSTANCE.completionSound;
+            settings.completionVolume = INSTANCE.completionVolume;
             settings.legacyListsMigrated = INSTANCE.legacyListsMigrated;
             settings.legacyListsMigratedToActiveContext = INSTANCE.legacyListsMigratedToActiveContext;
             settings.legacyMigrationTargetContextKey = INSTANCE.legacyMigrationTargetContextKey;
@@ -665,29 +731,31 @@ public class TrackerConfig {
         TrackingList list = new TrackingList();
         list.items.clear();
         list.storageFileName = file.getFileName().toString();
-        boolean inItems = false;
+        String section = "";
+        ListMetadata metadata = new ListMetadata();
 
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) continue;
-                if (line.equalsIgnoreCase("[items]")) {
-                    inItems = true;
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    section = line.substring(1, line.length() - 1).toLowerCase(Locale.ROOT);
                     continue;
                 }
                 int eq = line.indexOf('=');
                 if (eq <= 0) continue;
                 String key = line.substring(0, eq).trim();
                 String value = line.substring(eq + 1).trim();
-                if (inItems) {
+                if (section.equals("items")) {
                     int target = parseInt(value, 1);
                     list.items.add(new TrackedItem(key, clampTargetCount(target)));
-                } else {
+                } else if (section.isEmpty()) {
                     applyListProperty(list, key, value);
-                }
+                } else metadata.put(section, key, value);
             }
         }
+        applyMetadata(list, metadata);
         if (list.id == null || list.id.isBlank()) list.id = UUID.randomUUID().toString();
         if (list.name == null || list.name.isBlank()) list.name = stripTxt(file.getFileName().toString());
         upgradeLegacyPalette(list);
@@ -734,7 +802,8 @@ public class TrackerConfig {
             list.storageFileName = existingBeforeWrite.getFileName().toString();
         }
         try {
-            StringBuilder contents = new StringBuilder("# ResourceTracker list v1\n")
+            list.captureRawState();
+            StringBuilder contents = new StringBuilder("# ResourceTracker list v2\n")
                     .append("id=").append(safe(list.id)).append('\n')
                     .append("name=").append(safe(list.name)).append('\n')
                     .append("visible=").append(list.isVisible).append('\n')
@@ -743,10 +812,16 @@ public class TrackerConfig {
                     .append("scale=").append(list.scale).append('\n')
                     .append("showRemaining=").append(list.showRemaining).append('\n')
                     .append("showIcons=").append(list.showIcons).append('\n')
+                    .append("hudRaw=").append(list.hudRaw).append('\n')
+                    .append("countUnit=").append(list.countUnit.name()).append('\n')
+                    .append("hideCompleted=").append(list.hideCompleted).append('\n')
+                    .append("sortRemaining=").append(list.sortRemaining).append('\n')
+                    .append("maxVisibleRows=").append(list.maxVisibleRows).append('\n')
                     .append("columns=").append(list.columns).append('\n')
                     .append("textColor=").append(colorToHex(list.textColor)).append('\n')
                     .append("nameColor=").append(colorToHex(list.nameColor)).append('\n')
-                    .append("backgroundColor=").append(colorToHex(list.backgroundColor)).append("\n\n[items]\n");
+                    .append("backgroundColor=").append(colorToHex(list.backgroundColor)).append('\n')
+                    .append(metadataFor(list).encode()).append("\n[items]\n");
             for (TrackedItem item : list.items) {
                 if (item.itemId != null && !item.itemId.isBlank()) {
                     contents.append(safe(item.itemId)).append('=').append(clampTargetCount(item.targetCount)).append('\n');
@@ -758,6 +833,31 @@ public class TrackerConfig {
             e.printStackTrace();
             return false;
         }
+    }
+
+    private static ListMetadata metadataFor(TrackingList list) {
+        ListMetadata metadata = new ListMetadata();
+        metadata.putItemStates(list.items);
+        list.rawState.forEach((id, state) -> metadata.put("raw-state", id,
+                state.collectedTarget + "|" + state.pinned));
+        list.recipeChoices.forEach((id, choice) -> metadata.put("recipes", id, choice));
+        list.ingredientChoices.forEach((id, choice) -> metadata.put("ingredients", id, choice));
+        list.terminalItems.forEach(id -> metadata.put("terminals", id, "true"));
+        return metadata;
+    }
+
+    private static void applyMetadata(TrackingList list, ListMetadata metadata) {
+        metadata.applyItemStates(list.items);
+        metadata.section("raw-state").forEach((id, value) -> {
+            String[] parts = value.split("\\|", -1);
+            if (parts.length == 2) list.rawState.put(id,
+                    new RawState(Math.max(0, parseInt(parts[0], 0)), Boolean.parseBoolean(parts[1])));
+        });
+        list.recipeChoices.putAll(metadata.section("recipes"));
+        list.ingredientChoices.putAll(metadata.section("ingredients"));
+        metadata.section("terminals").forEach((id, value) -> {
+            if (Boolean.parseBoolean(value)) list.terminalItems.add(id);
+        });
     }
 
     private static boolean listWithIdExists(Path dir, String id) {
@@ -835,6 +935,14 @@ public class TrackerConfig {
             case "scale" -> list.scale = clampScale(parseFloat(value, list.scale));
             case "showRemaining" -> list.showRemaining = Boolean.parseBoolean(value);
             case "showIcons" -> list.showIcons = Boolean.parseBoolean(value);
+            case "hudRaw" -> list.hudRaw = Boolean.parseBoolean(value);
+            case "countUnit" -> {
+                try { list.countUnit = CountUnit.valueOf(value); }
+                catch (IllegalArgumentException ignored) { list.countUnit = CountUnit.ITEMS; }
+            }
+            case "hideCompleted" -> list.hideCompleted = Boolean.parseBoolean(value);
+            case "sortRemaining" -> list.sortRemaining = Boolean.parseBoolean(value);
+            case "maxVisibleRows" -> list.maxVisibleRows = Math.max(0, parseInt(value, 0));
             case "columns" -> list.columns = clampColumns(parseInt(value, list.columns));
             case "textColor" -> list.textColor = parseColor(value, list.textColor);
             case "nameColor" -> list.nameColor = parseColor(value, list.nameColor);
@@ -947,12 +1055,21 @@ public class TrackerConfig {
         if (list.name == null || list.name.isBlank()) list.name = "New List";
         list.scale = clampScale(list.scale);
         list.columns = clampColumns(list.columns);
+        list.maxVisibleRows = Math.max(0, list.maxVisibleRows);
+        if (list.countUnit == null) list.countUnit = CountUnit.ITEMS;
+        if (list.recipeChoices == null) list.recipeChoices = new LinkedHashMap<>();
+        if (list.ingredientChoices == null) list.ingredientChoices = new LinkedHashMap<>();
+        if (list.terminalItems == null) list.terminalItems = new LinkedHashSet<>();
+        if (list.rawState == null) list.rawState = new LinkedHashMap<>();
+        if (list.rawItems == null) list.rawItems = new ArrayList<>();
+        if (list.rawDiagnostics == null) list.rawDiagnostics = new ArrayList<>();
 
         List<TrackedItem> normalizedItems = new ArrayList<>();
         if (list.items != null) {
             for (TrackedItem item : list.items) {
                 if (item == null) continue;
                 item.targetCount = clampTargetCount(item.targetCount);
+                item.validateCollected();
                 normalizedItems.add(item);
             }
         }
@@ -1056,6 +1173,10 @@ public class TrackerConfig {
     private static class GlobalSettings {
         List<TrackingList> lists = new ArrayList<>();
         boolean hudVisible = true;
+        boolean notifyResources = true;
+        boolean notifyLists = true;
+        int completionSound = 1;
+        int completionVolume = 70;
         boolean legacyListsMigrated = false;
         boolean legacyListsMigratedToActiveContext = false;
         String legacyMigrationTargetContextKey = null;

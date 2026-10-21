@@ -25,6 +25,7 @@ apply plugin: named ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-rem
 
 def loaderVersion = named ? (project.name == 'mc261' ? '0.18.6' : project.name == 'mc262' ? '0.19.3' : '0.19.5') : '0.19.5'
 def generated = layout.buildDirectory.dir('generated/sources/platform/java')
+def generatedResources = layout.buildDirectory.dir('generated/resources/platform')
 def originalRoot = 'net/fabricmc/resourcetracker/'
 def sourceRoot = rootProject.file('src/main/java')
 def compatRoot = rootProject.file("src/compat/${target[1]}/java")
@@ -32,7 +33,28 @@ def namespace = "net.fabricmc.resourcetracker.platform.${project.name}"
 configurations.create('smokeMods')
 
 sourceSets.main.java.srcDir generated
-sourceSets.main.resources.srcDirs = []
+sourceSets.main.resources.srcDirs = [generatedResources]
+
+tasks.register('generatePlatformMixinConfig') {
+    def template = rootProject.file('src/main/resources/resourcetracker.quickadd.mixins.json')
+    inputs.file template
+    inputs.property('namespace', namespace)
+    outputs.dir generatedResources
+    doLast {
+        def config = new groovy.json.JsonSlurper().parse(template, 'UTF-8')
+        config.package = "${namespace}.mixin".toString()
+        // Enumerate only the active profile in the plugin, before Mixin reads any
+        // incompatible targets or Java 25 bytecode from another payload.
+        config.client = []
+        config.plugin = 'net.fabricmc.resourcetracker.bootstrap.QuickAddMixinPlugin'
+        def output = new File(generatedResources.get().asFile,
+                "resourcetracker.${project.name}.quickadd.mixins.json")
+        output.parentFile.mkdirs()
+        output.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(config)) + '\n', 'UTF-8')
+    }
+}
+
+tasks.named('processResources') { dependsOn tasks.named('generatePlatformMixinConfig') }
 
 tasks.register('generatePlatformSources') {
     inputs.files(rootProject.fileTree(sourceRoot) { include '**/*.java' })

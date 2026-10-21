@@ -112,7 +112,7 @@ public class SettingsScreen extends Screen {
             TrackerConfig.resetDefaultListSettings();
             init();
         }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
-        return y + 28;
+        return notifications(y + 28);
     }
 
     private int appearance(int y) {
@@ -131,6 +131,37 @@ public class SettingsScreen extends Screen {
             y += 34;
         }
         return wrapLabel(y + 6, Component.translatable("gui.resourcetracker.settings.color_note"), UiTheme.MUTED);
+    }
+
+
+    private int notifications(int y) {
+        y = wrapLabel(y + 8, Component.translatable("gui.resourcetracker.notifications.settings"), UiTheme.ACCENT) + 6;
+        addContent(TrackerButton.builder(notificationToggle("resource_setting", TrackerConfig.INSTANCE.notifyResources), b -> {
+            TrackerConfig.INSTANCE.notifyResources = !TrackerConfig.INSTANCE.notifyResources;
+            b.setMessage(notificationToggle("resource_setting", TrackerConfig.INSTANCE.notifyResources));
+        }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
+        y += 26;
+        addContent(TrackerButton.builder(notificationToggle("list_setting", TrackerConfig.INSTANCE.notifyLists), b -> {
+            TrackerConfig.INSTANCE.notifyLists = !TrackerConfig.INSTANCE.notifyLists;
+            b.setMessage(notificationToggle("list_setting", TrackerConfig.INSTANCE.notifyLists));
+        }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
+        y += 26;
+        addContent(TrackerButton.builder(notificationSoundLabel(), b -> {
+            TrackerConfig.INSTANCE.completionSound = (TrackerConfig.INSTANCE.completionSound + 1) % 3;
+            b.setMessage(notificationSoundLabel());
+        }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
+        return intField(y + 28, "gui.resourcetracker.notifications.volume", TrackerConfig.INSTANCE.completionVolume,
+                0, 100, "gui.resourcetracker.notifications.volume_validation", value -> TrackerConfig.INSTANCE.completionVolume = value);
+    }
+
+    private Component notificationToggle(String key, boolean enabled) {
+        return Component.translatable("gui.resourcetracker.notifications." + key,
+                Component.translatable(enabled ? "options.on" : "options.off"));
+    }
+
+    private Component notificationSoundLabel() {
+        return Component.translatable("gui.resourcetracker.notifications.sound_setting",
+                Component.translatable("gui.resourcetracker.notifications.sound." + TrackerConfig.INSTANCE.completionSound));
     }
 
     private int files(int y) {

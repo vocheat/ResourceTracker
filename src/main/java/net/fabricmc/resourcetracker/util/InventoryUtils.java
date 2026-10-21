@@ -66,9 +66,13 @@ public class InventoryUtils {
     /**
      * Counts all target items with one inventory traversal.
      */
+    public static Map<Item, Integer> countAllItems(Player player) {
+        return countItems(player, (Set<Item>) null);
+    }
+
     public static Map<Item, Integer> countItems(Player player, Set<Item> targetItems) {
         Map<Item, Integer> counts = new HashMap<>();
-        if (player == null || targetItems == null || targetItems.isEmpty()) return counts;
+        if (player == null || (targetItems != null && targetItems.isEmpty())) return counts;
 
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
@@ -95,7 +99,7 @@ public class InventoryUtils {
         if (stack == null || stack.isEmpty()) return;
 
         Item item = stack.getItem();
-        if (targetItems.contains(item)) {
+        if (targetItems == null || targetItems.contains(item)) {
             addSaturatedCount(counts, item, stack.getCount());
         }
 

@@ -27,6 +27,7 @@ package net.fabricmc.resourcetracker.client.gui;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
+import net.fabricmc.resourcetracker.config.TrackerHistory;
 import net.fabricmc.resourcetracker.client.render.HudRenderCache;
 import net.fabricmc.resourcetracker.client.render.HudRenderModel;
 import net.fabricmc.resourcetracker.client.render.HudRenderer;
@@ -94,6 +95,7 @@ public class EditScreen extends Screen {
     private final List<Button> itemTabButtons = new ArrayList<>();
     private final List<Button> availableActionButtons = new ArrayList<>();
     private final List<Button> removeActionButtons = new ArrayList<>();
+    private final List<Button> statusActionButtons = new ArrayList<>();
     private final List<Integer> availableProxyIndices = new ArrayList<>();
     private final List<Integer> removeProxyIndices = new ArrayList<>();
     private int availableFocusIndex = -1;
@@ -125,12 +127,14 @@ public class EditScreen extends Screen {
     private int styleX, styleTop, styleWidth, styleHeight, styleScroll;
     private int previewX, previewY, previewWidth, previewHeight;
     private int previewZoom = 2;
-    private static final int STYLE_CONTENT_HEIGHT = 276;
+    private static final int STYLE_CONTENT_HEIGHT = 404;
     private final List<Button> previewZoomButtons = new ArrayList<>();
     private final Map<net.minecraft.client.gui.components.AbstractWidget, Integer> styleWidgetY = new IdentityHashMap<>();
     private final List<LabelData> styleLabels = new ArrayList<>();
     private final List<Button> colorButtons = new ArrayList<>();
     private final Set<String> trackedItemIds = new HashSet<>();
+    private Button undoButton;
+    private boolean undoShortcutDown;
 
     private record LabelData(Component text, int x, int y, int color) {}
 
@@ -142,6 +146,7 @@ public class EditScreen extends Screen {
 
     @Override
     protected void init() {
+        TrackerHistory.endCountChange(list);
         String availableQuery = searchField == null ? "" : searchField.getValue();
         String trackedQuery = trackedSearchField == null ? "" : trackedSearchField.getValue();
         double previousLeft = scrollLeft, previousRight = scrollRight;
@@ -152,6 +157,7 @@ public class EditScreen extends Screen {
         itemTabButtons.clear();
         availableActionButtons.clear();
         removeActionButtons.clear();
+        statusActionButtons.clear();
         styleWidgetY.clear();
         styleLabels.clear();
         previewZoomButtons.clear();
@@ -188,11 +194,14 @@ public class EditScreen extends Screen {
         nameField.setResponder(value -> list.name = value);
         addRenderableWidget(nameField);
 
-        int tabWidth = Math.min(150, (innerWidth - 6) / 2);
+        int tabWidth = Math.min(150, (innerWidth - 12) / 3);
         addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.items"), b -> switchTab(false))
                 .bounds(innerX, windowTop + 54, tabWidth, 20).build());
+        addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.raw"), b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new RawMaterialsScreen(this, list));
+        }).bounds(innerX + tabWidth + 6, windowTop + 54, tabWidth, 20).build());
         addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.appearance"), b -> switchTab(true))
-                .bounds(innerX + tabWidth + 6, windowTop + 54, tabWidth, 20).build());
+                .bounds(innerX + (tabWidth + 6) * 2, windowTop + 54, tabWidth, 20).build());
 
         searchField = new EditBox(font, leftBoxX + 6, leftBoxY + 7, boxWidth - 38, 16,
                 Component.translatable("gui.resourcetracker.edit.search"));
@@ -230,13 +239,18 @@ public class EditScreen extends Screen {
                 labels.add(new LabelData(Component.translatable("gui.resourcetracker.edit.target_header"), rightBoxX + boxWidth - 94, listAreaY - 12, UiTheme.MUTED));
             }
             addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.clear"), b -> confirmClear())
-                    .bounds(innerX, footerY, Math.min(138, innerWidth - 96), 20).build());
+                    .bounds(innerX, footerY, Math.max(1, (innerWidth - 12) / 3), 20).build());
         } else {
             buildStyleControls(innerX, innerWidth);
         }
 
+        int footerButtonWidth = Math.max(1, (innerWidth - 12) / 3);
+        undoButton = addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.undo"), b -> undo())
+                .bounds(innerX + footerButtonWidth + 6, footerY, footerButtonWidth, 20).build());
+        undoButton.active = TrackerHistory.canUndo(list);
+        undoButton.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.undo_hint")));
         addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
-                .bounds(windowX + windowWidth - 92, footerY, 80, 20).primary().build());
+                .bounds(innerX + innerWidth - footerButtonWidth, footerY, footerButtonWidth, 20).primary().build());
         refreshCountWidgets();
         updateSearch(availableQuery);
         updateTrackedSearch(trackedQuery);
@@ -247,6 +261,21 @@ public class EditScreen extends Screen {
         scrollLeft = previousLeft;
         scrollRight = previousRight;
         updateStyleWidgets();
+    }
+
+    private void undo() {
+        if (TrackerHistory.undo(list)) init();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (undoButton != null) undoButton.active = TrackerHistory.canUndo(list);
+        if (minecraft == null) return;
+        // Polling keeps this shortcut shared across the supported keyboard-event APIs.
+        boolean down = VersionCompat.isUndoPressed(minecraft);
+        if (down && !undoShortcutDown) undo();
+        undoShortcutDown = down;
     }
 
     private void switchTab(boolean appearance) {
@@ -261,6 +290,7 @@ public class EditScreen extends Screen {
         if (minecraft == null) return;
         minecraft.gui.setScreen(new ConfirmScreen(confirmed -> {
             if (confirmed) {
+                TrackerHistory.record(list);
                 list.items.clear();
                 trackedItemIds.clear();
                 scrollRight = 0;
@@ -293,6 +323,29 @@ public class EditScreen extends Screen {
             previewZoomButtons.add(button);
         }
         int x = styleX + 8, controlWidth = styleWidth - 16;
+
+        addStyleWidget(TrackerButton.builder(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), b -> {
+            list.hudRaw = !list.hudRaw;
+            b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
+            net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+        }).bounds(x, styleTop + 276, controlWidth, 20).build());
+        addStyleWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.units." + list.countUnit.name().toLowerCase(java.util.Locale.ROOT)), b -> {
+            TrackerConfig.CountUnit[] units = TrackerConfig.CountUnit.values();
+            list.countUnit = units[(list.countUnit.ordinal() + 1) % units.length];
+            b.setMessage(Component.translatable("gui.resourcetracker.edit.units." + list.countUnit.name().toLowerCase(java.util.Locale.ROOT)));
+        }).bounds(x, styleTop + 300, controlWidth, 20).build());
+        addStyleWidget(TrackerButton.builder(Component.translatable(list.hideCompleted ? "gui.resourcetracker.edit.hide_completed" : "gui.resourcetracker.edit.show_completed"), b -> {
+            list.hideCompleted = !list.hideCompleted;
+            b.setMessage(Component.translatable(list.hideCompleted ? "gui.resourcetracker.edit.hide_completed" : "gui.resourcetracker.edit.show_completed"));
+        }).bounds(x, styleTop + 324, controlWidth, 20).build());
+        addStyleWidget(TrackerButton.builder(Component.translatable(list.sortRemaining ? "gui.resourcetracker.edit.sort_remaining" : "gui.resourcetracker.edit.sort_original"), b -> {
+            list.sortRemaining = !list.sortRemaining;
+            b.setMessage(Component.translatable(list.sortRemaining ? "gui.resourcetracker.edit.sort_remaining" : "gui.resourcetracker.edit.sort_original"));
+        }).bounds(x, styleTop + 348, controlWidth, 20).build());
+        styleLabels.add(new LabelData(Component.translatable("gui.resourcetracker.edit.max_rows"), x, styleTop + 376, UiTheme.MUTED));
+        addStyleWidget(createIntField(x + controlWidth - 44, styleTop + 374, 44, list.maxVisibleRows, 0, 100000,
+                Component.translatable("gui.resourcetracker.validation.max_rows"), value -> list.maxVisibleRows = value));
+
         styleLabels.add(new LabelData(Component.translatable("gui.resourcetracker.edit.group_position"), x, styleTop + 8, UiTheme.TEXT));
         styleLabels.add(new LabelData(Component.translatable("gui.resourcetracker.edit.group_display"), x, styleTop + 60, UiTheme.TEXT));
         styleLabels.add(new LabelData(Component.translatable("gui.resourcetracker.edit.group_colors"), x, styleTop + 154, UiTheme.TEXT));
@@ -391,8 +444,8 @@ public class EditScreen extends Screen {
         context.fill(windowX, windowTop, windowX + windowWidth, height - 12, UiTheme.WINDOW);
         RenderUtils.drawBoxOutline(context, windowX, windowTop, windowWidth, height - windowTop - 12);
         context.text(font, title, windowX + 12, windowTop + 10, UiTheme.TEXT, true);
-        int tabWidth = Math.min(150, (windowWidth - 30) / 2);
-        int activeX = windowX + 12 + (showPreview ? tabWidth + 6 : 0);
+        int tabWidth = Math.min(150, (windowWidth - 36) / 3);
+        int activeX = windowX + 12 + (showPreview ? (tabWidth + 6) * 2 : 0);
         context.fill(activeX, windowTop + 75, activeX + tabWidth, windowTop + 77, UiTheme.ACCENT);
 
 
@@ -518,7 +571,8 @@ public class EditScreen extends Screen {
                     boolean valid = v != null && v >= 1 && v <= TrackerConfig.MAX_TARGET_COUNT;
                     markFieldValidity(countField, valid, Component.translatable("gui.resourcetracker.validation.target_count"));
                     if (valid) {
-                        item.targetCount = v;
+                        if (item.targetCount != v) TrackerHistory.recordCountChange(list, item);
+                        item.setTargetCount(v);
                         net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
                     }
                 });
@@ -586,8 +640,10 @@ public class EditScreen extends Screen {
     private void rebuildItemActionButtons() {
         for (Button button : availableActionButtons) removeWidget(button);
         for (Button button : removeActionButtons) removeWidget(button);
+        for (Button button : statusActionButtons) removeWidget(button);
         availableActionButtons.clear();
         removeActionButtons.clear();
+        statusActionButtons.clear();
         availableProxyIndices.clear();
         removeProxyIndices.clear();
 
@@ -609,6 +665,20 @@ public class EditScreen extends Screen {
             addRenderableWidget(button);
             removeActionButtons.add(button);
             removeProxyIndices.add(-1);
+            for (int action = 0; action < 2; action++) {
+                final boolean pin = action == 1;
+                Button status = TrackerButton.builder(Component.empty(), b -> {
+                    int index = removeProxyIndices.get(proxySlot);
+                    if (index < 0 || index >= filteredTrackedItems.size()) return;
+                    TrackerConfig.TrackedItem item = filteredTrackedItems.get(index);
+                    TrackerHistory.record(list);
+                    if (pin) item.pinned = !item.pinned; else item.toggleCollected();
+                    net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+                }).bounds(rightBoxX, rightBoxY, 18, 20).build();
+                status.setAlpha(0.0F);
+                addRenderableWidget(status);
+                statusActionButtons.add(status);
+            }
         }
         resetAvailableFocus();
         resetTrackedFocus();
@@ -663,6 +733,7 @@ public class EditScreen extends Screen {
         if (showPreview) {
             for (Button button : availableActionButtons) button.visible = false;
             for (Button button : removeActionButtons) button.visible = false;
+            for (Button button : statusActionButtons) button.visible = false;
             return;
         }
         int leftStart = leftBoxY + SEARCH_HEIGHT + 2;
@@ -724,6 +795,20 @@ public class EditScreen extends Screen {
                 button.visible = false;
             }
         }
+        for (int slot = 0; slot < removeActionButtons.size(); slot++) {
+            Button remove = removeActionButtons.get(slot);
+            int index = removeProxyIndices.get(slot);
+            for (int action = 0; action < 2; action++) {
+                Button status = statusActionButtons.get(slot * 2 + action);
+                status.visible = remove.visible;
+                status.setX(rightBoxX + boxWidth - 136 + action * 20);
+                status.setY(remove.getY() + 4);
+                if (index >= 0 && index < filteredTrackedItems.size()) {
+                    status.setMessage(Component.translatable(action == 0 ? "gui.resourcetracker.edit.mark_collected" : "gui.resourcetracker.edit.pin"));
+                    status.setTooltip(Tooltip.create(status.getMessage()));
+                }
+            }
+        }
     }
 
     private void focusLogicalItem(boolean tracked, int index) {
@@ -783,6 +868,7 @@ public class EditScreen extends Screen {
 
     @Override
     public void setFocused(net.minecraft.client.gui.components.events.GuiEventListener focused) {
+        if (getFocused() != focused) TrackerHistory.endCountChange(list);
         if (showPreview && focused instanceof net.minecraft.client.gui.components.AbstractWidget widget && styleWidgetY.containsKey(widget)) {
             int baseY = styleWidgetY.get(widget);
             if (baseY - styleScroll < styleTop + 2) styleScroll = baseY - styleTop - 2;
@@ -807,6 +893,7 @@ public class EditScreen extends Screen {
         if (this.minecraft == null) return;
         this.minecraft.gui.setScreen(new ConfirmScreen(confirmed -> {
             if (confirmed) {
+                TrackerHistory.record(list);
                 list.items.remove(item);
                 trackedItemIds.remove(item.itemId);
                 refreshCountWidgets();
@@ -914,8 +1001,11 @@ public class EditScreen extends Screen {
                 context.text(font, Component.literal("!"), x + 9, cy + 10, 0xFFFF5555, true);
             }
             String display = valid ? trackedItem.getDisplayName() : Component.translatable("gui.resourcetracker.edit.invalid_item", trackedItem.itemId).getString();
-            String txt = RenderUtils.shortenText(font, display, w - 126);
+            String txt = RenderUtils.shortenText(font, display, Math.max(0, w - 164));
             context.text(font, Component.literal(txt), x + 24, cy + 10, valid ? 0xFFFFFFFF : 0xFFFF7777, true);
+
+            context.text(font, itemStatus(trackedItem, false), x + w - 132, cy + 10, trackedItem.isManuallyCollected() ? UiTheme.ACCENT : UiTheme.MUTED, false);
+            context.text(font, itemStatus(trackedItem, true), x + w - 112, cy + 10, trackedItem.pinned ? UiTheme.ACCENT : UiTheme.MUTED, false);
 
             int crossX = x + w - 36;
             int crossY = cy + 2;
@@ -1177,10 +1267,15 @@ public class EditScreen extends Screen {
 
     @Override
     public void onClose() {
+        TrackerHistory.endCountChange(list);
         TrackerConfig.saveList(list);
         net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
         if (parent instanceof MainScreen main) main.init();
         this.minecraft.gui.setScreen(parent);
+    }
+
+    private String itemStatus(TrackerConfig.TrackedItem item, boolean pin) {
+        return pin ? (item.pinned ? "\u2605" : "\u2606") : (item.isManuallyCollected() ? "\u2713" : "\u25cb");
     }
 
     private void addItem(Item item) {
@@ -1191,6 +1286,7 @@ public class EditScreen extends Screen {
             }
         }
 
+        TrackerHistory.record(list);
         list.items.add(new TrackerConfig.TrackedItem(id, 1));
             trackedItemIds.add(id);
         net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
