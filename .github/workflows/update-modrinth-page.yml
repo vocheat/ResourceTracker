@@ -1,0 +1,44 @@
+name: Update Modrinth project page
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release containing resourcetracker-modrinth-page.zip
+        required: true
+        default: v1.5
+        type: string
+
+concurrency:
+  group: modrinth-project-page
+  cancel-in-progress: false
+
+jobs:
+  update-page:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download approved page assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p page-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern resourcetracker-modrinth-page.zip --dir page-assets
+
+      - name: Publish and verify description and gallery
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: python .github/scripts/update_modrinth_page.py page-assets/resourcetracker-modrinth-page.zip --output page-result
+
+      - name: Save page backup and publication result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modrinth-page-result
+          path: page-result/
+          if-no-files-found: ignore
