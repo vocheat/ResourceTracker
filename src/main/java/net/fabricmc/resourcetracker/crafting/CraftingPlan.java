@@ -15,6 +15,16 @@ import java.util.TreeSet;
 
 /** Pure planner. Every count is an exact long; a failed plan never contains partial totals. */
 public final class CraftingPlan {
+    // Collection boundaries are deliberate, not inferred from the existence of a recipe.
+    // Like EMI's vanilla defaults, keep leather, wool, dyes and ordinary metals as materials;
+    // their processing recipes remain available through an explicit recipe choice.
+    private static final Set<String> BASE_MATERIALS = Set.of(
+            "minecraft:leather", "minecraft:stone", "minecraft:cobblestone", "minecraft:deepslate",
+            "minecraft:cobbled_deepslate", "minecraft:blackstone", "minecraft:basalt",
+            "minecraft:end_stone", "minecraft:netherrack", "minecraft:coal", "minecraft:diamond",
+            "minecraft:emerald", "minecraft:lapis_lazuli", "minecraft:redstone", "minecraft:quartz",
+            "minecraft:raw_iron", "minecraft:raw_gold", "minecraft:raw_copper");
+
     private CraftingPlan() { }
 
     public record Leaf(String itemId, long required, long available) {
@@ -22,7 +32,7 @@ public final class CraftingPlan {
     }
 
     public record Option(String itemId, List<RecipeIndex.Recipe> recipes,
-                         String selectedRecipeId, boolean stopped) {
+                         String selectedRecipeId, boolean stopped, boolean defaultStopped) {
         public Option { recipes = List.copyOf(recipes); }
     }
 
@@ -59,10 +69,12 @@ public final class CraftingPlan {
         private final Map<String, RecipeIndex.Recipe> selected = new HashMap<>();
         private final Map<String, Map<String, Long>> ingredients = new HashMap<>();
         private final Map<String, List<ResolvedIngredient>> resolvedIngredients = new HashMap<>();
+        private final Map<String, Long> seeds = new HashMap<>();
         private final Set<String> visiting = new LinkedHashSet<>();
         private final Set<String> visited = new HashSet<>();
         private final List<String> order = new ArrayList<>();
         private Map<String, Long> preferenceInventory = Map.of();
+        private Map<String, Long> demandHints = Map.of();
 
         Planner(RecipeIndex index, Map<String, String> recipeChoices,
                 Map<String, String> ingredientChoices, Set<String> stops) {
@@ -94,12 +106,24 @@ public final class CraftingPlan {
                 demands.put(entry.getKey(), entry.getValue());
                 reserved.put(entry.getKey(), take(inventory, entry.getKey(), entry.getValue()));
             }
-            // Selection is only a preference. The allocation ledger below consumes each stack once.
-            preferenceInventory = Map.copyOf(inventory);
-            for (String item : new TreeSet<>(demands.keySet())) visit(item);
-            scheduleSupplies();
+            int initialDiagnostics = diagnostics.size();
+            selectRoutes(demands, reserved, inventory);
+            // Reconsider shared children once their parents' demands have accumulated. This
+            // bounded second pass avoids choosing a four-item route for a combined eight-item need.
+            demandHints = forecastDemands(demands, reserved, inventory);
+            options.clear();
+            selected.clear();
+            ingredients.clear();
+            resolvedIngredients.clear();
+            seeds.clear();
+            visited.clear();
+            visiting.clear();
+            order.clear();
+            diagnostics.subList(initialDiagnostics, diagnostics.size()).clear();
+            selectRoutes(demands, reserved, inventory);
             Map<String, Leaf> leaves = new TreeMap<>();
             Map<String, Long> leftovers = new HashMap<>();
+            Map<String, Long> craftedStockLeaves = new TreeMap<>();
             for (String item : order) {
                 long demand = demands.getOrDefault(item, 0L);
                 if (demand == 0) continue;
@@ -111,9 +135,21 @@ public final class CraftingPlan {
                 if (recipe == null) {
                     if (demand > recycled) leaves.put(item, new Leaf(item, demand - recycled, held));
                 } else if (needed > 0) {
+                    long seed = seeds.getOrDefault(item, 0L);
+                    if (seed > 0) {
+                        // A duplication recipe returns its input seed together with the new
+                        // output. One seed can be reused for every batch; it is not a cycle.
+                        long seedRequired = Math.min(seed, demand);
+                        long seedRecycled = Math.min(seedRequired, recycled);
+                        long seedHeld = Math.min(seedRequired - seedRecycled, held);
+                        leaves.put(item, new Leaf(item, seedRequired - seedRecycled, seedHeld));
+                        needed -= Math.min(needed, seedRequired - seedRecycled - seedHeld);
+                    }
+                    if (needed == 0) continue;
                     // Division avoids the overflow of the usual (needed + outputCount - 1) formula.
-                    long batches = needed / recipe.outputCount() + (needed % recipe.outputCount() == 0 ? 0 : 1);
-                    long output = Math.multiplyExact(batches, recipe.outputCount());
+                    long yield = recipe.outputCount() - seed;
+                    long batches = batches(needed, yield);
+                    long output = Math.multiplyExact(batches, yield);
                     add(leftovers, item, output - needed);
                     for (ResolvedIngredient ingredient : resolvedIngredients.get(item)) {
                         long count = Math.multiplyExact(batches, ingredient.count());
@@ -140,6 +176,18 @@ public final class CraftingPlan {
                                 if (returned != null) add(leftovers, returned, consumed);
                                 if (unfilled == 0) break;
                             }
+                            // Compatible inputs can also be made from different on-hand raw
+                            // materials (one oak log plus one birch log supplies a chest).
+                            for (String alternative : ingredient.alternatives()) {
+                                if (unfilled == 0) break;
+                                if (alternative.equals(ingredient.chosen())) continue;
+                                long consumed = craftAvailable(alternative, unfilled, item, inventory,
+                                        leftovers, craftedStockLeaves);
+                                count -= consumed;
+                                unfilled -= consumed;
+                                String returned = remainder(alternative);
+                                if (returned != null) add(leftovers, returned, consumed);
+                            }
                         }
                         add(demands, ingredient.chosen(), count);
                         String returned = remainder(ingredient.chosen());
@@ -147,7 +195,43 @@ public final class CraftingPlan {
                     }
                 }
             }
+            craftedStockLeaves.forEach((item, count) -> leaves.merge(item, new Leaf(item, count, count),
+                    (first, second) -> new Leaf(item, Math.addExact(first.required(), second.required()),
+                            Math.addExact(first.available(), second.available()))));
             return new Result(leaves, new ArrayList<>(options.values()), diagnostics, leftovers, true);
+        }
+
+        private void selectRoutes(Map<String, Long> demands, Map<String, Long> reserved, Map<String, Long> inventory) {
+            preferenceInventory = new HashMap<>(inventory);
+            for (String item : new TreeSet<>(demands.keySet())) {
+                long needed = demands.get(item) - reserved.getOrDefault(item, 0L);
+                visit(item, needed);
+                previewItem(item, needed, preferenceInventory, new HashSet<>());
+            }
+            scheduleSupplies();
+        }
+
+        private Map<String, Long> forecastDemands(Map<String, Long> goals, Map<String, Long> reserved,
+                                                Map<String, Long> inventory) {
+            Map<String, Long> demands = new HashMap<>(goals);
+            Map<String, Long> stock = new HashMap<>(inventory);
+            Map<String, Long> hints = new HashMap<>();
+            for (String item : order) {
+                long demand = demands.getOrDefault(item, 0L);
+                long held = reserved.getOrDefault(item, 0L);
+                held = Math.addExact(held, take(stock, item, demand - held));
+                long needed = demand - held;
+                hints.put(item, needed);
+                RecipeIndex.Recipe recipe = selected.get(item);
+                if (recipe == null || needed == 0) continue;
+                long seed = seeds.getOrDefault(item, 0L);
+                needed -= Math.min(needed, Math.max(0, seed - held));
+                long batches = batches(needed, recipe.outputCount() - seed);
+                for (ResolvedIngredient ingredient : resolvedIngredients.get(item)) {
+                    add(demands, ingredient.chosen(), Math.multiplyExact(batches, ingredient.count()));
+                }
+            }
+            return hints;
         }
 
         private void scheduleSupplies() {
@@ -212,11 +296,12 @@ public final class CraftingPlan {
             return false;
         }
 
-        private void visit(String item) {
+        private void visit(String item, long demand) {
             if (visiting.contains(item)) {
                 throw new IllegalArgumentException("Cyclic crafting dependency: " + String.join(" -> ", visiting) + " -> " + item);
             }
             if (!visited.add(item)) return;
+            demand = Math.max(demand, demandHints.getOrDefault(item, 0L));
             visiting.add(item);
             List<RecipeIndex.Recipe> choices = index.recipesFor(item);
             String requested = recipeChoices.get(item);
@@ -227,30 +312,39 @@ public final class CraftingPlan {
             }
             boolean needsSeed = !choices.isEmpty() && choices.stream().allMatch(candidate -> candidate.ingredients().stream()
                     .anyMatch(ingredient -> ingredient.options().size() == 1 && ingredient.options().getFirst().equals(item)));
-            boolean stopped = stops.contains(item) || (recipe == null && (naturalBase(item) || needsSeed));
-            if (!stopped && recipe == null && !choices.isEmpty()) recipe = choices.getFirst();
+            boolean defaultStopped = naturalBase(item) || needsSeed;
+            boolean stopped = stops.contains(item) || (recipe == null && defaultStopped);
+            if (!stopped && recipe == null && !choices.isEmpty()) recipe = preferredRecipe(choices, Math.max(1, demand));
             if (stopped) recipe = null;
-            options.put(item, new Option(item, choices, recipe == null ? null : recipe.id(), stopped));
+            options.put(item, new Option(item, choices, recipe == null ? null : recipe.id(), stopped, defaultStopped));
             if (recipe == null && choices.isEmpty()) diagnostics.add("No supported vanilla crafting recipe for " + item);
             if (recipe == null && needsSeed) diagnostics.add("Crafting requires an existing seed item: " + item);
             if (recipe != null) {
                 selected.put(item, recipe);
+                long seed = seedCount(recipe);
+                if (seed > 0) seeds.put(item, seed);
                 Map<String, Long> selectedIngredients = new TreeMap<>();
                 List<ResolvedIngredient> resolved = new ArrayList<>();
+                long batches = batches(Math.max(1, demand), recipe.outputCount() - seed);
                 for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
+                    if (isSeed(recipe, ingredient)) continue;
                     String chosen = ingredientChoices.get(ingredient.key());
                     if (chosen != null && !ingredient.options().contains(chosen)) {
                         diagnostics.add("Ingredient choice is unavailable: " + ingredient.key() + " = " + chosen);
                         chosen = null;
                     }
                     boolean automatic = chosen == null;
-                    if (automatic) chosen = preferredIngredient(ingredient);
+                    if (automatic) chosen = preferredIngredient(ingredient, Math.multiplyExact(batches, ingredient.count()));
                     resolved.add(new ResolvedIngredient(chosen, ingredient.options(), ingredient.count(), automatic));
                     add(selectedIngredients, chosen, ingredient.count());
                 }
                 ingredients.put(item, selectedIngredients);
                 resolvedIngredients.put(item, resolved);
-                for (String ingredient : selectedIngredients.keySet()) visit(ingredient);
+                for (var ingredient : selectedIngredients.entrySet()) {
+                    long childDemand = Math.multiplyExact(batches, ingredient.getValue());
+                    childDemand -= Math.min(childDemand, preferenceInventory.getOrDefault(ingredient.getKey(), 0L));
+                    visit(ingredient.getKey(), childDemand);
+                }
             }
             visiting.remove(item);
             order.add(item);
@@ -258,20 +352,260 @@ public final class CraftingPlan {
 
         private record ResolvedIngredient(String chosen, List<String> alternatives, long count, boolean automatic) { }
 
-        private String preferredIngredient(RecipeIndex.Ingredient ingredient) {
-            List<String> candidates = ingredient.options().stream().filter(item -> !visiting.contains(item)).toList();
-            if (candidates.isEmpty()) candidates = ingredient.options();
-            String chosen = candidates.getFirst();
-            long available = preferenceInventory.getOrDefault(chosen, 0L);
-            for (String candidate : candidates) {
-                long candidateAvailable = preferenceInventory.getOrDefault(candidate, 0L);
-                if (candidateAvailable > available) {
+        private static final class StockCraft {
+            final Map<String, Long> inventory;
+            final Map<String, Long> leftovers;
+            final Map<String, Long> rawUsed = new TreeMap<>();
+            final Map<String, Option> usedOptions = new LinkedHashMap<>();
+
+            StockCraft(Map<String, Long> inventory, Map<String, Long> leftovers) {
+                this.inventory = new HashMap<>(inventory);
+                this.leftovers = new HashMap<>(leftovers);
+            }
+        }
+
+        /** Craft only fully supplied batches; failed trials never touch the allocation ledger. */
+        private long craftAvailable(String item, long wanted, String consumer, Map<String, Long> inventory,
+                                    Map<String, Long> leftovers, Map<String, Long> rawUsed) {
+            if (inventory.values().stream().noneMatch(count -> count > 0)
+                    && leftovers.values().stream().noneMatch(count -> count > 0)) return 0;
+            RecipeIndex.Recipe recipe = stockRecipe(item);
+            if (recipe == null || seedCount(recipe) > 0) return 0;
+            long low = 0;
+            long high = batches(wanted, recipe.outputCount());
+            StockCraft best = null;
+            while (low < high) {
+                long middle = low + (high - low) / 2 + 1;
+                StockCraft trial = new StockCraft(inventory, leftovers);
+                boolean supplied;
+                try {
+                    supplied = produceStock(recipe, middle, trial, new HashSet<>(Set.of(consumer)));
+                } catch (ArithmeticException exception) {
+                    supplied = false;
+                }
+                if (supplied) {
+                    low = middle;
+                    best = trial;
+                } else {
+                    high = middle - 1;
+                }
+            }
+            if (best == null) return 0;
+            long supplied = Math.min(wanted, Math.multiplyExact(low, recipe.outputCount()));
+            take(best.leftovers, item, supplied);
+            inventory.clear();
+            inventory.putAll(best.inventory);
+            leftovers.clear();
+            leftovers.putAll(best.leftovers);
+            best.rawUsed.forEach((raw, count) -> add(rawUsed, raw, count));
+            best.usedOptions.forEach(options::putIfAbsent);
+            return supplied;
+        }
+
+        private RecipeIndex.Recipe stockRecipe(String item) {
+            if (stops.contains(item)) return null;
+            List<RecipeIndex.Recipe> choices = index.recipesFor(item);
+            String requested = recipeChoices.get(item);
+            if (requested != null) {
+                RecipeIndex.Recipe explicit = choices.stream().filter(recipe -> recipe.id().equals(requested))
+                        .findFirst().orElse(null);
+                if (explicit != null) return explicit;
+            }
+            if (naturalBase(item) || choices.isEmpty()
+                    || choices.stream().allMatch(recipe -> seedCount(recipe) > 0)) return null;
+            return selected.getOrDefault(item, choices.getFirst());
+        }
+
+        private long consumeStock(String item, long wanted, StockCraft trial) {
+            long held = take(trial.inventory, item, wanted);
+            long recycled = take(trial.leftovers, item, wanted - held);
+            if (held > 0 || recycled > 0) {
+                RecipeIndex.Recipe recipe = stockRecipe(item);
+                if (held > 0 && recipe == null) add(trial.rawUsed, item, held);
+                List<RecipeIndex.Recipe> choices = index.recipesFor(item);
+                boolean defaultStopped = naturalBase(item)
+                        || !choices.isEmpty() && choices.stream().allMatch(candidate -> seedCount(candidate) > 0);
+                trial.usedOptions.putIfAbsent(item, new Option(item, choices,
+                        recipe == null ? null : recipe.id(), recipe == null, defaultStopped));
+            }
+            return Math.addExact(held, recycled);
+        }
+
+        private boolean consumeFully(String item, long wanted, StockCraft trial, Set<String> path) {
+            long held = consumeStock(item, wanted, trial);
+            long needed = wanted - held;
+            if (needed > 0) {
+                RecipeIndex.Recipe recipe = stockRecipe(item);
+                if (recipe == null || seedCount(recipe) > 0
+                        || !produceStock(recipe, batches(needed, recipe.outputCount()), trial, path)) return false;
+                if (take(trial.leftovers, item, needed) != needed) return false;
+            }
+            String returned = remainder(item);
+            if (returned != null) add(trial.leftovers, returned, wanted);
+            return true;
+        }
+
+        private boolean produceStock(RecipeIndex.Recipe recipe, long batches, StockCraft trial, Set<String> path) {
+            if (!path.add(recipe.output())) return false;
+            try {
+                trial.usedOptions.putIfAbsent(recipe.output(), new Option(recipe.output(), index.recipesFor(recipe.output()),
+                        recipe.id(), false, naturalBase(recipe.output())));
+                for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
+                    long needed = Math.multiplyExact(batches, ingredient.count());
+                    String explicit = ingredientChoices.get(ingredient.key());
+                    List<String> candidates = explicit != null && ingredient.options().contains(explicit)
+                            ? List.of(explicit) : ingredient.options();
+                    for (String candidate : candidates) {
+                        long consumed = consumeStock(candidate, needed, trial);
+                        needed -= consumed;
+                        String returned = remainder(candidate);
+                        if (returned != null) add(trial.leftovers, returned, consumed);
+                        if (needed == 0) break;
+                    }
+                    if (needed > 0) {
+                        // The canonical ancestor keeps this a bounded stock conversion,
+                        // rather than exploring combinations of recoloring/processing routes.
+                        String candidate = candidates.stream().filter(item -> !path.contains(item)).findFirst().orElse(null);
+                        if (candidate == null || !consumeFully(candidate, needed, trial, path)) return false;
+                    }
+                }
+                add(trial.leftovers, recipe.output(), Math.multiplyExact(batches, recipe.outputCount()));
+                return true;
+            } finally {
+                path.remove(recipe.output());
+            }
+        }
+
+        private RecipeIndex.Recipe preferredRecipe(List<RecipeIndex.Recipe> choices, long demand) {
+            RecipeIndex.Recipe chosen = choices.getFirst();
+            if (choices.size() == 1 || preferenceInventory.isEmpty()) return chosen;
+            double bestCoverage = stockCoverage(chosen, demand);
+            for (int i = 1; i < choices.size(); i++) {
+                RecipeIndex.Recipe candidate = choices.get(i);
+                double coverage = stockCoverage(candidate, demand);
+                if (coverage > bestCoverage) {
                     chosen = candidate;
-                    available = candidateAvailable;
+                    bestCoverage = coverage;
                 }
             }
             return chosen;
         }
+
+        private double stockCoverage(RecipeIndex.Recipe recipe, long demand) {
+            try {
+                return previewRecipe(recipe, demand, new HashMap<>(preferenceInventory), new HashSet<>(visiting));
+            } catch (ArithmeticException exception) {
+                // An unused alternative must not invalidate a representable chosen route.
+                return -1;
+            }
+        }
+
+        private String preferredIngredient(RecipeIndex.Ingredient ingredient, long demand) {
+            List<String> candidates = ingredient.options().stream().filter(item -> !visiting.contains(item)).toList();
+            if (candidates.isEmpty()) candidates = ingredient.options();
+            String chosen = candidates.getFirst();
+            long available = preferenceInventory.getOrDefault(chosen, 0L);
+            double bestCoverage = previewCoverage(chosen, demand);
+            for (String candidate : candidates) {
+                long candidateAvailable = preferenceInventory.getOrDefault(candidate, 0L);
+                double coverage = previewCoverage(candidate, demand);
+                if (coverage > bestCoverage || coverage == bestCoverage && candidateAvailable > available) {
+                    chosen = candidate;
+                    available = candidateAvailable;
+                    bestCoverage = coverage;
+                }
+            }
+            return chosen;
+        }
+
+        private double previewCoverage(String item, long demand) {
+            try {
+                return previewItem(item, demand, new HashMap<>(preferenceInventory), new HashSet<>(visiting));
+            } catch (ArithmeticException exception) {
+                return -1;
+            }
+        }
+
+        /** Bounded lookahead: inspect one deterministic route per ancestor, never search recipe combinations. */
+        private double previewItem(String item, long demand, Map<String, Long> stock, Set<String> path) {
+            if (demand == 0) return 1;
+            if (stock.values().stream().noneMatch(count -> count > 0)) return 0;
+            long held = take(stock, item, demand);
+            long needed = demand - held;
+            if (needed == 0) return 1;
+            if (stops.contains(item) || !path.add(item)) return (double) held / demand;
+            try {
+                List<RecipeIndex.Recipe> choices = index.recipesFor(item);
+                String requested = recipeChoices.get(item);
+                RecipeIndex.Recipe recipe = requested == null ? selected.get(item) : choices.stream()
+                        .filter(candidate -> candidate.id().equals(requested)).findFirst().orElse(null);
+                if (recipe == null && (naturalBase(item) || choices.isEmpty()
+                        || choices.stream().allMatch(candidate -> seedCount(candidate) > 0))) return (double) held / demand;
+                if (recipe == null) recipe = choices.getFirst();
+                long seed = seedCount(recipe);
+                needed -= Math.min(needed, Math.max(0, seed - held));
+                double coverage = needed == 0 ? 0 : previewRecipe(recipe, needed, stock, path);
+                return (held + needed * coverage) / demand;
+            } finally {
+                path.remove(item);
+            }
+        }
+
+        private double previewRecipe(RecipeIndex.Recipe recipe, long demand, Map<String, Long> stock,
+                                     Set<String> path) {
+            long batches = batches(demand, recipe.outputCount() - seedCount(recipe));
+            double supplied = 0;
+            double required = 0;
+            for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
+                if (isSeed(recipe, ingredient)) continue;
+                long count = Math.multiplyExact(batches, ingredient.count());
+                required += count;
+                String explicit = ingredientChoices.get(ingredient.key());
+                List<String> candidates = explicit != null && ingredient.options().contains(explicit)
+                        ? List.of(explicit) : ingredient.options();
+                long direct = 0;
+                for (String candidate : candidates) direct = Math.addExact(direct, take(stock, candidate, count - direct));
+                long needed = count - direct;
+                double best = 0;
+                Map<String, Long> bestStock = null;
+                if (needed > 0) {
+                    for (String candidate : candidates) {
+                        if (path.contains(candidate)) continue;
+                        Map<String, Long> candidateStock = new HashMap<>(stock);
+                        double coverage = previewItem(candidate, needed, candidateStock, path);
+                        best = coverage;
+                        bestStock = candidateStock;
+                        // Ancestor lookahead follows one canonical ingredient route. Trying
+                        // every recolorable bundle/shulker variant at every depth enumerates
+                        // color permutations; direct compatible stock was already used above.
+                        break;
+                    }
+                }
+                if (bestStock != null) {
+                    stock.clear();
+                    stock.putAll(bestStock);
+                }
+                supplied += direct + needed * best;
+            }
+            return required == 0 ? 0 : supplied / required;
+        }
+    }
+
+    private static long batches(long demand, long yield) {
+        return demand / yield + (demand % yield == 0 ? 0 : 1);
+    }
+
+    private static boolean isSeed(RecipeIndex.Recipe recipe, RecipeIndex.Ingredient ingredient) {
+        return ingredient.options().size() == 1 && ingredient.options().getFirst().equals(recipe.output());
+    }
+
+    private static long seedCount(RecipeIndex.Recipe recipe) {
+        long count = 0;
+        for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
+            if (isSeed(recipe, ingredient)) count = Math.addExact(count, ingredient.count());
+        }
+        if (count >= recipe.outputCount()) throw new IllegalArgumentException("Recipe has no net output: " + recipe.id());
+        return count;
     }
 
     private static void validate(String item, Long count) {
@@ -292,12 +626,9 @@ public final class CraftingPlan {
     }
 
     private static boolean naturalBase(String item) {
-        return item.endsWith("_ingot") || item.endsWith("_log")
-                || item.endsWith("_stem") || item.equals("minecraft:stone")
-                || item.equals("minecraft:cobblestone") || item.equals("minecraft:deepslate")
-                || item.equals("minecraft:cobbled_deepslate") || item.equals("minecraft:blackstone")
-                || item.equals("minecraft:basalt") || item.equals("minecraft:end_stone")
-                || item.equals("minecraft:netherrack");
+        return BASE_MATERIALS.contains(item) || item.endsWith("_log") || item.endsWith("_stem")
+                || item.endsWith("_wool") || item.endsWith("_dye")
+                || (item.endsWith("_ingot") && !item.equals("minecraft:netherite_ingot"));
     }
 
     private static String remainder(String item) {

@@ -8,7 +8,9 @@ import net.fabricmc.resourcetracker.util.InventoryUtils;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -58,17 +60,25 @@ public final class CraftingRuntime {
     }
 
     public static void update(Player player) {
+        if (TrackerConfig.INSTANCE.lists.isEmpty()) {
+            previous = null;
+            PLANS.clear();
+            invalidated = false;
+            return;
+        }
         initialize();
         Map<String, Long> stock = new HashMap<>();
         InventoryUtils.countAllItems(player).forEach((item, count) ->
                 stock.put(VersionCompat.getItemId(item), (long) count));
         InventorySnapshot snapshot = new InventorySnapshot(stock);
         boolean inventoryChanged = !snapshot.equals(previous);
+        Set<String> changedItems = inventoryChanged
+                ? changedItems(previous == null ? Map.of() : previous.counts(), stock) : Set.of();
         previous = snapshot;
         PLANS.keySet().removeIf(list -> !TrackerConfig.INSTANCE.lists.contains(list));
         boolean ready = loading.isDone();
         RecipeIndex recipes = ready ? loading.join() : EMPTY_INDEX;
-        boolean changed = inventoryChanged || invalidated;
+        boolean changed = invalidated;
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
             for (TrackerConfig.TrackedItem item : list.items) {
                 int count = (int) Math.min(Integer.MAX_VALUE, stock.getOrDefault(item.itemId, 0L));
@@ -78,8 +88,8 @@ public final class CraftingRuntime {
             }
             String signature = signature(list);
             Cached old = PLANS.get(list);
-            if (!inventoryChanged && !invalidated && old != null
-                    && old.signature.equals(signature) && old.ready == ready) continue;
+            boolean sameSource = old != null && old.signature.equals(signature) && old.ready == ready;
+            if (!invalidated && sameSource && Collections.disjoint(changedItems, old.stockDependencies)) continue;
             list.captureRawState();
             Map<String, Long> goals = new LinkedHashMap<>();
             for (TrackerConfig.TrackedItem item : list.items) {
@@ -123,7 +133,9 @@ public final class CraftingRuntime {
             }
             if (!valid) result = new CraftingPlan.Result(Map.of(), result.options(), diagnostics,
                     result.leftovers(), false);
-            PLANS.put(list, new Cached(signature(list), result, ready));
+            Set<String> dependencies = sameSource ? old.stockDependencies
+                    : stockDependencies(recipes, list.items.stream().map(item -> item.itemId).toList());
+            PLANS.put(list, new Cached(signature(list), result, ready, dependencies));
             changed = true;
         }
         invalidated = false;
@@ -143,5 +155,27 @@ public final class CraftingRuntime {
                 List.of(Component.translatable(key).getString()), Map.of(), false);
     }
 
-    private record Cached(String signature, CraftingPlan.Result result, boolean ready) { }
+    static Set<String> changedItems(Map<String, Long> before, Map<String, Long> after) {
+        Set<String> changed = new HashSet<>(before.keySet());
+        changed.addAll(after.keySet());
+        changed.removeIf(id -> before.getOrDefault(id, 0L).equals(after.getOrDefault(id, 0L)));
+        return changed;
+    }
+
+    /** Include every route, since on-hand alternatives can change the planner's automatic choices. */
+    static Set<String> stockDependencies(RecipeIndex index, List<String> goals) {
+        Set<String> dependencies = new HashSet<>();
+        ArrayDeque<String> pending = new ArrayDeque<>(goals);
+        while (!pending.isEmpty()) {
+            String item = pending.removeFirst();
+            if (!dependencies.add(item)) continue;
+            for (RecipeIndex.Recipe recipe : index.recipesFor(item)) {
+                for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) pending.addAll(ingredient.options());
+            }
+        }
+        return Set.copyOf(dependencies);
+    }
+
+    private record Cached(String signature, CraftingPlan.Result result, boolean ready,
+                          Set<String> stockDependencies) { }
 }

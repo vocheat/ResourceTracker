@@ -181,7 +181,7 @@ public class EditScreen extends Screen {
         int innerWidth = windowWidth - 24;
         int footerY = height - 34;
         narrowLayout = innerWidth < 420;
-        listAreaY = windowTop + 92;
+        listAreaY = windowTop + 112;
         leftBoxY = rightBoxY = listAreaY;
         boxWidth = narrowLayout ? innerWidth : (innerWidth - 12) / 2;
         leftBoxX = innerX;
@@ -203,6 +203,13 @@ public class EditScreen extends Screen {
         }).bounds(innerX + tabWidth + 6, windowTop + 54, tabWidth, 20).build());
         addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.appearance"), b -> switchTab(true))
                 .bounds(innerX + (tabWidth + 6) * 2, windowTop + 54, tabWidth, 20).build());
+        Button hudModeButton = TrackerButton.builder(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), b -> {
+            list.hudRaw = !list.hudRaw;
+            b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
+            net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
+        }).bounds(innerX, windowTop + 78, innerWidth, 20)
+                .tooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.hud_mode_hint"))).build();
+        addRenderableWidget(hudModeButton);
 
         searchField = new EditBox(font, leftBoxX + 6, leftBoxY + 7, boxWidth - 38, 16,
                 Component.translatable("gui.resourcetracker.edit.search"));
@@ -325,11 +332,7 @@ public class EditScreen extends Screen {
         }
         int x = styleX + 8, controlWidth = styleWidth - 16;
 
-        addStyleWidget(TrackerButton.builder(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), b -> {
-            list.hudRaw = !list.hudRaw;
-            b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
-            net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
-        }).bounds(x, styleTop + 276, controlWidth, 20).build());
+
         addStyleWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.edit.units." + list.countUnit.name().toLowerCase(java.util.Locale.ROOT)), b -> {
             TrackerConfig.CountUnit[] units = TrackerConfig.CountUnit.values();
             list.countUnit = units[(list.countUnit.ordinal() + 1) % units.length];

@@ -2,7 +2,10 @@ package net.fabricmc.resourcetracker.crafting;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.net.JarURLConnection;
+import java.net.URL;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarFile;
@@ -12,6 +15,7 @@ public final class CraftingRegression {
     private static final String P = "data/minecraft/recipe/";
 
     public static void main(String[] args) throws Exception {
+        PlannerRoutingRegression.main(new String[0]);
         Map<String, String> resources = new LinkedHashMap<>();
         resources.put("data/minecraft/tags/item/oak_logs.json", "{\"values\":[\"minecraft:oak_log\",\"minecraft:oak_wood\"]}");
         resources.put("data/minecraft/tags/item/planks.json", "{\"values\":[\"minecraft:oak_planks\",\"minecraft:birch_planks\",\"minecraft:spruce_planks\"]}");
@@ -35,8 +39,22 @@ public final class CraftingRegression {
         resources.put(P + "gold_unpack.json", recipe("gold_ingot", 9, "\"minecraft:gold_block\""));
         resources.put(P + "gold_nugget.json", recipe("gold_nugget", 9, "\"minecraft:gold_ingot\""));
         resources.put(P + "smelt.json", "{\"type\":\"minecraft:smelting\",\"ingredient\":\"minecraft:iron_ore\",\"result\":{\"id\":\"minecraft:iron_ingot\"}}");
+        resources.put(P + "bookshelf.json", "{\"type\":\"minecraft:crafting_shaped\",\"pattern\":[\"PPP\",\"BBB\",\"PPP\"],\"key\":{\"P\":\"#minecraft:planks\",\"B\":\"minecraft:book\"},\"result\":{\"id\":\"minecraft:bookshelf\"}}");
+        resources.put(P + "book.json", recipe("book", 1, "\"minecraft:paper\",\"minecraft:paper\",\"minecraft:paper\",\"minecraft:leather\""));
+        resources.put(P + "paper.json", recipe("paper", 3, "\"minecraft:sugar_cane\",\"minecraft:sugar_cane\",\"minecraft:sugar_cane\""));
+        resources.put(P + "leather.json", recipe("leather", 1, "\"minecraft:rabbit_hide\",\"minecraft:rabbit_hide\",\"minecraft:rabbit_hide\",\"minecraft:rabbit_hide\""));
+        resources.put(P + "white_wool_from_string.json", recipe("white_wool", 1, "\"minecraft:string\",\"minecraft:string\",\"minecraft:string\",\"minecraft:string\""));
+        resources.put(P + "black_wool.json", recipe("black_wool", 1, "\"minecraft:white_wool\",\"minecraft:black_dye\""));
+        resources.put(P + "black_dye.json", recipe("black_dye", 1, "\"minecraft:ink_sac\""));
+        resources.put(P + "netherite_ingot.json", "{\"type\":\"minecraft:crafting_shaped\",\"pattern\":[\"SSS\",\"SGG\",\"GG \"],\"key\":{\"S\":\"minecraft:netherite_scrap\",\"G\":\"minecraft:gold_ingot\"},\"result\":{\"id\":\"minecraft:netherite_ingot\"}}");
+        resources.put(P + "mossy_cobblestone_from_moss_block.json", recipe("mossy_cobblestone", 1, "\"minecraft:cobblestone\",\"minecraft:moss_block\""));
+        resources.put(P + "mossy_cobblestone_from_vine.json", recipe("mossy_cobblestone", 1, "\"minecraft:cobblestone\",\"minecraft:vine\""));
         RecipeIndex index = RecipeIndex.fromJson(resources);
         check(index.diagnostics().isEmpty(), "valid synthetic recipes: " + index.diagnostics());
+        checkStockDependencies(index);
+        checkBookshelves(index);
+        checkMaterialDefaults(index);
+        checkRecipeStock(index);
 
         var result = plan(index, Map.of("minecraft:oak_planks", 64L), Map.of("minecraft:oak_planks", 16L, "minecraft:oak_log", 5L));
         leaf(result, "oak_log", 12, 5);
@@ -85,7 +103,9 @@ public final class CraftingRegression {
 
         result = plan(index, Map.of("minecraft:stone_stairs", 5L), Map.of());
         leaf(result, "stone", 5, 0);
-        check(index.recipesFor("minecraft:iron_ingot").isEmpty(), "storage unpacking and smelting excluded");
+        check(index.recipesFor("minecraft:iron_ingot").size() == 1
+                && index.recipesFor("minecraft:iron_ingot").getFirst().kind().equals("smelting"),
+                "storage unpacking is excluded but smelting is supported");
         check(index.recipesFor("minecraft:gold_ingot").isEmpty(), "gold block unpacking excluded");
         check(!index.recipesFor("minecraft:iron_nugget").isEmpty(), "iron ingots unpack to nuggets");
         check(!index.recipesFor("minecraft:gold_nugget").isEmpty(), "gold ingots unpack to nuggets");
@@ -127,6 +147,14 @@ public final class CraftingRegression {
             check(loaded.available() && !loaded.recipesFor("minecraft:oak_planks").isEmpty(), "classpath vanilla index loading");
             checkCompatibleSurplus(loaded);
             checkNuggets(loaded);
+            checkBookshelves(loaded);
+            checkMaterialDefaults(loaded);
+            checkRecipeStock(loaded);
+            URL probe = CraftingRegression.class.getClassLoader().getResource("data/minecraft/recipe/oak_planks.json");
+            if (probe == null) probe = CraftingRegression.class.getClassLoader().getResource("data/minecraft/recipes/oak_planks.json");
+            if (probe.openConnection() instanceof JarURLConnection connection) {
+                checkVanilla(Path.of(connection.getJarFileURL().toURI()));
+            }
         } else {
             check(!loaded.available(), "missing resource archive reported");
             check(!plan(loaded, Map.of("minecraft:oak_planks", 1L), Map.of()).valid(), "missing index invalidates plans");
@@ -151,6 +179,9 @@ public final class CraftingRegression {
         }
         RecipeIndex vanilla = RecipeIndex.fromJson(resources);
         check(vanilla.diagnostics().isEmpty(), path + " diagnostics: " + vanilla.diagnostics());
+        VanillaRecipeCatalogRegression.check(resources, vanilla);
+        PlannerRoutingRegression.check(vanilla);
+        checkVanillaQuantities(vanilla);
         leaf(plan(vanilla, Map.of("minecraft:oak_planks", 64L), Map.of("minecraft:oak_planks", 16L, "minecraft:oak_log", 5L)), "oak_log", 12, 5);
         var stairsAndCobblestone = plan(vanilla,
                 Map.of("minecraft:stone_brick_stairs", 20L, "minecraft:cobblestone", 64L),
@@ -166,6 +197,9 @@ public final class CraftingRegression {
         check(plan(vanilla, Map.of("minecraft:chest", 1L), Map.of("minecraft:spruce_planks", 8L)).leaves().isEmpty(), "vanilla chest uses compatible stock");
         checkCompatibleSurplus(vanilla);
         checkNuggets(vanilla);
+        checkBookshelves(vanilla);
+        checkMaterialDefaults(vanilla);
+        checkRecipeStock(vanilla);
         check(plan(vanilla, Map.of("minecraft:black_banner", 1L), Map.of("minecraft:blue_wool", 6L, "minecraft:red_wool", 7L)).valid(), "stock preferences avoid recoloring dependency cycles");
         check(!vanilla.recipesFor("minecraft:stone_stairs").isEmpty(), "vanilla stonecutter recipes");
         Set<String> outputs = new java.util.TreeSet<>();
@@ -184,6 +218,16 @@ public final class CraftingRegression {
         for (String item : outputs) {
             var plan = plan(vanilla, Map.of(item, 65L), Map.of());
             check(plan.valid(), "valid default vanilla plan for " + item + ": " + plan.diagnostics());
+            if (vanilla.recipesFor(item).size() > 1) {
+                for (RecipeIndex.Recipe recipe : vanilla.recipesFor(item)) {
+                    Map<String, Long> stock = new LinkedHashMap<>();
+                    for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
+                        stock.merge(ingredient.options().getFirst(), ingredient.count(), Math::addExact);
+                    }
+                    var supplied = plan(vanilla, Map.of(item, 65L), stock);
+                    check(supplied.valid(), "valid stock-preferred vanilla plan for " + recipe.id() + ": " + supplied.diagnostics());
+                }
+            }
         }
         for (String item : new String[]{"chest", "cake", "oak_stairs", "cut_copper_stairs", "waxed_cut_copper_stairs", "bamboo_mosaic", "iron_block", "stone_bricks"}) {
             var plan = plan(vanilla, Map.of("minecraft:" + item, 65L), Map.of());
@@ -194,6 +238,35 @@ public final class CraftingRegression {
 
     private static CraftingPlan.Result plan(RecipeIndex index, Map<String, Long> goals, Map<String, Long> stock) {
         return CraftingPlan.calculate(index, goals, Set.of(), stock, Map.of(), Map.of(), Set.of());
+    }
+
+    private static void checkStockDependencies(RecipeIndex index) {
+        Set<String> dependencies = CraftingRuntime.stockDependencies(index,
+                List.of("minecraft:chest", "minecraft:cake", "minecraft:bucket", "minecraft:stone_stairs"));
+        check(dependencies.containsAll(Set.of("minecraft:chest", "minecraft:oak_planks", "minecraft:oak_log",
+                        "minecraft:oak_wood", "minecraft:birch_planks", "minecraft:birch_log", "minecraft:spruce_planks",
+                        "minecraft:spruce_log", "minecraft:cake", "minecraft:milk_bucket", "minecraft:bucket",
+                        "minecraft:iron_ingot", "minecraft:stone_stairs", "minecraft:stone")),
+                "cache dependencies include alternate ingredients, ancestors, shared stock and container goals");
+        check(java.util.Collections.disjoint(dependencies,
+                        CraftingRuntime.changedItems(Map.of(), Map.of("minecraft:diamond", 1L))),
+                "unrelated stock change preserves a cached plan");
+        check(!java.util.Collections.disjoint(dependencies,
+                        CraftingRuntime.changedItems(Map.of(), Map.of("minecraft:spruce_planks", 8L))),
+                "new automatic ingredient stock invalidates the plan");
+        check(!java.util.Collections.disjoint(dependencies,
+                        CraftingRuntime.changedItems(Map.of("minecraft:bucket", 1L), Map.of())),
+                "removed finished goal stock invalidates the plan");
+        check(CraftingRuntime.changedItems(Map.of("minecraft:stone", 0L), Map.of()).isEmpty(),
+                "absent and zero stock are equivalent");
+
+        Map<String, String> alternateRecipes = Map.of(P + "first.json", recipe("choice", 1, "\"minecraft:stone\""),
+                P + "second.json", recipe("choice", 1, "\"minecraft:stick\""),
+                P + "stick.json", recipe("stick", 1, "\"minecraft:choice\""));
+        Set<String> alternateDependencies = CraftingRuntime.stockDependencies(RecipeIndex.fromJson(alternateRecipes),
+                List.of("minecraft:choice"));
+        check(alternateDependencies.equals(Set.of("minecraft:choice", "minecraft:stone", "minecraft:stick")),
+                "all recipe alternatives are included and dependency cycles terminate");
     }
 
     private static void checkCompatibleSurplus(RecipeIndex index) {
@@ -231,6 +304,109 @@ public final class CraftingRegression {
         result = plan(index, goals, Map.of("minecraft:oak_planks", 7L, "minecraft:birch_planks", 6L));
         leaf(result, "oak_log", 1, 0);
         check(result.leaves().size() == 1, "fixed door stock is not also available to a flexible chest");
+    }
+
+    private static void checkBookshelves(RecipeIndex index) {
+        Map<String, Long> goals = Map.of("minecraft:bookshelf", 15L);
+        var result = plan(index, goals, Map.of());
+        leaf(result, "oak_log", 23, 0);
+        leaf(result, "leather", 45, 0);
+        leaf(result, "sugar_cane", 135, 0);
+        check(result.leaves().size() == 3, "bookshelves stop at naturally obtainable leather");
+
+        result = plan(index, goals, Map.of("minecraft:book", 3L, "minecraft:leather", 12L));
+        leaf(result, "oak_log", 23, 0);
+        leaf(result, "leather", 42, 12);
+        leaf(result, "sugar_cane", 126, 0);
+        check(result.leaves().size() == 3, "bookshelf intermediates and leather stock are counted");
+
+        String leatherRecipe = index.recipesFor("minecraft:leather").getFirst().id();
+        result = CraftingPlan.calculate(index, goals, Set.of(), Map.of(),
+                Map.of("minecraft:leather", leatherRecipe), Map.of(), Set.of());
+        leaf(result, "oak_log", 23, 0);
+        leaf(result, "rabbit_hide", 180, 0);
+        leaf(result, "sugar_cane", 135, 0);
+        check(result.leaves().size() == 3, "explicit rabbit hide recipe remains available");
+    }
+
+    private static void checkMaterialDefaults(RecipeIndex index) {
+        var result = plan(index, Map.of("minecraft:white_wool", 6L, "minecraft:black_wool", 2L,
+                "minecraft:black_dye", 3L), Map.of("minecraft:white_wool", 1L));
+        leaf(result, "white_wool", 6, 1);
+        leaf(result, "black_wool", 2, 0);
+        leaf(result, "black_dye", 3, 0);
+        check(result.leaves().size() == 3, "wool and dyes are gathered materials by default");
+        check(result.options().stream().allMatch(CraftingPlan.Option::stopped), "material defaults are visibly stopped");
+        check(result.options().stream().allMatch(CraftingPlan.Option::defaultStopped), "natural materials resume through an explicit recipe");
+
+        String woolRecipe = index.recipesFor("minecraft:white_wool").getFirst().id();
+        result = CraftingPlan.calculate(index, Map.of("minecraft:white_wool", 6L), Set.of(), Map.of(),
+                Map.of("minecraft:white_wool", woolRecipe), Map.of(), Set.of());
+        leaf(result, "string", 24, 0);
+        result = CraftingPlan.calculate(index, Map.of("minecraft:white_wool", 6L), Set.of(), Map.of(),
+                Map.of("minecraft:white_wool", woolRecipe), Map.of(), Set.of("minecraft:white_wool"));
+        leaf(result, "white_wool", 6, 0);
+
+        result = plan(index, Map.of("minecraft:netherite_ingot", 2L), Map.of("minecraft:gold_ingot", 3L));
+        leaf(result, index.recipesFor("minecraft:netherite_scrap").isEmpty() ? "netherite_scrap" : "ancient_debris", 8, 0);
+        leaf(result, "gold_ingot", 8, 3);
+        check(result.leaves().size() == 2, "netherite is a crafted alloy, ordinary ingots are base materials");
+    }
+
+    private static void checkRecipeStock(RecipeIndex index) {
+        Map<String, Long> goals = Map.of("minecraft:mossy_cobblestone", 4L);
+        Map<String, Long> stock = Map.of("minecraft:cobblestone", 4L, "minecraft:vine", 4L);
+        var result = plan(index, goals, stock);
+        leaf(result, "cobblestone", 4, 4);
+        leaf(result, "vine", 4, 4);
+        check(result.leaves().size() == 2, "automatic recipe uses supplied vines rather than requesting moss");
+        var stopped = CraftingPlan.calculate(index, goals, Set.of(), stock, Map.of(), Map.of(),
+                Set.of("minecraft:mossy_cobblestone"));
+        check(stopped.options().stream().anyMatch(option -> option.itemId().equals("minecraft:mossy_cobblestone")
+                        && option.stopped() && !option.defaultStopped()),
+                "manual stop remains distinct from the natural material boundary when resuming");
+
+        result = plan(index, goals, Map.of("minecraft:vine", 1L));
+        leaf(result, "cobblestone", 4, 0);
+        leaf(result, "vine", 4, 1);
+        check(result.leaves().size() == 2, "partial stock also influences recipe choice");
+
+        result = CraftingPlan.calculate(index, goals, Set.of(), stock,
+                Map.of("minecraft:mossy_cobblestone", "minecraft:mossy_cobblestone_from_moss_block"), Map.of(), Set.of());
+        leaf(result, "moss_block", 4, 0);
+        check(!result.leaves().containsKey("minecraft:vine"), "explicit recipe wins over inventory preference");
+
+        result = plan(index, Map.of("minecraft:mossy_cobblestone", 4L, "minecraft:vine", 4L), stock);
+        leaf(result, "vine", 4, 4);
+        leaf(result, "moss_block", 4, 0);
+        check(result.leaves().size() == 3, "finished goals are reserved before stock-based recipe selection");
+    }
+
+    private static void checkVanillaQuantities(RecipeIndex index) {
+        leaf(plan(index, Map.of("minecraft:stick", 64L), Map.of()), "oak_log", 8, 0);
+        for (String item : new String[]{"cut_copper", "cut_copper_stairs", "copper_grate", "chiseled_copper"}) {
+            leaf(plan(index, Map.of("minecraft:" + item, 64L), Map.of()), "copper_ingot", 144, 0);
+        }
+        leaf(plan(index, Map.of("minecraft:cut_copper_slab", 64L), Map.of()), "copper_ingot", 72, 0);
+        var waxed = plan(index, Map.of("minecraft:waxed_cut_copper", 64L), Map.of());
+        leaf(waxed, "copper_ingot", 144, 0);
+        leaf(waxed, "honeycomb", 16, 0);
+        leaf(plan(index, Map.of("minecraft:glass_pane", 16L), Map.of()), "sand", 6, 0);
+        leaf(plan(index, Map.of("minecraft:brick", 4L), Map.of()), "clay_ball", 4, 0);
+        leaf(plan(index, Map.of("minecraft:cooked_beef", 3L), Map.of()), "beef", 3, 0);
+        var upgrade = plan(index, Map.of("minecraft:netherite_pickaxe", 1L), Map.of());
+        leaf(upgrade, "diamond", 3, 0);
+        leaf(upgrade, "ancient_debris", 4, 0);
+        leaf(upgrade, "gold_ingot", 4, 0);
+        leaf(upgrade, "netherite_upgrade_smithing_template", 1, 0);
+        leaf(upgrade, "oak_log", 1, 0);
+        if (!index.recipesFor("minecraft:blue_bundle").isEmpty()) {
+            var bundle = plan(index, Map.of("minecraft:blue_bundle", 1L), Map.of());
+            leaf(bundle, "leather", 1, 0);
+            leaf(bundle, "string", 1, 0);
+            leaf(bundle, "blue_dye", 1, 0);
+            check(bundle.leaves().size() == 3, "colored bundle uses the ordinary undyed bundle");
+        }
     }
 
     private static void checkNuggets(RecipeIndex index) {

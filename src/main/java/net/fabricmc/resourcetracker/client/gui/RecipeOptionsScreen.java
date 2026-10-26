@@ -48,12 +48,24 @@ public final class RecipeOptionsScreen extends PagedDataScreen {
             for (String diagnostic : plan.diagnostics()) rows.add(new Row(DiagnosticText.of(diagnostic), null));
         } else {
             label(Component.literal(new TrackerConfig.TrackedItem(itemId, 1).getDisplayName()), left, 58, contentWidth);
-            boolean stopped = list.terminalItems.contains(itemId);
-            rows.add(new Row(Component.translatable(stopped ? "gui.resourcetracker.recipe.resume" : "gui.resourcetracker.recipe.stop"), () -> {
-                TrackerHistory.record(list);
-                if (!list.terminalItems.remove(itemId)) list.terminalItems.add(itemId);
-                changed();
-            }));
+            CraftingPlan.Option itemOption = displayedPlan.options().stream()
+                    .filter(option -> itemId.equals(option.itemId())).findFirst().orElse(null);
+            List<RecipeIndex.Recipe> recipes = CraftingRuntime.index().recipesFor(itemId);
+            if (!recipes.isEmpty() && itemOption != null) {
+                boolean stopped = itemOption.stopped();
+                rows.add(new Row(Component.translatable(stopped ? "gui.resourcetracker.recipe.resume" : "gui.resourcetracker.recipe.stop"), () -> {
+                    TrackerHistory.record(list);
+                    if (stopped) {
+                        list.terminalItems.remove(itemId);
+                        if (itemOption.defaultStopped() && !list.recipeChoices.containsKey(itemId)) {
+                            list.recipeChoices.put(itemId, itemOption.recipes().getFirst().id());
+                        }
+                    } else {
+                        list.terminalItems.add(itemId);
+                    }
+                    changed();
+                }));
+            }
             rows.add(new Row(Component.translatable("gui.resourcetracker.recipe.automatic"), () -> {
                 TrackerHistory.record(list);
                 list.recipeChoices.remove(itemId);
@@ -63,7 +75,7 @@ public final class RecipeOptionsScreen extends PagedDataScreen {
             String selectedRecipe = displayedPlan.options().stream()
                     .filter(option -> itemId.equals(option.itemId())).map(option -> option.selectedRecipeId())
                     .filter(java.util.Objects::nonNull).findFirst().orElse(list.recipeChoices.get(itemId));
-            for (RecipeIndex.Recipe recipe : CraftingRuntime.index().recipesFor(itemId)) {
+            for (RecipeIndex.Recipe recipe : recipes) {
                 boolean selected = recipe.id().equals(selectedRecipe);
                 Component description = recipeDescription(recipe);
                 Component recipeTitle = Component.literal(selected ? "✓ " : "").append(description);
@@ -127,8 +139,11 @@ public final class RecipeOptionsScreen extends PagedDataScreen {
         }
         String inputs = ingredients.entrySet().stream().map(entry -> entry.getKey() + " × " + entry.getValue())
                 .collect(java.util.stream.Collectors.joining(", "));
-        Component method = Component.translatable("gui.resourcetracker.recipe.method."
-                + (recipe.kind().equals("stonecutting") ? "stonecutting" : "crafting"));
+        String methodKey = switch (recipe.kind()) {
+            case "crafting_shaped", "crafting_shapeless", "crafting_transmute" -> "crafting";
+            default -> recipe.kind();
+        };
+        Component method = Component.translatable("gui.resourcetracker.recipe.method." + methodKey);
         return Component.translatable("gui.resourcetracker.recipe.summary", method, inputs, itemName(recipe.output()), recipe.outputCount());
     }
 

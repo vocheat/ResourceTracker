@@ -11,16 +11,18 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.stream.Stream;
 
 /** A file browser and explicit preview/accept step; opening a file never changes a list. */
 public final class ImportScreen extends PagedDataScreen {
@@ -34,8 +36,14 @@ public final class ImportScreen extends PagedDataScreen {
     private String error;
     private ImportResult preview;
     private Future<?> pending;
+    private Path cachedDirectory;
+    private List<FileEntry> cachedEntries = List.of();
     private long request;
     private boolean searchFocused;
+
+    private record FileEntry(Path path, boolean folder, String lowerName) { }
+    private record DirectoryScan(Path directory, List<FileEntry> entries, String error) { }
+    private record PathCheck(Path path, boolean directory, boolean regularFile, String error) { }
 
     public ImportScreen(net.minecraft.client.gui.screens.Screen parent) {
         super(parent, Component.translatable("gui.resourcetracker.import.title"));
@@ -73,8 +81,11 @@ public final class ImportScreen extends PagedDataScreen {
             label(Component.translatable("gui.resourcetracker.import.reading"), left, 110, contentWidth);
         } else if (preview != null) {
             buildPreview();
-        } else {
+        } else if (directory.equals(cachedDirectory)) {
             buildFiles();
+        } else {
+            scanDirectory();
+            label(Component.translatable("gui.resourcetracker.import.reading"), left, 110, contentWidth);
         }
         button(Component.translatable("gui.cancel"), left + contentWidth - 90, height - 26, 90, b -> onClose());
     }
@@ -85,41 +96,107 @@ public final class ImportScreen extends PagedDataScreen {
     }
 
     private void buildFiles() {
-        List<Path> entries = new ArrayList<>();
-        try (var paths = Files.list(directory)) {
-            String filter = query.toLowerCase(Locale.ROOT);
-            paths.filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).contains(filter))
-                    .filter(path -> Files.isDirectory(path) || supported(path))
-                    .sorted(Comparator.<Path, Boolean>comparing(path -> !Files.isDirectory(path))
-                            .thenComparing(path -> path.getFileName().toString().toLowerCase(Locale.ROOT)))
-                    .forEach(entries::add);
-        } catch (IOException | SecurityException ex) { error = ex.getMessage(); }
+        String filter = query.toLowerCase(Locale.ROOT);
+        List<FileEntry> entries = cachedEntries.stream().filter(entry -> entry.lowerName().contains(filter)).toList();
         label(Component.literal(error == null ? directory.toString() : error), left, 110, contentWidth);
         pagination(entries.size());
         for (int i = page * pageSize; i < Math.min(entries.size(), (page + 1) * pageSize); i++) {
-            Path entry = entries.get(i);
-            boolean folder = Files.isDirectory(entry);
-            String name = (folder ? "[+] " : "") + entry.getFileName();
+            FileEntry entry = entries.get(i);
+            String name = (entry.folder() ? "[+] " : "") + entry.path().getFileName();
             button(Component.literal(name), left, rowTop + (i % pageSize) * 24, contentWidth,
-                    b -> { if (folder) navigate(entry); else read(entry); });
+                    b -> { if (entry.folder()) navigate(entry.path()); else read(entry.path()); });
         }
         if (entries.isEmpty() && error == null) label(Component.translatable("gui.resourcetracker.edit.no_results"), left, rowTop, contentWidth);
     }
 
-    private boolean supported(Path path) {
-        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+    private boolean supported(String name) {
         return name.endsWith(".litematic") || name.endsWith(".json") || name.endsWith(".txt");
     }
 
-    private void navigate(Path path) {
-        if (!Files.isDirectory(path)) { if (Files.isRegularFile(path)) read(path); else { error = Component.translatable("gui.resourcetracker.import.missing_folder").getString(); init(); } return; }
-        cancelRead();
-        directory = path.toAbsolutePath().normalize();
-        preview = null;
-        error = null;
-        query = "";
-        page = 0;
+    private void scanDirectory() {
+        long token = ++request;
+        Path target = directory;
+        var client = minecraft;
+        pending = READER.submit(() -> {
+            DirectoryScan result = readDirectory(target);
+            if (client != null && result != null) {
+                DirectoryScan completed = result;
+                client.execute(() -> completeScan(token, completed));
+            }
+        });
+    }
+
+    private DirectoryScan readDirectory(Path target) {
+        List<FileEntry> entries = new ArrayList<>();
+        try (Stream<Path> paths = Files.list(target)) {
+            Iterator<Path> iterator = paths.iterator();
+            while (iterator.hasNext()) {
+                if (Thread.currentThread().isInterrupted()) return null;
+                Path path = iterator.next();
+                boolean folder = Files.isDirectory(path);
+                String lowerName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (folder || supported(lowerName)) entries.add(new FileEntry(path, folder, lowerName));
+            }
+            if (Thread.currentThread().isInterrupted()) return null;
+            entries.sort(java.util.Comparator.comparing(FileEntry::folder).reversed()
+                    .thenComparing(FileEntry::lowerName));
+            return new DirectoryScan(target, List.copyOf(entries), null);
+        } catch (IOException | UncheckedIOException | SecurityException ex) {
+            return new DirectoryScan(target, List.of(), ex.getMessage());
+        }
+    }
+
+    private void completeScan(long token, DirectoryScan result) {
+        if (token != request || minecraft == null || VersionCompat.currentScreen(minecraft) != this
+                || !directory.equals(result.directory())) return;
+        pending = null;
+        cachedDirectory = result.directory();
+        cachedEntries = result.entries();
+        error = result.error();
         init();
+    }
+
+    private void navigate(Path path) {
+        cancelRead();
+        error = null;
+        Path target = path.toAbsolutePath().normalize();
+        long token = ++request;
+        var client = minecraft;
+        pending = READER.submit(() -> {
+            PathCheck check;
+            try {
+                check = new PathCheck(target, Files.isDirectory(target), Files.isRegularFile(target), null);
+            } catch (SecurityException ex) {
+                check = new PathCheck(target, false, false, ex.getMessage());
+            }
+            if (client != null) {
+                PathCheck completed = check;
+                client.execute(() -> completeNavigation(token, completed));
+            }
+        });
+        init();
+    }
+
+    private void completeNavigation(long token, PathCheck check) {
+        if (token != request || minecraft == null || VersionCompat.currentScreen(minecraft) != this) return;
+        pending = null;
+        if (check.directory()) {
+            directory = check.path();
+            cachedDirectory = null;
+            cachedEntries = List.of();
+            preview = null;
+            error = null;
+            query = "";
+            page = 0;
+            init();
+        } else if (check.regularFile()) {
+            read(check.path());
+        } else {
+            error = check.error() == null || check.error().isBlank()
+                    ? Component.translatable("gui.resourcetracker.import.missing_folder").getString()
+                    : check.error();
+            init();
+        }
     }
 
     private void read(Path path) {

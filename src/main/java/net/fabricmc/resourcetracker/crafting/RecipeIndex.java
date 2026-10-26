@@ -25,8 +25,30 @@ import java.util.TreeMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-/** Immutable index of ordinary vanilla crafting and stonecutter recipes. */
+/** Immutable index of vanilla recipes whose inputs and output can be represented by item IDs. */
 public final class RecipeIndex {
+    private static final Set<String> SUPPORTED_KINDS = Set.of("crafting_shaped", "crafting_shapeless",
+            "stonecutting", "smelting", "blasting", "smoking", "campfire_cooking",
+            "smithing_transform", "crafting_transmute");
+    private static final Map<String, Set<String>> STORAGE_SOURCES = Map.ofEntries(
+            Map.entry("minecraft:bone_meal", Set.of("minecraft:bone_block")),
+            Map.entry("minecraft:coal", Set.of("minecraft:coal_block")),
+            Map.entry("minecraft:copper_ingot", Set.of("minecraft:copper_block", "minecraft:waxed_copper_block")),
+            Map.entry("minecraft:diamond", Set.of("minecraft:diamond_block")),
+            Map.entry("minecraft:dried_kelp", Set.of("minecraft:dried_kelp_block")),
+            Map.entry("minecraft:emerald", Set.of("minecraft:emerald_block")),
+            Map.entry("minecraft:gold_ingot", Set.of("minecraft:gold_block")),
+            Map.entry("minecraft:iron_ingot", Set.of("minecraft:iron_block")),
+            Map.entry("minecraft:lapis_lazuli", Set.of("minecraft:lapis_block")),
+            Map.entry("minecraft:netherite_ingot", Set.of("minecraft:netherite_block")),
+            Map.entry("minecraft:raw_copper", Set.of("minecraft:raw_copper_block")),
+            Map.entry("minecraft:raw_gold", Set.of("minecraft:raw_gold_block")),
+            Map.entry("minecraft:raw_iron", Set.of("minecraft:raw_iron_block")),
+            Map.entry("minecraft:redstone", Set.of("minecraft:redstone_block")),
+            Map.entry("minecraft:resin_clump", Set.of("minecraft:resin_block")),
+            Map.entry("minecraft:slime_ball", Set.of("minecraft:slime_block")),
+            Map.entry("minecraft:wheat", Set.of("minecraft:hay_block")));
+
     public record Ingredient(String key, List<String> options, long count) {
         public Ingredient {
             options = List.copyOf(options);
@@ -51,9 +73,12 @@ public final class RecipeIndex {
     private RecipeIndex(Map<String, List<Recipe>> recipes, List<String> diagnostics, boolean available) {
         Map<String, List<Recipe>> copy = new TreeMap<>();
         recipes.forEach((item, values) -> copy.put(item, values.stream()
-                .sorted(Comparator.comparingInt((Recipe recipe) -> recipe.kind().equals("stonecutting") ? 0 : 1)
+                .sorted(Comparator.comparingInt(RecipeIndex::recipePreference)
                         .thenComparingInt(recipe -> recipe.id().startsWith("minecraft:dye_") ? 1 : 0)
-                        .thenComparingLong(Recipe::outputCount).thenComparing(Recipe::id)).toList()));
+                        .thenComparing(Comparator.comparingLong(Recipe::outputCount).reversed())
+                        .thenComparingInt(recipe -> recipe.ingredients().stream()
+                                .anyMatch(ingredient -> ingredient.options().stream().anyMatch(input -> input.startsWith("minecraft:raw_"))) ? 0 : 1)
+                        .thenComparing(Recipe::id)).toList()));
         this.recipes = Collections.unmodifiableMap(copy);
         this.diagnostics = List.copyOf(diagnostics);
         this.available = available;
@@ -69,6 +94,18 @@ public final class RecipeIndex {
 
     public boolean available() {
         return available;
+    }
+
+    private static int recipePreference(Recipe recipe) {
+        if (recipe.kind().equals("stonecutting")) return 0;
+        if (recipe.id().equals(recipe.output())) return 1;
+        return switch (recipe.kind()) {
+            case "smelting" -> 2;
+            case "blasting" -> 3;
+            case "smoking" -> 4;
+            case "campfire_cooking" -> 5;
+            default -> 6;
+        };
     }
 
     /** Reads the archive containing a known vanilla recipe, never the server resource manager. */
@@ -161,7 +198,11 @@ public final class RecipeIndex {
                                       Map<String, List<String>> resolvedTags) {
         String type = json.get("type").getAsString();
         String kind = type.startsWith("minecraft:") ? type.substring(10) : type;
-        if (!Set.of("crafting_shaped", "crafting_shapeless", "stonecutting").contains(kind)) return null;
+        if (!SUPPORTED_KINDS.contains(kind)) return null;
+        // Variable-count transmutation (map cloning) also copies item components. A fixed
+        // item-ID recipe would lose both its yield semantics and the identity of the seed.
+        if (kind.equals("crafting_transmute") && (json.has("material_count")
+                || json.has("add_material_count_to_result"))) return null;
         JsonElement result = json.get("result");
         String output;
         long count;
@@ -188,6 +229,16 @@ public final class RecipeIndex {
             JsonArray values = json.getAsJsonArray("ingredients");
             for (int i = 0; i < values.size(); i++) {
                 ingredients.add(new Ingredient(id + "#" + i, ingredientOptions(values.get(i), tags, resolvedTags), 1));
+            }
+        } else if (kind.equals("smithing_transform")) {
+            for (String slot : List.of("template", "base", "addition")) {
+                ingredients.add(new Ingredient(id + "#" + slot,
+                        ingredientOptions(json.get(slot), tags, resolvedTags), 1));
+            }
+        } else if (kind.equals("crafting_transmute")) {
+            for (String slot : List.of("input", "material")) {
+                ingredients.add(new Ingredient(id + "#" + slot,
+                        ingredientOptions(json.get(slot), tags, resolvedTags), 1));
             }
         } else {
             ingredients.add(new Ingredient(id + "#0", ingredientOptions(json.get("ingredient"), tags, resolvedTags), 1));
@@ -216,7 +267,7 @@ public final class RecipeIndex {
     private static int ingredientPreference(String item) {
         if (Set.of("minecraft:oak_log", "minecraft:oak_planks", "minecraft:white_wool",
                 "minecraft:white_carpet", "minecraft:glass", "minecraft:terracotta",
-                "minecraft:shulker_box").contains(item)) return 0;
+                "minecraft:shulker_box", "minecraft:bundle", "minecraft:sand", "minecraft:quartz_block").contains(item)) return 0;
         if (item.endsWith("_log") && !item.contains("stripped_")) return 1;
         return 2;
     }
@@ -259,8 +310,9 @@ public final class RecipeIndex {
     private static boolean isStorageUnpacking(Recipe recipe) {
         if (recipe.output().equals("minecraft:honey_bottle") && recipe.ingredients().stream()
                 .anyMatch(ingredient -> ingredient.options().contains("minecraft:honey_block"))) return true;
-        if (recipe.ingredients().size() != 1 || recipe.outputCount() < 4 || recipe.ingredients().getFirst().count() != 1) return false;
-        return recipe.ingredients().getFirst().options().stream().allMatch(item -> item.endsWith("_block"));
+        if (recipe.ingredients().size() != 1 || recipe.ingredients().getFirst().count() != 1) return false;
+        Set<String> sources = STORAGE_SOURCES.getOrDefault(recipe.output(), Set.of());
+        return recipe.ingredients().getFirst().options().stream().allMatch(sources::contains);
     }
 
     private static String normalize(String id) {

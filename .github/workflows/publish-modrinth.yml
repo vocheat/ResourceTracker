@@ -44,8 +44,9 @@ jobs:
             exit 0
           fi
           CHANGELOG=$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body -q .body)
-          jq -n --arg version "$VERSION" --arg changelog "$CHANGELOG" \
-            '{name:("ResourceTracker " + $version + " — universal JAR"),
+          RELEASE_NAME=$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json name -q .name)
+          jq -n --arg version "$VERSION" --arg changelog "$CHANGELOG" --arg name "$RELEASE_NAME" \
+            '{name:$name,
               version_number:$version, changelog:$changelog,
               dependencies:[
                 {project_id:"P7dR8mSH",dependency_type:"required"},

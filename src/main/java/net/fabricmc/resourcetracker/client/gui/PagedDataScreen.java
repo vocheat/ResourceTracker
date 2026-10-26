@@ -26,7 +26,7 @@ abstract class PagedDataScreen extends Screen {
         label(title, left, 10, contentWidth);
     }
 
-    protected void label(Component text, int x, int y, int w) {
+    protected EditBox label(Component text, int x, int y, int w) {
         EditBox label = new EditBox(font, x, y, Math.max(1, w), 16, text);
         label.setMaxLength(32767);
         label.setValue(text.getString());
@@ -39,6 +39,7 @@ abstract class PagedDataScreen extends Screen {
         label.setTextColor(UiTheme.TEXT);
         label.setTextColorUneditable(UiTheme.TEXT);
         addRenderableWidget(label);
+        return label;
     }
 
     protected Button button(Component text, int x, int y, int w, Button.OnPress action) {

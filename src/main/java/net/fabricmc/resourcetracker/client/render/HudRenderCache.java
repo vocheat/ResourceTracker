@@ -23,16 +23,22 @@ public final class HudRenderCache {
     private HudRenderCache() {}
 
     public static HudRenderModel get(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
+        Appearance appearance = Appearance.of(list);
         Entry entry = CACHE.get(list);
-        if (entry != null && entry.font == font && entry.guiScaledHeight == guiScaledHeight) return entry.model;
-        HudRenderModel model = preview(list, font, guiScaledHeight);
-        CACHE.put(list, new Entry(font, guiScaledHeight, model));
+        if (entry != null && entry.font == font && entry.guiScaledHeight == guiScaledHeight
+                && entry.appearance.equals(appearance)) return entry.model;
+        HudRenderModel model = build(list, font, guiScaledHeight);
+        CACHE.put(list, new Entry(font, guiScaledHeight, appearance, model));
         return model;
     }
     public static void clear() { CACHE.clear(); }
 
-    /** Fresh geometry for settings being edited, using tick-cached item counts. */
+    /** Reuse geometry until appearance or tick-cached item counts change. */
     public static HudRenderModel preview(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
+        return get(list, font, guiScaledHeight);
+    }
+
+    private static HudRenderModel build(TrackerConfig.TrackingList list, Font font, int guiScaledHeight) {
         String needPrefix = Component.translatable("gui.resourcetracker.overlay.need").getString();
         String title = list.name == null ? "" : list.name;
         int rowHeight = list.showIcons ? 28 : 18;
@@ -148,6 +154,21 @@ public final class HudRenderCache {
         int blue = Math.round((base & 255) * (1 - amount) + (tint & 255) * amount);
         return (base & 0xFF000000) | (red << 16) | (green << 8) | blue;
     }
-    private record Entry(Font font, int guiScaledHeight, HudRenderModel model) {}
+    /** Position and scale affect geometry only in automatic column mode. */
+    private record Appearance(String name, int columns, int layoutY, float layoutScale,
+                              boolean showIcons, boolean showRemaining, int textColor, int nameColor,
+                              int backgroundColor, boolean hudRaw, boolean rawPlanValid,
+                              TrackerConfig.CountUnit countUnit, boolean hideCompleted,
+                              boolean sortRemaining, int maxVisibleRows) {
+        private static Appearance of(TrackerConfig.TrackingList list) {
+            int columns = TrackerConfig.clampColumns(list.columns);
+            return new Appearance(list.name, columns, columns == 0 ? list.y : 0,
+                    columns == 0 ? TrackerConfig.clampScale(list.scale) : 1,
+                    list.showIcons, list.showRemaining, list.textColor, list.nameColor,
+                    list.backgroundColor, list.hudRaw, list.rawPlanValid, list.countUnit,
+                    list.hideCompleted, list.sortRemaining, list.maxVisibleRows);
+        }
+    }
+    private record Entry(Font font, int guiScaledHeight, Appearance appearance, HudRenderModel model) {}
     private record ItemText(String name, String count, boolean done) {}
 }

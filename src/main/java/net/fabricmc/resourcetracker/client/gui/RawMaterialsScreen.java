@@ -6,6 +6,7 @@ import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.config.TrackerHistory;
 import net.fabricmc.resourcetracker.model.CountFormatter;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 
@@ -27,12 +28,21 @@ public final class RawMaterialsScreen extends PagedDataScreen {
     @Override
     protected void init() {
         boolean searching = searchField != null && searchField.isFocused();
-        layout(110);
+        layout(136);
         int tabWidth = (contentWidth - 6) / 2;
         button(Component.translatable("gui.resourcetracker.edit.items"), left, 30, tabWidth, b -> onClose());
         button(Component.translatable("gui.resourcetracker.edit.raw"), left + tabWidth + 6, 30, tabWidth, b -> {}).active = false;
-        label(Component.translatable("gui.resourcetracker.edit.raw_note"), left, 58, contentWidth);
-        EditBox search = new EditBox(font, left, 80, contentWidth, 18, Component.translatable("gui.resourcetracker.edit.search_tracked"));
+        Button hudModeButton = button(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), left, 54, contentWidth, b -> {
+            list.hudRaw = !list.hudRaw;
+            b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
+            ResourceTrackerClient.invalidateTargetItemCache();
+        });
+        hudModeButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                Component.translatable("gui.resourcetracker.edit.hud_mode_hint")));
+        EditBox rawNote = label(Component.translatable("gui.resourcetracker.edit.raw_note"), left, 80, contentWidth);
+        rawNote.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                Component.translatable("gui.resourcetracker.edit.raw_note_tooltip")));
+        EditBox search = new EditBox(font, left, 102, contentWidth, 18, Component.translatable("gui.resourcetracker.edit.search_tracked"));
         searchField = search;
         search.setValue(query);
         search.setResponder(value -> {
