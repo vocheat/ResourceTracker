@@ -47,7 +47,8 @@ final class VanillaRecipeCatalogRegression {
             if (!TYPES.contains(type)) {
                 require(type.startsWith("crafting_special_") || type.equals("crafting_decorated_pot")
                         || type.equals("smithing_trim") || type.equals("crafting_dye")
-                        || type.equals("crafting_imbue"), "Unclassified recipe type: " + type);
+                        || type.equals("crafting_imbue") || type.equals("brewing"),
+                        "Unclassified recipe type: " + type);
                 special++;
                 continue;
             }
