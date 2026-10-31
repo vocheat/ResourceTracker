@@ -14,8 +14,8 @@ public final class HudRenderer {
             if ((fill.color() >>> 24) != 0)
                 context.fill(fill.left(), fill.top(), fill.right(), fill.bottom(), fill.color());
         }
-        context.drawString(font, model.title, 0, 0, model.titleColor);
-        if (!model.summary.isEmpty()) context.drawString(font, model.summary, model.summaryX, 0, model.summaryColor);
+        context.drawString(font, model.titleComponent, 0, 2, model.titleColor);
+        if (!model.summary.isEmpty()) context.drawString(font, model.summary, model.summaryX, 2, model.summaryColor);
         for (HudRenderModel.Row row : model.rows) {
             if (model.showIcons && row.stack != null) context.renderItem(row.stack, row.itemX, row.itemY);
             context.drawString(font, row.nameText, row.nameX, row.nameY, row.nameColor);

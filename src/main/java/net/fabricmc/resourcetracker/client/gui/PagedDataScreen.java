@@ -8,9 +8,10 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /** Widget-only layout shared by all supported renderer API versions. */
-abstract class PagedDataScreen extends Screen {
+abstract class PagedDataScreen extends EditorInputScreen {
     protected final Screen parent;
     protected int left, contentWidth, page, pageSize, rowTop;
+    private boolean undoShortcutDown;
 
     protected PagedDataScreen(Screen parent, Component title) {
         super(title);
@@ -18,12 +19,18 @@ abstract class PagedDataScreen extends Screen {
     }
 
     protected void layout(int top) {
+        layout(top, title);
+    }
+
+    protected void layout(int top, Component heading) {
+        undoShortcutDown = minecraft != null && VersionCompat.isUndoPressed(minecraft);
+        setFocused(null);
         clearWidgets();
         contentWidth = Math.max(80, Math.min(620, width - 24));
         left = (width - contentWidth) / 2;
         rowTop = top;
         pageSize = Math.max(1, (height - top - 62) / 24);
-        label(title, left, 10, contentWidth);
+        label(heading, left, 10, contentWidth);
     }
 
     protected EditBox label(Component text, int x, int y, int w) {
@@ -46,15 +53,50 @@ abstract class PagedDataScreen extends Screen {
         return addRenderableWidget(TrackerButton.builder(text, action).bounds(x, y, Math.max(1, w), 20).build());
     }
 
+    protected net.minecraft.client.gui.Font textFont() { return font; }
+
+    @Override
+    public void setFocused(net.minecraft.client.gui.components.events.GuiEventListener focused) {
+        // Mouse dispatch may finish after an action rebuilt the children.
+        if (focused != null && !children().contains(focused)) return;
+        super.setFocused(focused);
+    }
+
+    protected EditBox input(EditBox field) { return addRenderableWidget(field); }
+
     protected void pagination(int count) {
+        pagination(count, height - 52);
+    }
+
+    protected void pagination(int count, int y) {
         int pages = Math.max(1, (count + pageSize - 1) / pageSize);
         page = Math.max(0, Math.min(page, pages - 1));
-        int y = height - 52;
         Button previous = button(Component.literal("<"), left, y, 30, b -> { page--; init(); });
         previous.active = page > 0;
         label(Component.literal((page + 1) + " / " + pages), left + 36, y + 4, 64);
         Button next = button(Component.literal(">"), left + 102, y, 30, b -> { page++; init(); });
         next.active = page + 1 < pages;
+    }
+
+    /** Render wrapped readonly text using only widgets shared by every supported UI API. */
+    protected int wrappedLabel(Component text, int x, int y, int w, int color) {
+        for (String paragraph : text.getString().split("\\n", -1)) {
+            String remaining = paragraph;
+            if (remaining.isEmpty()) { y += 12; continue; }
+            while (!remaining.isEmpty()) {
+                String line = font.plainSubstrByWidth(remaining, Math.max(1, w));
+                if (line.isEmpty()) line = remaining.substring(0, 1);
+                if (line.length() < remaining.length()) {
+                    int space = line.lastIndexOf(' ');
+                    if (space > 0) line = line.substring(0, space);
+                }
+                EditBox field = label(Component.literal(line), x, y, w);
+                field.setTextColorUneditable(color);
+                y += 12;
+                remaining = remaining.substring(line.length()).stripLeading();
+            }
+        }
+        return y;
     }
 
     @Override
@@ -66,6 +108,18 @@ abstract class PagedDataScreen extends Screen {
         }
         return super.mouseScrolled(x, y, horizontal, vertical);
     }
+
+    @Override
+    public void tick() {
+        super.tick();
+        var list = undoList();
+        boolean down = minecraft != null && VersionCompat.isUndoPressed(minecraft);
+        if (list != null && down && !undoShortcutDown
+                && net.fabricmc.resourcetracker.config.TrackerHistory.undo(list)) init();
+        undoShortcutDown = down;
+    }
+
+    protected net.fabricmc.resourcetracker.config.TrackerConfig.TrackingList undoList() { return null; }
 
     @Override
     public void onClose() {

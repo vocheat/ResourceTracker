@@ -1,5 +1,7 @@
 package net.fabricmc.resourcetracker.crafting;
 
+import net.fabricmc.resourcetracker.model.WoodType;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -55,7 +57,14 @@ public final class CraftingPlan {
     public static Result calculate(RecipeIndex index, Map<String, Long> goals, Set<String> manuallyDone,
                                    Map<String, Long> stock, Map<String, String> recipeChoices,
                                    Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting) {
-        Planner planner = new Planner(index, recipeChoices, ingredientChoices, stops, includeSmelting);
+        return calculate(index, goals, manuallyDone, stock, recipeChoices, ingredientChoices, stops, includeSmelting, WoodType.AUTO);
+    }
+
+    public static Result calculate(RecipeIndex index, Map<String, Long> goals, Set<String> manuallyDone,
+                                   Map<String, Long> stock, Map<String, String> recipeChoices,
+                                   Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting,
+                                   WoodType woodType) {
+        Planner planner = new Planner(index, recipeChoices, ingredientChoices, stops, includeSmelting, woodType);
         try {
             return planner.calculate(goals, manuallyDone, stock);
         } catch (ArithmeticException exception) {
@@ -71,6 +80,7 @@ public final class CraftingPlan {
         private final Map<String, String> ingredientChoices;
         private final Set<String> stops;
         private final boolean includeSmelting;
+        private final WoodType woodType;
         private final List<String> diagnostics;
         private final Map<String, Option> options = new LinkedHashMap<>();
         private final Map<String, RecipeIndex.Recipe> selected = new HashMap<>();
@@ -84,12 +94,13 @@ public final class CraftingPlan {
         private Map<String, Long> demandHints = Map.of();
 
         Planner(RecipeIndex index, Map<String, String> recipeChoices,
-                Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting) {
+                Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting, WoodType woodType) {
             this.index = index;
             this.recipeChoices = recipeChoices;
             this.ingredientChoices = ingredientChoices;
             this.stops = stops;
             this.includeSmelting = includeSmelting;
+            this.woodType = woodType == null ? WoodType.AUTO : woodType;
             this.diagnostics = new ArrayList<>(index.diagnostics());
         }
 
@@ -344,7 +355,7 @@ public final class CraftingPlan {
                     }
                     boolean automatic = chosen == null;
                     if (automatic) chosen = preferredIngredient(ingredient, Math.multiplyExact(batches, ingredient.count()));
-                    resolved.add(new ResolvedIngredient(chosen, ingredient.options(), ingredient.count(), automatic));
+                    resolved.add(new ResolvedIngredient(chosen, effectiveOptions(ingredient), ingredient.count(), automatic));
                     add(selectedIngredients, chosen, ingredient.count());
                 }
                 ingredients.put(item, selectedIngredients);
@@ -475,9 +486,7 @@ public final class CraftingPlan {
                         recipe.id(), false, defaultStopped(recipe.output(), index.recipesFor(recipe.output()))));
                 for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
                     long needed = Math.multiplyExact(batches, ingredient.count());
-                    String explicit = ingredientChoices.get(ingredient.key());
-                    List<String> candidates = explicit != null && ingredient.options().contains(explicit)
-                            ? List.of(explicit) : ingredient.options();
+                    List<String> candidates = effectiveOptions(ingredient);
                     for (String candidate : candidates) {
                         long consumed = consumeStock(candidate, needed, trial);
                         needed -= consumed;
@@ -500,6 +509,7 @@ public final class CraftingPlan {
         }
 
         private RecipeIndex.Recipe preferredRecipe(List<RecipeIndex.Recipe> choices, long demand) {
+            choices = preferredWoodRecipes(choices);
             RecipeIndex.Recipe chosen = choices.getFirst();
             if (choices.size() == 1 || preferenceInventory.isEmpty()) return chosen;
             double bestCoverage = stockCoverage(chosen, demand);
@@ -524,8 +534,9 @@ public final class CraftingPlan {
         }
 
         private String preferredIngredient(RecipeIndex.Ingredient ingredient, long demand) {
-            List<String> candidates = ingredient.options().stream().filter(item -> !visiting.contains(item)).toList();
-            if (candidates.isEmpty()) candidates = ingredient.options();
+            List<String> effective = effectiveOptions(ingredient);
+            List<String> candidates = effective.stream().filter(item -> !visiting.contains(item)).toList();
+            if (candidates.isEmpty()) candidates = effective;
             String chosen = candidates.getFirst();
             long available = preferenceInventory.getOrDefault(chosen, 0L);
             double bestCoverage = previewCoverage(chosen, demand);
@@ -576,7 +587,7 @@ public final class CraftingPlan {
 
         private RecipeIndex.Recipe previewAutomaticRecipe(String item, List<RecipeIndex.Recipe> choices,
                                                            long demand, Map<String, Long> stock, Set<String> path) {
-            List<RecipeIndex.Recipe> automatic = automaticRecipes(item, choices);
+            List<RecipeIndex.Recipe> automatic = preferredWoodRecipes(automaticRecipes(item, choices));
             if (automatic.isEmpty()) return null;
             RecipeIndex.Recipe best = automatic.getFirst();
             // Preserve the bounded canonical lookahead for other crafting routes. Cooking at a
@@ -607,9 +618,7 @@ public final class CraftingPlan {
                 if (isSeed(recipe, ingredient)) continue;
                 long count = Math.multiplyExact(batches, ingredient.count());
                 required += count;
-                String explicit = ingredientChoices.get(ingredient.key());
-                List<String> candidates = explicit != null && ingredient.options().contains(explicit)
-                        ? List.of(explicit) : ingredient.options();
+                List<String> candidates = effectiveOptions(ingredient);
                 long direct = 0;
                 for (String candidate : candidates) direct = Math.addExact(direct, take(stock, candidate, count - direct));
                 long needed = count - direct;
@@ -635,6 +644,24 @@ public final class CraftingPlan {
                 supplied += direct + needed * best;
             }
             return required == 0 ? 0 : supplied / required;
+        }
+
+        /** Preferences narrow real recipe options, never manufacture a substitute for a fixed input. */
+        private List<String> effectiveOptions(RecipeIndex.Ingredient ingredient) {
+            String explicit = ingredientChoices.get(ingredient.key());
+            if (explicit != null && ingredient.options().contains(explicit)) return List.of(explicit);
+            if (woodType == WoodType.AUTO) return ingredient.options();
+            List<String> preferred = ingredient.options().stream().filter(woodType::matches)
+                    .sorted(Comparator.comparingInt(item -> (item.endsWith("_log") || item.endsWith("_stem"))
+                            && !item.startsWith("minecraft:stripped_") ? 0 : 1)).toList();
+            return preferred.isEmpty() ? ingredient.options() : preferred;
+        }
+
+        private List<RecipeIndex.Recipe> preferredWoodRecipes(List<RecipeIndex.Recipe> choices) {
+            if (woodType == WoodType.AUTO || choices.size() < 2) return choices;
+            List<RecipeIndex.Recipe> preferred = choices.stream().filter(recipe -> recipe.ingredients().stream()
+                    .anyMatch(ingredient -> effectiveOptions(ingredient).stream().anyMatch(woodType::matches))).toList();
+            return preferred.isEmpty() ? choices : preferred;
         }
     }
 

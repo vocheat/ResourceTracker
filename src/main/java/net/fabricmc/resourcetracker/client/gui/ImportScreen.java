@@ -40,6 +40,11 @@ public final class ImportScreen extends PagedDataScreen {
     private List<FileEntry> cachedEntries = List.of();
     private long request;
     private boolean searchFocused;
+    private final ResourceViewState previewView = new ResourceViewState();
+    private String previewName = "";
+    private EditBox materialSearch;
+    private EditBox nameField;
+    private int browserPage;
 
     private record FileEntry(Path path, boolean folder, String lowerName) { }
     private record DirectoryScan(Path directory, List<FileEntry> entries, String error) { }
@@ -51,7 +56,11 @@ public final class ImportScreen extends PagedDataScreen {
 
     @Override
     protected void init() {
-        layout(138);
+        if (preview != null) {
+            buildPreview();
+            return;
+        }
+        layout(124);
         EditBox path = new EditBox(font, left, 30, contentWidth - 64, 18,
                 Component.translatable("gui.resourcetracker.import.path"));
         path.setMaxLength(32767);
@@ -79,8 +88,6 @@ public final class ImportScreen extends PagedDataScreen {
         if (searchFocused) setFocused(search);
         if (pending != null) {
             label(Component.translatable("gui.resourcetracker.import.reading"), left, 110, contentWidth);
-        } else if (preview != null) {
-            buildPreview();
         } else if (directory.equals(cachedDirectory)) {
             buildFiles();
         } else {
@@ -201,6 +208,9 @@ public final class ImportScreen extends PagedDataScreen {
 
     private void read(Path path) {
         cancelRead();
+        browserPage = page;
+        previewView.query = "";
+        previewView.page = 0;
         preview = null;
         error = null;
         page = 0;
@@ -223,30 +233,63 @@ public final class ImportScreen extends PagedDataScreen {
         pending = null;
         error = failure;
         preview = result;
+        if (result != null) previewName = result.name();
         init();
     }
 
     private void buildPreview() {
-        label(Component.translatable("gui.resourcetracker.import.preview", preview.name(), preview.materials().size()), left, 110, contentWidth);
-        List<Component> rows = new ArrayList<>();
-        for (String diagnostic : preview.diagnostics()) rows.add(DiagnosticText.of(diagnostic));
-        for (Map.Entry<String, Integer> entry : preview.materials().entrySet()) {
-            var item = new TrackerConfig.TrackedItem(entry.getKey(), entry.getValue());
-            rows.add(Component.literal(item.getDisplayName() + " × " + entry.getValue()));
-        }
-        pagination(rows.size());
-        for (int i = page * pageSize; i < Math.min(rows.size(), (page + 1) * pageSize); i++) {
-            label(rows.get(i), left, rowTop + (i % pageSize) * 24 + 4, contentWidth);
-        }
-        var accept = button(Component.translatable("gui.resourcetracker.import.accept"), left, height - 26, contentWidth - 96, b -> accept());
-        accept.active = preview.canImport() && TrackerConfig.hasActiveContext();
-        button(Component.translatable("gui.resourcetracker.import.back_files"), left + 138, height - 52, contentWidth - 138,
-                b -> { preview = null; page = 0; init(); });
+        boolean naming = nameField != null && nameField.isFocused();
+        int nameCursor = nameField == null ? previewName.length() : nameField.getCursorPosition();
+        boolean searching = materialSearch != null && materialSearch.isFocused();
+        int cursor = materialSearch == null ? previewView.query.length() : materialSearch.getCursorPosition();
+        layout(108, Component.translatable("gui.resourcetracker.draft.title"));
+        EditBox name = new EditBox(font, left, 30, contentWidth, 20,
+                Component.translatable("gui.resourcetracker.edit.list_name"));
+        name.setMaxLength(120);
+        name.setValue(previewName);
+        addRenderableWidget(name);
+        nameField = name;
+        name.setCursorPosition(Math.min(nameCursor, previewName.length()));
+        Component source = Component.translatable("gui.resourcetracker.draft.file_source",
+                preview.source().getFileName(), preview.materials().size());
+        Component sourceSummary = preview.diagnostics().isEmpty() ? source : DiagnosticText.of(preview.diagnostics().getFirst());
+        label(sourceSummary, left, 58, contentWidth - 100)
+                .setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(preview.source().toString())
+                        .append("\n").append(sourceSummary)));
+        button(Component.translatable("gui.resourcetracker.import.back_files"), left + contentWidth - 94, 54, 94,
+                b -> { preview = null; page = browserPage; init(); });
+        int notesWidth = preview.diagnostics().isEmpty() ? 0 : 94;
+        materialSearch = DraftMaterialsTable.search(this, previewView, left, 80,
+                contentWidth - (notesWidth == 0 ? 0 : notesWidth + 6), () -> {
+                    if (minecraft != null) minecraft.execute(() -> { init(); setFocused(materialSearch); });
+                });
+        materialSearch.setCursorPosition(Math.min(cursor, previewView.query.length()));
+        if (searching) setFocused(materialSearch);
+        if (notesWidth > 0) button(Component.translatable("gui.resourcetracker.draft.notes", preview.diagnostics().size()),
+                left + contentWidth - notesWidth, 80, notesWidth,
+                b -> { if (minecraft != null) VersionCompat.setScreen(minecraft, new NotesScreen(this,
+                        Component.translatable("gui.resourcetracker.draft.notes", preview.diagnostics().size()),
+                        preview.diagnostics().stream().map(DiagnosticText::of).toList())); });
+        List<TrackerConfig.TrackedItem> materials = preview.materials().entrySet().stream()
+                .map(entry -> new TrackerConfig.TrackedItem(entry.getKey(), entry.getValue())).toList();
+        DraftMaterialsTable.rows(this, materials, previewView, contentWidth,
+                DraftMaterialsTable.Capability.READ_ONLY,
+                item -> Component.literal(item.getDisplayName() + " × " + item.targetCount), item -> {});
+        int half = (contentWidth - 6) / 2;
+        var accept = button(Component.translatable("gui.resourcetracker.import.accept"), left, height - 26, half, b -> accept());
+        accept.active = preview.canImport() && TrackerConfig.hasActiveContext() && !TrackerConfig.isGlobalWriteBlocked() && !previewName.isBlank();
+        name.setResponder(value -> {
+            previewName = value;
+            accept.active = preview.canImport() && TrackerConfig.hasActiveContext() && !TrackerConfig.isGlobalWriteBlocked() && !previewName.isBlank();
+        });
+        button(Component.translatable("gui.cancel"), left + half + 6, height - 26, contentWidth - half - 6, b -> onClose());
+        if (naming) setFocused(nameField);
     }
 
     private void accept() {
-        if (preview == null || !preview.canImport() || !TrackerConfig.hasActiveContext() || minecraft == null) return;
-        TrackerConfig.TrackingList created = TrackerConfig.createList(preview.name());
+        if (preview == null || !preview.canImport() || previewName.isBlank() || !TrackerConfig.hasActiveContext()
+                || TrackerConfig.isGlobalWriteBlocked() || minecraft == null) return;
+        TrackerConfig.TrackingList created = TrackerConfig.createList(previewName.trim());
         preview.materials().forEach((id, count) -> created.items.add(new TrackerConfig.TrackedItem(id, count)));
         created.isVisible = true;
         TrackerConfig.INSTANCE.lists.add(created);

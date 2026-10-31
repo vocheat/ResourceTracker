@@ -1,0 +1,21 @@
+{
+  "pack": {
+    "description": "ResourceTracker resources",
+    "pack_format": 34,
+    "supported_formats": [34, 121],
+    "min_format": 34,
+    "max_format": [121, 0]
+  },
+  "language": {
+    "bn_bd": {
+      "name": "বাংলা",
+      "region": "বাংলাদেশ",
+      "bidirectional": false
+    },
+    "ur_pk": {
+      "name": "اردو",
+      "region": "پاکستان",
+      "bidirectional": true
+    }
+  }
+}

@@ -27,6 +27,7 @@ public final class QuickAddScreen extends PagedDataScreen {
     private Button accept;
     private boolean returningToParent;
     private boolean parentRemoved;
+    private boolean openingListPicker;
 
     public QuickAddScreen(AbstractContainerScreen<?> parent, String itemId, int count,
                           String contextKey, AbstractContainerMenu originalMenu) {
@@ -63,9 +64,34 @@ public final class QuickAddScreen extends PagedDataScreen {
         } else {
             label(Component.translatable("gui.resourcetracker.quick_add.list"), left, 101, contentWidth);
             button(Component.literal(lists.get(selected).name), left, 119, contentWidth, b -> {
-                selected = (selected + 1) % lists.size();
-                b.setMessage(Component.literal(lists.get(selected).name));
-                refreshStatus();
+                if (minecraft == null) return;
+                openingListPicker = true;
+                try {
+                    VersionCompat.setScreen(minecraft, new ChoiceScreen<>(this,
+                            Component.translatable("gui.resourcetracker.quick_add.list"), lists, lists.get(selected),
+                            list -> Component.literal(list.name), list -> {
+                        selected = lists.indexOf(list);
+                        refreshStatus();
+                    }) {
+                        private boolean returningToQuickAdd;
+                        @Override public boolean isPauseScreen() { return false; }
+                        @Override public void tick() {
+                            if (!validSession()) { onClose(); return; }
+                            super.tick();
+                        }
+                        @Override public void onClose() {
+                            returningToQuickAdd = validSession();
+                            if (returningToQuickAdd) super.onClose();
+                            else QuickAddScreen.this.onClose();
+                        }
+                        @Override public void removed() {
+                            if (!returningToQuickAdd) removePreservedParent();
+                            super.removed();
+                        }
+                    });
+                } finally {
+                    openingListPicker = false;
+                }
             }).active = lists.size() > 1;
         }
         status = new EditBox(font, left, 150, contentWidth, 18, Component.empty());
@@ -165,6 +191,15 @@ public final class QuickAddScreen extends PagedDataScreen {
     }
 
     @Override
+    protected boolean editorKeyPressed(int keyCode) {
+        if ((keyCode == 257 || keyCode == 335) && getFocused() instanceof EditBox) {
+            confirm();
+            return true;
+        }
+        return false;
+    }
+
+    @Override
     public void tick() {
         if (!validSession()) {
             onClose();
@@ -185,13 +220,17 @@ public final class QuickAddScreen extends PagedDataScreen {
         VersionCompat.setScreen(minecraft, returningToParent ? parent : null);
     }
 
-    @Override
-    public void removed() {
-        // If the server disconnects/closes the menu, run the cleanup deferred at opening.
-        if (!returningToParent && !parentRemoved) {
+    private void removePreservedParent() {
+        if (!parentRemoved) {
             parentRemoved = true;
             parent.removed();
         }
+    }
+
+    @Override
+    public void removed() {
+        // If the server disconnects/closes the menu, run the cleanup deferred at opening.
+        if (!openingListPicker && !returningToParent) removePreservedParent();
         super.removed();
     }
 }

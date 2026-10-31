@@ -1,6 +1,7 @@
 package net.fabricmc.resourcetracker.client.gui;
 
 import net.fabricmc.resourcetracker.util.RenderUtils;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -11,12 +12,19 @@ import net.minecraft.network.chat.Component;
 /** Native button behavior and narration with the tracker's shared panel style. */
 public class TrackerButton extends Button {
     private boolean primary;
+    private PngIcons.Icon leadingIcon;
     private TrackerButton(int x, int y, int width, int height, Component message, OnPress onPress, CreateNarration narration) {
         super(x, y, width, height, message, onPress, narration);
     }
 
     public static Builder builder(Component message, OnPress onPress) {
         return new Builder(message, onPress);
+    }
+
+    /** Keeps the PNG separate from button text, tooltips, and narration. */
+    public TrackerButton setLeadingIcon(PngIcons.Icon icon) {
+        this.leadingIcon = icon;
+        return this;
     }
 
     @Override
@@ -32,9 +40,16 @@ public class TrackerButton extends Button {
         context.fill(x, y, x + 1, y + height, faded(edge));
         context.fill(x + width - 1, y, x + width, y + height, faded(edge));
         Font font = Minecraft.getInstance().font;
-        String label = RenderUtils.shortenText(font, getMessage().getString(), Math.max(0, width - 8));
-        context.text(font, label, x + (width - font.width(label)) / 2,
-                y + (height - font.lineHeight) / 2, faded(active ? UiTheme.TEXT : UiTheme.MUTED), false);
+        String[] lines = getMessage().getString().split("\n", 2);
+        int iconAdvance = leadingIcon != null && width >= leadingIcon.width() + 8
+                && height >= leadingIcon.height() + 2 ? leadingIcon.width() + 4 : 0;
+        if (iconAdvance > 0) RenderUtils.drawPngIconInBox(context, leadingIcon,
+                x + 4, y, leadingIcon.width(), height, faded(active ? UiTheme.ACCENT : UiTheme.MUTED));
+        int textY = y + (height - lines.length * font.lineHeight) / 2;
+        for (int i = 0; i < lines.length; i++) {
+            String label = RenderUtils.shortenText(font, lines[i], Math.max(0, width - 8 - iconAdvance));
+            context.text(font, label, x + iconAdvance + (width - iconAdvance - font.width(label)) / 2, textY + i * font.lineHeight, faded(active ? UiTheme.TEXT : UiTheme.MUTED));
+        }
     }
 
     private int faded(int color) {
@@ -49,12 +64,18 @@ public class TrackerButton extends Button {
         private int x, y, width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT;
         private Tooltip tooltip;
         private boolean primary;
+        private PngIcons.Icon leadingIcon;
         private CreateNarration narration = DEFAULT_NARRATION;
 
         public Builder(Component message, OnPress onPress) {
             super(message, onPress);
             this.message = message;
             this.onPress = onPress;
+        }
+
+        public Builder leadingIcon(PngIcons.Icon icon) {
+            this.leadingIcon = icon;
+            return this;
         }
 
         public Builder primary() {
@@ -103,6 +124,7 @@ public class TrackerButton extends Button {
         public TrackerButton build() {
             TrackerButton button = new TrackerButton(x, y, width, height, message, onPress, narration);
             button.primary = primary;
+            button.leadingIcon = leadingIcon;
             button.setTooltip(tooltip);
             return button;
         }

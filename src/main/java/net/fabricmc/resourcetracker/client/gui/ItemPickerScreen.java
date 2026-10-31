@@ -39,8 +39,7 @@ public final class ItemPickerScreen extends PagedDataScreen {
 
     public ItemPickerScreen(Screen parent, TrackerConfig.TrackingList list,
                             TrackerConfig.TrackedItem source, Runnable afterReplace, int displayMultiplier) {
-        super(parent, Component.translatable("gui.resourcetracker.edit.replace_title",
-                source.getDisplayName(), (long) source.targetCount * displayMultiplier));
+        super(parent, Component.translatable("gui.resourcetracker.item_picker.title"));
         this.list = list;
         this.source = source;
         this.afterReplace = afterReplace;
@@ -58,9 +57,14 @@ public final class ItemPickerScreen extends PagedDataScreen {
     protected void init() {
         int cursor = searchField == null ? query.length() : searchField.getCursorPosition();
         boolean searching = searchField == null || searchField.isFocused();
-        layout(94);
-        label(Component.translatable("gui.resourcetracker.edit.replace_hint"), left, 30, contentWidth);
-        searchField = new EditBox(font, left, 50, contentWidth, 18,
+        layout(error == null ? 90 : 116);
+        Component quantity = Component.translatable("gui.resourcetracker.item_picker.quantity", (long) source.targetCount * displayMultiplier);
+        int quantityWidth = Math.min(contentWidth / 2, font.width(quantity) + 4);
+        Component current = Component.translatable("gui.resourcetracker.item_picker.current", source.getDisplayName());
+        label(current, left, 30, contentWidth - quantityWidth - 6).setTooltip(Tooltip.create(
+                current.copy().append("\n").append(source.itemId).append("\n").append(Component.translatable("gui.resourcetracker.edit.replace_hint"))));
+        label(quantity, left + contentWidth - quantityWidth, 30, quantityWidth);
+        searchField = new EditBox(font, left, 50, contentWidth, 20,
                 Component.translatable("gui.resourcetracker.edit.search"));
         searchField.setValue(query);
         searchField.setCursorPosition(Math.min(cursor, query.length()));
@@ -74,16 +78,16 @@ public final class ItemPickerScreen extends PagedDataScreen {
         searchField.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.search_hint")));
         addRenderableWidget(searchField);
         if (searching) setFocused(searchField);
+        label(Component.translatable("gui.resourcetracker.item_picker.immediate_hint"), left, 74, contentWidth);
         if (error != null) {
-            EditBox message = label(error, left, 74, contentWidth);
-            message.setTextColorUneditable(0xFFFF7777);
+            wrappedLabel(error, left, 88, contentWidth, UiTheme.DANGER);
         }
         String filter = query.toLowerCase(Locale.ROOT).trim();
         List<Choice> filtered = choices.stream().filter(choice -> choice.search().contains(filter)).toList();
         pagination(filtered.size());
         for (int i = page * pageSize; i < Math.min(filtered.size(), (page + 1) * pageSize); i++) {
             Choice choice = filtered.get(i);
-            button(Component.literal(choice.name()), left, rowTop + (i % pageSize) * 24, contentWidth,
+            button(Component.literal(choice.id().equals(source.itemId) ? "\u2713 " : "").append(choice.name()), left, rowTop + (i % pageSize) * 24, contentWidth,
                     b -> select(choice)).setTooltip(Tooltip.create(Component.translatable(
                             "gui.resourcetracker.edit.select_item", choice.name()).append("\n").append(choice.id())));
         }

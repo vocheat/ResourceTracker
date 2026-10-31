@@ -25,9 +25,11 @@ public final class AreaListScreen extends PagedDataScreen {
     private final long scannedBlocks;
     private final long skippedBlocks;
     private final Map<String, Integer> unsupported;
-    private String query = "";
+    private final ResourceViewState view = new ResourceViewState();
+    private boolean detail;
     private boolean focusSearch;
     private EditBox searchField;
+    private EditBox nameField;
     private EditBox multiplierField;
     private EditBox help;
     private String helpDetails;
@@ -56,86 +58,145 @@ public final class AreaListScreen extends PagedDataScreen {
 
     @Override
     protected void init() {
-        int cursor = searchField == null ? query.length() : searchField.getCursorPosition();
-        layout(164);
+        boolean naming = nameField != null && nameField.isFocused();
+        int nameCursor = nameField == null ? draft.name.length() : nameField.getCursorPosition();
+        boolean searching = searchField != null && searchField.isFocused();
+        int cursor = searchField == null ? view.query.length() : searchField.getCursorPosition();
+        layout(108, Component.translatable("gui.resourcetracker.draft.title"));
         undoShortcutDown = minecraft != null && VersionCompat.isUndoPressed(minecraft);
-        label(Component.translatable("gui.resourcetracker.edit.list_name"), left, 30, contentWidth);
-        EditBox name = new EditBox(font, left, 48, contentWidth, 20,
+        multiplierField = null;
+        applyMultiplier = null;
+        EditBox name = new EditBox(font, left, 30, contentWidth, 20,
                 Component.translatable("gui.resourcetracker.edit.list_name"));
         name.setMaxLength(120);
         name.setValue(draft.name);
+        name.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.list_name")));
         name.setResponder(value -> { draft.name = value; updateControls(); });
         addRenderableWidget(name);
-        label(Component.translatable("gui.resourcetracker.area.multiplier"), left, 79, 76);
-        multiplierField = new EditBox(font, left + 80, 75, 54, 20,
-                Component.translatable("gui.resourcetracker.area.multiplier"));
-        multiplierField.setMaxLength(10);
-        multiplierField.setValue(multiplierText);
-        multiplierField.setResponder(value -> { multiplierText = value; updateControls(); });
-        multiplierField.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.area.multiplier_hint")));
-        addRenderableWidget(multiplierField);
-        applyMultiplier = button(Component.translatable("gui.resourcetracker.area.apply_multiplier"),
-                left + 140, 75, Math.max(1, contentWidth - 140), b -> applyMultiplier());
-        EditBox search = new EditBox(font, left, 102, contentWidth, 20,
-                Component.translatable("gui.resourcetracker.edit.search"));
-        searchField = search;
-        search.setHint(Component.translatable("gui.resourcetracker.edit.search_tracked"));
-        search.setMaxLength(120);
-        search.setValue(query);
-        search.setCursorPosition(Math.min(cursor, query.length()));
-        search.setResponder(value -> {
-            query = value;
-            page = 0;
-            focusSearch = true;
-            if (minecraft != null) minecraft.execute(this::init);
-        });
-        addRenderableWidget(search);
-        label(Component.translatable("gui.resourcetracker.area.summary_copies", scannedBlocks,
-                draft.items.size(), multiplier), left, 129, contentWidth);
-        help = label(Component.empty(), left, 146, contentWidth);
+        nameField = name;
+        name.setCursorPosition(Math.min(nameCursor, draft.name.length()));
+        help = label(Component.empty(), left, 58, contentWidth - 76);
         helpDetails = null;
-        List<TrackerConfig.TrackedItem> rows = draft.items.stream().filter(this::matches).toList();
-        pagination(rows.size());
-        for (int index = page * pageSize; index < Math.min(rows.size(), (page + 1) * pageSize); index++) {
-            TrackerConfig.TrackedItem item = rows.get(index);
-            int y = rowTop + (index % pageSize) * 24;
-            Button replace = button(Component.literal(item.getDisplayName() + " × " + scaledCount(item)), left, y, contentWidth - 30,
-                    b -> {
-                        if (validSession()) VersionCompat.setScreen(minecraft,
-                                new ItemPickerScreen(this, draft, item, () -> { }, multiplier));
-                    });
-            replace.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.replace_item", item.getDisplayName())));
-            Button remove = button(Component.literal("×"), left + contentWidth - 26, y, 26,
-                    b -> {
-                        if (!validSession()) return;
-                        TrackerHistory.record(draft);
-                        draft.items.remove(item);
+        button(Component.translatable("gui.resourcetracker.draft.details"), left + contentWidth - 70, 54, 70,
+                b -> showNotes());
+        TrackerConfig.TrackedItem selected = draft.items.stream()
+                .filter(item -> item.itemId.equals(view.selectedItemId)).findFirst().orElse(null);
+        boolean wide = contentWidth >= 540;
+        if (detail && !wide && selected != null) {
+            button(Component.translatable("gui.resourcetracker.compact.back_resources"), left, 80, contentWidth,
+                    b -> { detail = false; init(); });
+            selectedPanel(selected, left, rowTop, contentWidth);
+        } else {
+            detail = false;
+            searchField = DraftMaterialsTable.search(this, view, left, 80, contentWidth - 100, () -> {
+                focusSearch = true;
+                if (minecraft != null) minecraft.execute(this::init);
+            });
+            searchField.setCursorPosition(Math.min(cursor, view.query.length()));
+            if (searching || focusSearch) setFocused(searchField);
+            button(Component.translatable("gui.resourcetracker.compact.list_actions"), left + contentWidth - 94, 80, 94,
+                    b -> showActions());
+            int tableWidth = wide ? contentWidth - 192 : contentWidth;
+            DraftMaterialsTable.rows(this, draft.items, view, tableWidth,
+                    DraftMaterialsTable.Capability.SELECT_RESOURCE,
+                    item -> Component.literal(item.getDisplayName() + " × " + scaledCount(item)), item -> {
+                        view.selectedItemId = item.itemId;
+                        detail = !wide;
+                        focusSearch = false;
                         init();
                     });
-            remove.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.remove_item", item.getDisplayName())));
+            if (wide && selected != null) selectedPanel(selected, left + tableWidth + 8, rowTop, 184);
         }
-        if (rows.isEmpty()) label(Component.translatable("gui.resourcetracker.edit.no_results"), left, rowTop + 4, contentWidth);
-        int actionsWidth = Math.max(1, contentWidth - 138);
-        int undoWidth = Math.max(1, Math.min(90, (actionsWidth - 6) / 3));
         undoButton = button(Component.translatable("gui.resourcetracker.undo"), left + 138, height - 52,
-                undoWidth, b -> undo());
+                contentWidth - 138, b -> undo());
         undoButton.setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.undo_hint")));
-        button(Component.translatable("gui.resourcetracker.family.button"), left + 138 + undoWidth + 6,
-                height - 52, actionsWidth - undoWidth - 6, b -> {
-                    if (validSession()) VersionCompat.setScreen(minecraft,
-                            new FamilyReplacementScreen(this, draft, multiplier));
-                });
         int half = (contentWidth - 6) / 2;
         accept = button(Component.translatable("gui.resourcetracker.area.create"), left, height - 26, half, b -> create());
         button(Component.translatable("gui.cancel"), left + half + 6, height - 26, contentWidth - half - 6, b -> onClose());
         updateControls();
-        if (focusSearch) setFocused(search);
+        if (naming) setFocused(nameField);
     }
 
-    private boolean matches(TrackerConfig.TrackedItem item) {
-        String filter = query.toLowerCase(Locale.ROOT).trim();
-        return item.itemId.toLowerCase(Locale.ROOT).contains(filter)
-                || item.getDisplayName().toLowerCase(Locale.ROOT).contains(filter);
+    private void selectedPanel(TrackerConfig.TrackedItem selected, int x, int y, int w) {
+        label(Component.literal(selected.getDisplayName()), x, y, w);
+        label(Component.literal("× " + scaledCount(selected)), x, y + 14, w);
+        int next = y + 24;
+        button(Component.translatable("gui.resourcetracker.compact.replace"), x, next + 8, w, b -> {
+            if (validSession()) VersionCompat.setScreen(minecraft, new ItemPickerScreen(this, draft, selected,
+                    () -> { view.selectedItemId = null; detail = false; }, multiplier));
+        });
+        button(Component.translatable("gui.resourcetracker.compact.remove_resource"), x, next + 34, w, b -> {
+            if (!validSession()) return;
+            TrackerHistory.record(draft);
+            draft.items.remove(selected);
+            view.selectedItemId = null;
+            detail = false;
+            init();
+        });
+    }
+
+    private void showActions() {
+        if (!validSession()) return;
+        VersionCompat.setScreen(minecraft, new ChoiceScreen<>(this,
+                Component.translatable("gui.resourcetracker.compact.list_actions"), List.of("copies", "family"), null,
+                value -> Component.translatable(value.equals("copies") ? "gui.resourcetracker.area.multiplier" : "gui.resourcetracker.family.button"),
+                value -> {
+                    if (!validSession()) return;
+                    VersionCompat.setScreen(minecraft, value.equals("copies") ? new MultiplierScreen()
+                            : new FamilyReplacementScreen(this, draft, multiplier));
+                }));
+    }
+
+    private void showNotes() {
+        List<Component> notes = new java.util.ArrayList<>();
+        notes.add(Component.translatable("gui.resourcetracker.area.summary_copies", scannedBlocks, draft.items.size(), multiplier));
+        notes.add(Component.translatable("gui.resourcetracker.area.edit_hint"));
+        if (skippedBlocks > 0) notes.add(Component.translatable("gui.resourcetracker.area.skipped", skippedBlocks));
+        unsupported.forEach((id, count) -> notes.add(Component.literal(id + " × " + count)));
+        if (validSession()) VersionCompat.setScreen(minecraft, new NotesScreen(this,
+                Component.translatable("gui.resourcetracker.draft.details"), notes));
+    }
+
+    private final class MultiplierScreen extends PagedDataScreen {
+        MultiplierScreen() { super(AreaListScreen.this, Component.translatable("gui.resourcetracker.area.multiplier")); }
+        @Override protected void init() {
+            layout(120);
+            wrappedLabel(Component.translatable("gui.resourcetracker.area.multiplier_hint"), left, 32, contentWidth, UiTheme.MUTED);
+            multiplierField = new EditBox(font, left, 74, contentWidth, 20, title);
+            multiplierField.setMaxLength(10);
+            multiplierField.setValue(multiplierText);
+            addRenderableWidget(multiplierField);
+            EditBox status = label(Component.empty(), left, 104, contentWidth);
+            applyMultiplier = button(Component.translatable("gui.resourcetracker.area.apply_multiplier"), left, height - 52,
+                    contentWidth, b -> { AreaListScreen.this.applyMultiplier(); onClose(); });
+            Runnable update = () -> {
+                Integer requested = requestedMultiplier();
+                applyMultiplier.active = validSession() && requested != null && fits(requested) && requested != multiplier;
+                Component message = requested == null ? Component.translatable("gui.resourcetracker.area.invalid_multiplier")
+                        : !fits(requested) ? Component.translatable("gui.resourcetracker.edit.replace_overflow", TrackerConfig.MAX_TARGET_COUNT)
+                        : Component.translatable("gui.resourcetracker.draft.multiplier_status", multiplier, multiplierText);
+                status.setValue(message.getString());
+                status.setCursorPosition(0);
+                status.setHighlightPos(0);
+                status.setTooltip(Tooltip.create(message));
+                status.setTextColorUneditable(requested == null || !fits(requested) ? UiTheme.DANGER : UiTheme.TEXT);
+            };
+            multiplierField.setResponder(value -> { multiplierText = value; update.run(); });
+            button(Component.translatable("gui.back"), left, height - 26, contentWidth, b -> onClose());
+            update.run();
+            setFocused(multiplierField);
+        }
+        @Override public void tick() {
+            if (!validSession()) VersionCompat.setScreen(minecraft, null);
+            else super.tick();
+        }
+        @Override protected boolean editorKeyPressed(int keyCode) {
+            if ((keyCode == 257 || keyCode == 335) && getFocused() == multiplierField) {
+                if (applyMultiplier.active) { AreaListScreen.this.applyMultiplier(); onClose(); }
+                return true;
+            }
+            return false;
+        }
     }
 
     private boolean validSession() {
@@ -176,11 +237,11 @@ public final class AreaListScreen extends PagedDataScreen {
         } else if (!valid) {
             hint = Component.translatable("gui.resourcetracker.edit.replace_overflow", TrackerConfig.MAX_TARGET_COUNT);
         } else if (pending) {
-            hint = Component.translatable("gui.resourcetracker.area.multiplier_pending", requested);
+            hint = Component.translatable("gui.resourcetracker.draft.multiplier_status", multiplier, requested);
         } else if (skippedBlocks > 0) {
             hint = Component.translatable("gui.resourcetracker.area.skipped", skippedBlocks);
         } else {
-            hint = Component.translatable("gui.resourcetracker.area.edit_hint");
+            hint = Component.translatable("gui.resourcetracker.area.summary_copies", scannedBlocks, draft.items.size(), multiplier);
         }
         StringBuilder details = new StringBuilder(hint.getString());
         unsupported.forEach((id, count) -> details.append('\n').append(id).append(" × ").append(count));
@@ -219,6 +280,15 @@ public final class AreaListScreen extends PagedDataScreen {
         TrackerConfig.saveList(draft);
         ResourceTrackerClient.invalidateTargetItemCache();
         onClose();
+    }
+
+    @Override
+    protected boolean editorKeyPressed(int keyCode) {
+        if ((keyCode == 257 || keyCode == 335) && getFocused() == nameField) {
+            create();
+            return true;
+        }
+        return false;
     }
 
     @Override

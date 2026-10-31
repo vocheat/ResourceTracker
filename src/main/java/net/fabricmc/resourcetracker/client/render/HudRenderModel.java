@@ -1,14 +1,18 @@
 package net.fabricmc.resourcetracker.client.render;
 
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 
 import java.util.List;
+import net.fabricmc.resourcetracker.model.HudPlacement;
 
 /**
  * Immutable, precomputed draw data for one HUD tracking list.
  */
 public final class HudRenderModel {
     public final String title;
+    public final Component titleComponent;
     public final int titleColor;
     public final int backgroundColor;
     public final int backgroundMinX;
@@ -42,6 +46,7 @@ public final class HudRenderModel {
             int summaryColor
     ) {
         this.title = title;
+        this.titleComponent = Component.literal(title).withStyle(ChatFormatting.BOLD);
         this.titleColor = titleColor;
         this.backgroundColor = backgroundColor;
         this.backgroundMinX = backgroundMinX;
@@ -56,6 +61,12 @@ public final class HudRenderModel {
         this.summary = summary;
         this.summaryX = summaryX;
         this.summaryColor = summaryColor;
+    }
+
+    /** Include the positioning outline so rendering and dragging always use the same edges. */
+    public HudPlacement placement(double x, double y, float scale, int viewportWidth, int viewportHeight) {
+        return HudPlacement.resolve(x, y, scale, backgroundMinX - 1, backgroundMinY - 1,
+                backgroundMaxX + 1, backgroundMaxY + 1, viewportWidth, viewportHeight);
     }
 
     /** Precomputed panels, borders and progress strips; no inventory work during rendering. */

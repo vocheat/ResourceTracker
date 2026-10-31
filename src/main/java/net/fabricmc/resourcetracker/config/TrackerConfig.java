@@ -29,6 +29,7 @@ import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.model.ResourceState;
+import net.fabricmc.resourcetracker.model.WoodType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -203,6 +204,7 @@ public class TrackerConfig {
         public boolean hudRaw;
         /** Include furnace inputs when expanding collection materials in the raw view. */
         public boolean includeSmelting;
+        public WoodType woodType = WoodType.AUTO;
         public CountUnit countUnit = CountUnit.ITEMS;
         public boolean hideCompleted;
         public boolean sortRemaining;
@@ -816,6 +818,7 @@ public class TrackerConfig {
                     .append("showIcons=").append(list.showIcons).append('\n')
                     .append("hudRaw=").append(list.hudRaw).append('\n')
                     .append("includeSmelting=").append(list.includeSmelting).append('\n')
+                    .append("woodType=").append(list.woodType.name()).append('\n')
                     .append("countUnit=").append(list.countUnit.name()).append('\n')
                     .append("hideCompleted=").append(list.hideCompleted).append('\n')
                     .append("sortRemaining=").append(list.sortRemaining).append('\n')
@@ -940,6 +943,10 @@ public class TrackerConfig {
             case "showIcons" -> list.showIcons = Boolean.parseBoolean(value);
             case "hudRaw" -> list.hudRaw = Boolean.parseBoolean(value);
             case "includeSmelting" -> list.includeSmelting = Boolean.parseBoolean(value);
+            case "woodType" -> {
+                try { list.woodType = WoodType.valueOf(value); }
+                catch (IllegalArgumentException ignored) { list.woodType = WoodType.AUTO; }
+            }
             case "countUnit" -> {
                 try { list.countUnit = CountUnit.valueOf(value); }
                 catch (IllegalArgumentException ignored) { list.countUnit = CountUnit.ITEMS; }
@@ -1061,6 +1068,7 @@ public class TrackerConfig {
         list.columns = clampColumns(list.columns);
         list.maxVisibleRows = Math.max(0, list.maxVisibleRows);
         if (list.countUnit == null) list.countUnit = CountUnit.ITEMS;
+        if (list.woodType == null) list.woodType = WoodType.AUTO;
         if (list.recipeChoices == null) list.recipeChoices = new LinkedHashMap<>();
         if (list.ingredientChoices == null) list.ingredientChoices = new LinkedHashMap<>();
         if (list.terminalItems == null) list.terminalItems = new LinkedHashSet<>();

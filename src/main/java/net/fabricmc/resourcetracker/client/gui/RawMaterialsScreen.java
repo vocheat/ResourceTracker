@@ -1,25 +1,23 @@
 package net.fabricmc.resourcetracker.client.gui;
 
-import net.fabricmc.resourcetracker.compat.VersionCompat;
-
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
+import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.config.TrackerHistory;
-import net.fabricmc.resourcetracker.crafting.CraftingRuntime;
-import net.fabricmc.resourcetracker.crafting.RecipeIndex;
 import net.fabricmc.resourcetracker.model.CountFormatter;
-import net.minecraft.client.gui.components.Button;
+import net.fabricmc.resourcetracker.util.PngIcons;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
 import java.util.Locale;
 
-/** The derived view belongs to the original editor session and never saves independently. */
+/** A derived view in the original editor session; opening it never changes the HUD source. */
 public final class RawMaterialsScreen extends PagedDataScreen {
-    private static final String STONE = "minecraft:stone";
     private final TrackerConfig.TrackingList list;
-    private String query = "";
+    private final ResourceViewState view = new ResourceViewState();
     private EditBox searchField;
     private List<TrackerConfig.TrackedItem> displayedItems;
 
@@ -28,113 +26,111 @@ public final class RawMaterialsScreen extends PagedDataScreen {
         this.list = list;
     }
 
-    @Override
-    protected void init() {
+    @Override protected TrackerConfig.TrackingList undoList() { return list; }
+
+    @Override protected void init() {
         boolean searching = searchField != null && searchField.isFocused();
-        List<RecipeIndex.Recipe> stoneRecipes = CraftingRuntime.index().recipesFor(STONE);
-        RecipeIndex.Recipe stoneRecipe = stoneRecipes.stream()
-                .filter(recipe -> (recipe.kind().equals("smelting") || recipe.kind().equals("blasting"))
-                        && recipe.ingredients().stream().anyMatch(input -> input.options().contains("minecraft:cobblestone")))
-                .findFirst().orElse(null);
-        boolean showStoneChoice = stoneRecipe != null && CraftingRuntime.plan(list).options().stream()
-                .anyMatch(option -> option.itemId().equals(STONE));
-        int extra = showStoneChoice ? 24 : 0;
-        layout(136 + extra);
-        int tabWidth = (contentWidth - 6) / 2;
-        button(Component.translatable("gui.resourcetracker.edit.items"), left, 30, tabWidth, b -> onClose());
-        button(Component.translatable("gui.resourcetracker.edit.raw"), left + tabWidth + 6, 30, tabWidth, b -> {}).active = false;
-        Button hudModeButton = button(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), left, 54, tabWidth, b -> {
-            list.hudRaw = !list.hudRaw;
-            b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
-            ResourceTrackerClient.invalidateTargetItemCache();
+        int cursor = searchField == null ? view.query.length() : searchField.getCursorPosition();
+        layout(104);
+        int tabWidth = (contentWidth - 8) / 3;
+        button(Component.translatable("gui.resourcetracker.ui.resources"), left, 30, tabWidth,
+                b -> ((EditScreen) parent).openTab("resources"));
+        button(Component.translatable("gui.resourcetracker.ui.raw"), left + tabWidth + 4, 30, tabWidth, b -> {}).active = false;
+        button(Component.translatable("gui.resourcetracker.ui.hud"), left + (tabWidth + 4) * 2, 30, tabWidth,
+                b -> ((EditScreen) parent).openTab("hud"));
+        Component summary = Component.translatable("gui.resourcetracker.raw.rules_summary", WoodChoiceScreen.name(list.woodType),
+                Component.translatable(list.includeSmelting ? "gui.resourcetracker.raw.smelting_on" : "gui.resourcetracker.raw.smelting_off"),
+                Component.translatable(RawRulesScreen.stoneExpanded(list) ? "gui.resourcetracker.raw.stone_smelt" : "gui.resourcetracker.raw.stone_ready"));
+        List<String> summaryLines = RawTextScreen.wrap(font, summary.getString(), contentWidth);
+        for (int i = 0; i < Math.min(2, summaryLines.size()); i++)
+            label(Component.literal(summaryLines.get(i)), left, 54 + i * 11, contentWidth).setTooltip(Tooltip.create(summary));
+        button(Component.translatable("gui.resourcetracker.raw.rules"), left, 80, 100,
+                b -> open(new RawRulesScreen(this, list)));
+        searchField = new EditBox(font, left + 106, 80, contentWidth - 106, 20,
+                Component.translatable("gui.resourcetracker.raw.search"));
+        searchField.setHint(Component.translatable("gui.resourcetracker.raw.search"));
+        searchField.setMaxLength(120);
+        searchField.setValue(view.query);
+        searchField.setCursorPosition(Math.min(cursor, view.query.length()));
+        searchField.setResponder(value -> {
+            view.query = value; view.page = 0; page = 0;
+            if (minecraft != null) minecraft.execute(() -> { init(); setFocused(searchField); });
         });
-        hudModeButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                Component.translatable("gui.resourcetracker.edit.hud_mode_hint")));
-        button(Component.translatable(list.includeSmelting ? "gui.resourcetracker.raw.smelting_on" : "gui.resourcetracker.raw.smelting_off"),
-                left + tabWidth + 6, 54, tabWidth, b -> {
-                    TrackerHistory.record(list);
-                    list.includeSmelting = !list.includeSmelting;
-                    page = 0;
-                    changed();
-                    init();
-                }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                        Component.translatable("gui.resourcetracker.raw.smelting_hint")));
-        if (showStoneChoice) {
-            boolean smeltStone = !list.terminalItems.contains(STONE)
-                    && (list.includeSmelting || stoneRecipes.stream()
-                    .anyMatch(recipe -> recipe.id().equals(list.recipeChoices.get(STONE))));
-            button(Component.translatable(smeltStone ? "gui.resourcetracker.raw.stone_smelt" : "gui.resourcetracker.raw.stone_ready"),
-                    left, 78, contentWidth, b -> {
-                        TrackerHistory.record(list);
-                        if (smeltStone) list.terminalItems.add(STONE);
-                        else {
-                            list.terminalItems.remove(STONE);
-                            list.recipeChoices.put(STONE, stoneRecipe.id());
-                        }
-                        page = 0;
-                        changed();
-                        init();
-                    }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                            Component.translatable("gui.resourcetracker.raw.stone_hint")));
-        }
-        EditBox rawNote = label(Component.translatable("gui.resourcetracker.edit.raw_note"), left, 80 + extra, contentWidth);
-        rawNote.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                Component.translatable("gui.resourcetracker.edit.raw_note_tooltip")));
-        EditBox search = new EditBox(font, left, 102 + extra, contentWidth, 18, Component.translatable("gui.resourcetracker.edit.search_tracked"));
-        searchField = search;
-        search.setValue(query);
-        search.setResponder(value -> {
-            query = value;
-            page = 0;
-            if (minecraft != null) minecraft.execute(() -> { init(); focusSearch(); });
-        });
-        addRenderableWidget(search);
-        if (searching) setFocused(search);
-        String filter = query.toLowerCase(Locale.ROOT).trim();
+        addRenderableWidget(searchField);
+        if (searching) setFocused(searchField);
         displayedItems = list.getRawItems();
+        String filter = view.query.toLowerCase(Locale.ROOT).trim();
         List<TrackerConfig.TrackedItem> items = displayedItems.stream().filter(item ->
                 item.itemId.toLowerCase(Locale.ROOT).contains(filter) || item.getDisplayName().toLowerCase(Locale.ROOT).contains(filter)).toList();
-        pagination(items.size());
-        int actionWidth = Math.min(42, Math.max(20, (contentWidth - 72) / 4));
+        boolean wide = width >= 620 && height >= 300;
+        int tableWidth = wide ? contentWidth - 220 : contentWidth;
+        pageSize = Math.max(1, (height - 82 - rowTop) / 24);
+        pagination(items.size(), height - 76);
+        view.page = page;
         for (int i = page * pageSize; i < Math.min(items.size(), (page + 1) * pageSize); i++) {
             TrackerConfig.TrackedItem item = items.get(i);
             int y = rowTop + (i % pageSize) * 24;
-            int actionsX = left + contentWidth - actionWidth * 3 - 12;
-            String status = item.isManuallyCollected() ? Component.translatable("gui.resourcetracker.edit.collected").getString()
-                    : format(item, Math.min(item.cachedCount, item.targetCount)) + " / " + format(item, item.targetCount);
-            label(Component.literal(item.getDisplayName() + " — " + status), left, y + 4, actionsX - left - 6);
-            button(Component.literal(item.isManuallyCollected() ? "✓" : "○"), actionsX, y, actionWidth, b -> {
-                TrackerHistory.record(list);
-                item.toggleCollected(); changed(); init();
-            }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("gui.resourcetracker.edit.mark_collected")));
-            button(Component.literal(item.pinned ? "★" : "☆"), actionsX + actionWidth + 4, y, actionWidth, b -> {
-                TrackerHistory.record(list);
-                item.pinned = !item.pinned; changed(); init();
-            }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("gui.resourcetracker.edit.pin")));
-            button(Component.literal("…"), actionsX + (actionWidth + 4) * 2, y, actionWidth,
-                    b -> { if (minecraft != null) VersionCompat.setScreen(minecraft, new RecipeOptionsScreen(this, list, item.itemId)); })
-                    .setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("gui.resourcetracker.recipe.title")));
+            String status = quantity(item);
+            String full = item.getDisplayName() + " — " + status + ", "
+                    + Component.translatable("gui.resourcetracker.raw.manual", state(item.isManuallyCollected())).getString() + ", "
+                    + Component.translatable("gui.resourcetracker.raw.pinned", state(item.pinned)).getString();
+            String indicators = (item.itemId.equals(view.selectedItemId) ? "▶ " : "")
+                    + (item.pinned ? "★ " : "");
+            TrackerButton.Builder row = TrackerButton.builder(Component.empty(), b -> {
+                view.selectedItemId = item.itemId;
+                view.page = page;
+                if (wide) init(); else open(new DetailScreen(this, list, item.itemId));
+            }).bounds(left, y, tableWidth, 20)
+                    .leadingIcon(item.isManuallyCollected() ? PngIcons.Icon.CHECK_SMALL : null)
+                    .createNarration(s -> Component.literal(full))
+                    .tooltip(Tooltip.create(Component.literal(full + "\n" + item.itemId)));
+            if (item.itemId.equals(view.selectedItemId)) row.primary();
+            addRenderableWidget(row.build());
+            int countWidth = Math.min(tableWidth / 2, font.width(status) + 8);
+            int checkWidth = item.isManuallyCollected() ? PngIcons.SMALL_CHECK_ADVANCE : 0;
+            label(Component.literal(indicators + item.getDisplayName()), left + 4 + checkWidth, y + 5,
+                    tableWidth - countWidth - 8 - checkWidth);
+            label(Component.literal(status), left + tableWidth - countWidth, y + 5, countWidth - 4);
         }
-        if (!list.rawDiagnostics.isEmpty()) {
-            button(Component.translatable("gui.resourcetracker.recipe.diagnostics", list.rawDiagnostics.size()), left + 138, height - 52,
-                    contentWidth - 138, b -> { if (minecraft != null) VersionCompat.setScreen(minecraft, new RecipeOptionsScreen(this, list, null)); });
+        if (items.isEmpty()) label(Component.translatable("gui.resourcetracker.raw.empty"), left, rowTop + 5, tableWidth);
+        if (wide) {
+            TrackerConfig.TrackedItem selected = selectedItem(list, view.selectedItemId);
+            int detailX = left + tableWidth + 8;
+            if (selected == null) wrappedLabel(Component.translatable("gui.resourcetracker.raw.select"), detailX, rowTop + 4, 212, UiTheme.MUTED);
+            else selectedControls(selected, detailX, rowTop, 212);
         }
-        int footerWidth = Math.max(1, (contentWidth - 12) / 3);
-        button(Component.translatable("gui.resourcetracker.recipe.options"), left, height - 26, footerWidth,
-                b -> { if (minecraft != null) VersionCompat.setScreen(minecraft, new RecipeOptionsScreen(this, list, null)); });
-        button(Component.translatable("gui.resourcetracker.undo"), left + footerWidth + 6, height - 26, footerWidth,
+        int half = (contentWidth - 6) / 2;
+        button(Component.translatable("gui.resourcetracker.recipe.title"), left, height - 50, half,
+                b -> open(new RecipeOptionsScreen(this, list, null)));
+        button(Component.translatable("gui.resourcetracker.recipe.diagnostics", list.rawDiagnostics.size()), left + half + 6, height - 50, half,
+                b -> open(new RawTextScreen(this, Component.translatable("gui.resourcetracker.recipe.diagnostics", list.rawDiagnostics.size()),
+                        list.rawDiagnostics.stream().map(DiagnosticText::of).toList())));
+        button(Component.translatable("gui.resourcetracker.undo"), left, height - 26, half,
                 b -> { if (TrackerHistory.undo(list)) init(); }).active = TrackerHistory.canUndo(list);
-        button(Component.translatable("gui.resourcetracker.done"), left + contentWidth - footerWidth, height - 26, footerWidth, b -> onClose());
+        button(Component.translatable("gui.resourcetracker.done"), left + half + 6, height - 26, half, b -> onClose());
     }
 
-    private void focusSearch() {
-        for (var child : children()) if (child instanceof EditBox box && box.active) { setFocused(box); break; }
+    private void selectedControls(TrackerConfig.TrackedItem item, int x, int y, int w) {
+        label(Component.literal(item.getDisplayName()), x, y, w);
+        label(Component.literal(quantity(item)), x, y + 18, w);
+        ((TrackerButton) button(Component.translatable("gui.resourcetracker.raw.manual", state(item.isManuallyCollected())), x, y + 40, w,
+                b -> { TrackerHistory.record(list); item.toggleCollected(); changed(); init(); }))
+                .setLeadingIcon(item.isManuallyCollected() ? PngIcons.Icon.CHECK : null)
+                .setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.raw.manual_hint")));
+        button(Component.translatable("gui.resourcetracker.raw.pinned", state(item.pinned)), x, y + 64, w,
+                b -> { TrackerHistory.record(list); item.pinned = !item.pinned; changed(); init(); });
+        button(Component.translatable("gui.resourcetracker.raw.recipe_details"), x, y + 88, w,
+                b -> open(new RecipeOptionsScreen(this, list, item.itemId)));
     }
-
-    private void changed() {
-        ResourceTrackerClient.invalidateTargetItemCache();
+    private void open(Screen screen) { if (minecraft != null) VersionCompat.setScreen(minecraft, screen); }
+    static Component state(boolean enabled) { return Component.translatable(enabled ? "gui.resourcetracker.raw.on" : "gui.resourcetracker.raw.off"); }
+    static void changed() { ResourceTrackerClient.invalidateTargetItemCache(); }
+    private static TrackerConfig.TrackedItem selectedItem(TrackerConfig.TrackingList list, String id) {
+        return list.getRawItems().stream().filter(item -> item.itemId.equals(id)).findFirst().orElse(null);
     }
-
+    private String quantity(TrackerConfig.TrackedItem item) {
+        return format(item, Math.min(item.cachedCount, item.targetCount)) + " / " + format(item, item.targetCount);
+    }
     private String format(TrackerConfig.TrackedItem item, int count) {
         if (!item.isValid()) return Integer.toString(count);
         return CountFormatter.format(count, item.getStack().getMaxStackSize(), item.getStack().getItem().canFitInsideContainerItems(),
@@ -143,10 +139,38 @@ public final class RawMaterialsScreen extends PagedDataScreen {
                         Component.translatable("gui.resourcetracker.unit.stacks").getString(),
                         Component.translatable("gui.resourcetracker.unit.shulkers").getString()));
     }
+    @Override public void tick() { super.tick(); if (displayedItems != list.getRawItems()) { view.page = page; init(); } }
 
-    @Override
-    public void tick() {
-        super.tick();
-        if (displayedItems != list.getRawItems()) init();
+    private static final class DetailScreen extends PagedDataScreen {
+        private final TrackerConfig.TrackingList list;
+        private final String id;
+        private List<TrackerConfig.TrackedItem> displayed;
+        private DetailScreen(RawMaterialsScreen parent, TrackerConfig.TrackingList list, String id) {
+            super(parent, Component.literal(new TrackerConfig.TrackedItem(id, 1).getDisplayName())); this.list = list; this.id = id;
+        }
+        @Override protected TrackerConfig.TrackingList undoList() { return list; }
+        @Override protected void init() {
+            layout(38);
+            displayed = list.getRawItems();
+            TrackerConfig.TrackedItem item = selectedItem(list, id);
+            if (item == null) label(Component.translatable("gui.resourcetracker.raw.absent"), left, 40, contentWidth);
+            else {
+                RawMaterialsScreen owner = (RawMaterialsScreen) parent;
+                label(Component.literal(owner.quantity(item)), left, 38, contentWidth);
+                ((TrackerButton) button(Component.translatable("gui.resourcetracker.raw.manual", state(item.isManuallyCollected())), left, 62, contentWidth,
+                        b -> { TrackerHistory.record(list); item.toggleCollected(); changed(); init(); }))
+                        .setLeadingIcon(item.isManuallyCollected() ? PngIcons.Icon.CHECK : null)
+                        .setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.raw.manual_hint")));
+                button(Component.translatable("gui.resourcetracker.raw.pinned", state(item.pinned)), left, 86, contentWidth,
+                        b -> { TrackerHistory.record(list); item.pinned = !item.pinned; changed(); init(); });
+                button(Component.translatable("gui.resourcetracker.raw.recipe_details"), left, 110, contentWidth,
+                        b -> { if (minecraft != null) VersionCompat.setScreen(minecraft, new RecipeOptionsScreen(this, list, id)); });
+            }
+            int half = (contentWidth - 6) / 2;
+            button(Component.translatable("gui.resourcetracker.undo"), left, height - 26, half,
+                    b -> { if (TrackerHistory.undo(list)) init(); }).active = TrackerHistory.canUndo(list);
+            button(Component.translatable("gui.resourcetracker.raw.back"), left + half + 6, height - 26, half, b -> onClose());
+        }
+        @Override public void tick() { super.tick(); if (displayed != list.getRawItems()) init(); }
     }
 }

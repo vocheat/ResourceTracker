@@ -7,8 +7,11 @@ def compatibilitySourceProfile = project.ext.has('source_profile_id')
 def excludedMainSources = project.ext.has('excluded_main_sources')
         ? project.ext.excluded_main_sources
         : []
-if (file("src/compat/${compatibilitySourceProfile}/java/net/fabricmc/resourcetracker/client/gui/TrackerButton.java").isFile()) {
-    excludedMainSources = excludedMainSources + ['net/fabricmc/resourcetracker/client/gui/TrackerButton.java']
+['TrackerButton', 'EditorInputScreen'].each { adapter ->
+    def relative = "net/fabricmc/resourcetracker/client/gui/${adapter}.java"
+    if (file("src/compat/${compatibilitySourceProfile}/java/${relative}").isFile()) {
+        excludedMainSources = excludedMainSources + [relative]
+    }
 }
 
 layout.buildDirectory.set(layout.projectDirectory.dir("build/${profile_id}"))

@@ -16,7 +16,7 @@ import java.util.Map;
 /** Shared card geometry for the game HUD, editor preview and positioning screen. */
 public final class HudRenderCache {
     private static final int PADDING = 6;
-    private static final int HEADER_HEIGHT = 20;
+    private static final int HEADER_HEIGHT = 28;
     private static final int COLUMN_GAP = 8;
     private static final int MAX_NAME_WIDTH = 180;
     private static final Map<TrackerConfig.TrackingList, Entry> CACHE = new IdentityHashMap<>();
@@ -74,16 +74,17 @@ public final class HudRenderCache {
         int columns = layout[0], itemsPerColumn = layout[1];
         int columnWidth = contentWidth + PADDING * 2;
         int totalWidth = Math.max(columnWidth * columns + COLUMN_GAP * (columns - 1),
-                font.width(title) + (summary.isEmpty() ? 0 : font.width(summary) + 16) + PADDING * 2);
+                font.width(Component.literal(title).withStyle(net.minecraft.ChatFormatting.BOLD))
+                        + (summary.isEmpty() ? 0 : font.width(summary) + 16) + PADDING * 2);
         if (columns == 1) columnWidth = totalWidth;
         int height = HEADER_HEIGHT + itemsPerColumn * rowHeight + PADDING;
         int left = -PADDING, top = -PADDING, right = totalWidth - PADDING, bottom = height - PADDING;
         List<HudRenderModel.Fill> fills = new ArrayList<>();
         List<HudRenderModel.Row> rows = new ArrayList<>(items.size());
         // Each background region is painted once so semi-transparent colors keep their alpha.
-        fills.add(new HudRenderModel.Fill(left, top, right, HEADER_HEIGHT - 6,
-                blend(list.backgroundColor, UiTheme.HEADER, 0.45f)));
-        fills.add(new HudRenderModel.Fill(left, HEADER_HEIGHT - 6, right, HEADER_HEIGHT - 3, list.backgroundColor));
+        fills.add(new HudRenderModel.Fill(left, top, right, HEADER_HEIGHT - 7,
+                blend(list.backgroundColor, list.nameColor, 0.18f)));
+        fills.add(new HudRenderModel.Fill(left, HEADER_HEIGHT - 7, right, HEADER_HEIGHT - 3, list.backgroundColor));
         for (int column = 0; column < columns; column++) {
             int x = column * (columnWidth + COLUMN_GAP) - PADDING;
             for (int row = 0; row < itemsPerColumn; row++) {
@@ -103,7 +104,8 @@ public final class HudRenderCache {
                 right, bottom, list.backgroundColor));
         int borderColor = withAlpha(UiTheme.BORDER, list.backgroundColor >>> 24);
         border(fills, left, top, right, bottom, borderColor);
-        fills.add(new HudRenderModel.Fill(left + 1, HEADER_HEIGHT - 6, right - 1, HEADER_HEIGHT - 5, borderColor));
+        fills.add(new HudRenderModel.Fill(left + 1, HEADER_HEIGHT - 7, right - 1, HEADER_HEIGHT - 5,
+                withAlpha(list.nameColor, list.backgroundColor >>> 24)));
         for (int i = 0; i < items.size(); i++) {
             TrackerConfig.TrackedItem item = items.get(i);
             ItemText text = texts.get(i);

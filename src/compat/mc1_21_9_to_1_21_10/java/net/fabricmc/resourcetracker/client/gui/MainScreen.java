@@ -51,7 +51,6 @@ public class MainScreen extends Screen {
     private final List<Button> menuButtons = new ArrayList<>();
     private final List<Action> actions = new ArrayList<>();
     private double scrollOffset;
-    private boolean filesExpanded;
     private TrackerConfig.TrackingList menuList;
     private Button lastRowFocus;
     private Button filesButton;
@@ -79,68 +78,38 @@ public class MainScreen extends Screen {
         panelWidth = Math.min(460, Math.max(1, width - 16));
         int innerWidth = Math.max(1, panelWidth - 20);
         boolean narrow = innerWidth < 340;
-        int listTopOffset = (narrow ? 136 : 110) + (filesExpanded ? 26 : 0);
+        int listTopOffset = narrow ? 110 : 84;
+        int footerSpace = TrackerHistory.canUndoDeletion() ? 62 : 36;
         int menuSpace = menuList == null ? 0 : 28;
         int desiredViewport = TrackerConfig.INSTANCE.lists.isEmpty()
                 ? 72 : TrackerConfig.INSTANCE.lists.size() * ROW_HEIGHT;
-        int desiredPanelHeight = listTopOffset + desiredViewport + 36 + menuSpace;
+        int desiredPanelHeight = listTopOffset + desiredViewport + footerSpace + menuSpace;
         panelHeight = Math.min(Math.min(350, Math.max(1, height - 16)), desiredPanelHeight);
         panelX = (width - panelWidth) / 2;
         panelY = (height - panelHeight) / 2;
         listX = panelX + 10;
         int toolbarY = panelY + 43;
-        int createWidth = narrow ? (innerWidth - 6) / 2 : 112;
-        Button create = action(listX, toolbarY, createWidth, "gui.resourcetracker.main.create", b -> createList(), true, false);
+        int createWidth = narrow ? innerWidth : (innerWidth - 12) / 3;
+        Button create = action(listX, toolbarY, createWidth, "gui.resourcetracker.main.create", b -> chooseCreation(), true, false);
         create.active = TrackerConfig.hasActiveContext();
-        int secondaryWidth = narrow ? innerWidth - createWidth - 6 : (innerWidth - createWidth - 18) / 3;
-        Button move = action(listX + createWidth + 6, toolbarY, secondaryWidth, "gui.resourcetracker.main.place_hud", b -> {
-            if (minecraft != null) minecraft.setScreen(new HudMoveScreen(this));
+        int secondaryWidth = narrow ? (innerWidth - 6) / 2 : (innerWidth - createWidth - 12) / 2;
+        int secondY = narrow ? toolbarY + 26 : toolbarY;
+        int moveX = narrow ? listX : listX + createWidth + 6;
+        Button move = action(moveX, secondY, secondaryWidth, "gui.resourcetracker.main.place_hud", b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new HudMoveScreen(this));
         }, false, false);
         move.active = TrackerConfig.hasActiveContext();
-        int secondY = narrow ? toolbarY + 26 : toolbarY;
-        int settingsX = narrow ? listX : listX + createWidth + secondaryWidth + 12;
-        int settingsWidth = narrow ? createWidth : secondaryWidth;
-        action(settingsX, secondY, settingsWidth, "gui.resourcetracker.settings", b -> {
-            if (minecraft != null) minecraft.setScreen(new SettingsScreen(this));
-        }, false, false);
-        int filesX = narrow ? listX + createWidth + 6 : settingsX + secondaryWidth + 6;
-        filesButton = action(filesX, secondY, listX + innerWidth - filesX, filesExpanded ? "gui.resourcetracker.main.files_close" : "gui.resourcetracker.main.files", b -> {
-            filesExpanded = !filesExpanded;
-            menuList = null;
-            init();
-            setFocused(filesButton);
+        int settingsX = moveX + secondaryWidth + 6;
+        action(settingsX, secondY, listX + innerWidth - settingsX, "gui.resourcetracker.settings", b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new SettingsScreen(this));
         }, false, false);
         int afterToolbar = secondY + 26;
-        Button importButton = action(listX, afterToolbar, innerWidth, "gui.resourcetracker.import.title", b -> {
-            if (minecraft != null) minecraft.setScreen(new ImportScreen(this));
-        }, false, false);
-        importButton.active = TrackerConfig.hasActiveContext();
-        afterToolbar += 26;
-        if (filesExpanded) {
-            int fileWidth = (innerWidth - 12) / 3;
-            Button world = action(listX, afterToolbar, fileWidth, "gui.resourcetracker.main.world_folder", b -> TrackerConfig.openActiveListsFolder(), false, false);
-            world.active = TrackerConfig.hasActiveContext();
-            action(listX + fileWidth + 6, afterToolbar, fileWidth, "gui.resourcetracker.main.root_folder", b -> TrackerConfig.openListsRootFolder(), false, false);
-            Button reload = action(listX + 2 * (fileWidth + 6), afterToolbar, innerWidth - 2 * (fileWidth + 6), "gui.resourcetracker.main.reload", b -> {
-                TrackerConfig.reloadActiveContextLists();
-                ResourceTrackerClient.invalidateTargetItemCache();
-                menuList = null;
-                init();
-            }, false, false);
-            reload.active = TrackerConfig.hasActiveContext();
-            afterToolbar += 26;
-        }
         listTop = afterToolbar + 15;
-        listBottom = Math.max(listTop + 1, panelY + panelHeight - 36 - (menuList == null ? 0 : 28));
+        listBottom = Math.max(listTop + 1, panelY + panelHeight - footerSpace - (menuList == null ? 0 : 28));
         listWidth = Math.max(1, innerWidth - 9); // The scrollbar has its own gutter.
         createRowButtons();
-        if (TrackerConfig.hasActiveContext() && TrackerConfig.INSTANCE.lists.isEmpty() && listBottom - listTop >= 54) {
-            int ctaWidth = Math.max(1, Math.min(160, listWidth - 12));
-            action(listX + (listWidth - ctaWidth) / 2, listTop + Math.max(27, (listBottom - listTop) / 2), ctaWidth,
-                    "gui.resourcetracker.main.create", b -> createList(), true, false);
-        }
         if (menuList != null) {
-            int menuY = panelY + panelHeight - 61;
+            int menuY = panelY + panelHeight - footerSpace - 25;
             int cancelWidth = Math.min(64, innerWidth / 3);
             int deleteWidth = Math.min(96, innerWidth - cancelWidth - 6);
             action(listX + innerWidth - cancelWidth - deleteWidth - 6, menuY, deleteWidth, "gui.resourcetracker.delete",
@@ -151,23 +120,50 @@ public class MainScreen extends Screen {
             }, false, false);
         }
         int footerWidth = Math.max(1, (innerWidth - 6) / 2);
-        Button undo = action(listX, panelY + panelHeight - 27, footerWidth, "gui.resourcetracker.undo_delete", b -> {
-            if (TrackerHistory.undoDeletion()) {
-                menuList = null;
-                init();
-            }
+        if (TrackerHistory.canUndoDeletion()) {
+            action(listX, panelY + panelHeight - 53, innerWidth, "gui.resourcetracker.undo_delete", b -> {
+                if (TrackerHistory.undoDeletion()) {
+                    menuList = null;
+                    init();
+                }
+            }, false, false);
+        }
+        filesButton = action(listX, panelY + panelHeight - 27, footerWidth, "gui.resourcetracker.main.files", b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new SettingsScreen(this, "files"));
         }, false, false);
-        undo.active = TrackerHistory.canUndoDeletion();
         action(listX + footerWidth + 6, panelY + panelHeight - 27, footerWidth, "gui.resourcetracker.close", b -> onClose(), false, false);
         updateRows();
     }
 
     private Button action(int x, int y, int w, String key, Button.OnPress press, boolean primary, boolean danger) {
-        Button button = Button.builder(Component.translatable(key), press).bounds(x, y, Math.max(1, w), 21).build();
+        Button button = TrackerButton.builder(Component.translatable(key), press).bounds(x, y, Math.max(1, w), 21).build();
         button.setAlpha(0);
         addRenderableWidget(button);
         actions.add(new Action(button, primary, danger));
         return button;
+    }
+
+    private void chooseCreation() {
+        if (!TrackerConfig.hasActiveContext() || minecraft == null) return;
+        VersionCompat.setScreen(minecraft, new ChoiceScreen<>(this,
+                Component.translatable("gui.resourcetracker.main.create"), List.of("empty", "file", "area"), null,
+                value -> Component.translatable("gui.resourcetracker.main.create_" + value), value -> {
+            if (minecraft == null) return;
+            switch (value) {
+                case "empty" -> createList();
+                case "file" -> VersionCompat.setScreen(minecraft, new ImportScreen(this));
+                case "area" -> {
+                    Component key = Component.translatable("key.keyboard.unknown");
+                    for (net.minecraft.client.KeyMapping mapping : minecraft.options.keyMappings) {
+                        if (mapping.getName().equals("key.resourcetracker.select_area")) { key = mapping.getTranslatedKeyMessage(); break; }
+                    }
+                    VersionCompat.setScreen(minecraft, null);
+                    VersionCompat.showChatMessage(minecraft,
+                            Component.translatable("gui.resourcetracker.main.area_instruction", key));
+                }
+                default -> { }
+            }
+        }));
     }
 
     private void createList() {
@@ -179,23 +175,22 @@ public class MainScreen extends Screen {
         ResourceTrackerClient.invalidateTargetItemCache();
         scrollOffset = Double.MAX_VALUE;
         menuList = null;
-        minecraft.setScreen(new EditScreen(this, list));
+        VersionCompat.setScreen(minecraft, new EditScreen(this, list));
     }
 
     private void createRowButtons() {
         for (TrackerConfig.TrackingList list : TrackerConfig.INSTANCE.lists) {
-            Button edit = Button.builder(Component.translatable("gui.resourcetracker.edit_row", list.name), b -> {
-                if (minecraft != null) minecraft.setScreen(new EditScreen(this, list));
+            Button edit = TrackerButton.builder(Component.translatable("gui.resourcetracker.edit_row", list.name), b -> {
+                if (minecraft != null) VersionCompat.setScreen(minecraft, new EditScreen(this, list));
             }).bounds(listX + 4, listTop, Math.max(1, listWidth - 54), ROW_HEIGHT - 2).build();
-            Button eye = Button.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), b -> {
+            Button eye = TrackerButton.builder(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"), b -> {
                 list.isVisible = !list.isVisible;
                 TrackerConfig.saveList(list);
                 ResourceTrackerClient.invalidateTargetItemCache();
                 b.setMessage(Component.translatable(list.isVisible ? "gui.resourcetracker.visibility_hide" : "gui.resourcetracker.visibility_show"));
             }).bounds(listX + listWidth - 48, listTop, 22, ROW_HEIGHT - 2).build();
-            Button menu = Button.builder(Component.translatable("gui.resourcetracker.main.list_actions", list.name), b -> {
+            Button menu = TrackerButton.builder(Component.translatable("gui.resourcetracker.main.list_actions", list.name), b -> {
                 menuList = menuList == list ? null : list;
-                filesExpanded = false;
                 init();
                 if (menuList != null) {
                     for (Action action : actions) {
@@ -267,7 +262,7 @@ public class MainScreen extends Screen {
         RenderUtils.drawStyledScrollbar(context, listX + listWidth + 3, listTop, viewport, contentHeight, scrollOffset);
         if (menuList != null) {
             int available = panelWidth - 20 - Math.min(64, (panelWidth - 20) / 3) - Math.min(96, (panelWidth - 20) * 2 / 3 - 6) - 14;
-            if (available > 30) text(context, menuList.name, listX, panelY + panelHeight - 55, available, UiTheme.MUTED);
+            if (available > 30) text(context, menuList.name, listX, panelY + panelHeight - (TrackerHistory.canUndoDeletion() ? 62 : 36) - 19, available, UiTheme.MUTED);
         }
         super.render(context, mouseX, mouseY, delta);
         for (Action action : actions) renderAction(context, action, mouseX, mouseY);
@@ -334,7 +329,7 @@ public class MainScreen extends Screen {
         Button button = action.button();
         int x = button.getX(), y = button.getY(), w = button.getWidth(), h = button.getHeight();
         boolean hover = button.active && hovered(button, mouseX, mouseY);
-        boolean quietFiles = button == filesButton && !filesExpanded;
+        boolean quietFiles = button == filesButton;
         if (!quietFiles || hover) {
             context.fill(x, y, x + w, y + h, hover ? UiTheme.HOVER : action.primary() ? UiTheme.HEADER : UiTheme.PANEL);
         }
@@ -383,6 +378,12 @@ public class MainScreen extends Screen {
         if (mouseX >= listX && mouseX < listX + listWidth + 9 && mouseY >= listTop && mouseY < listBottom) {
             scrollOffset -= verticalAmount * ROW_HEIGHT;
             updateRows();
+            if (getFocused() instanceof Button focused
+                    && (editButtons.contains(focused) || visibilityButtons.contains(focused) || menuButtons.contains(focused))
+                    && (focused.getY() + focused.getHeight() <= listTop || focused.getY() >= listBottom)) {
+                setFocused(null);
+                lastRowFocus = null;
+            }
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
@@ -402,19 +403,19 @@ public class MainScreen extends Screen {
 
     private void confirmDelete(TrackerConfig.TrackingList list) {
         if (minecraft == null || list == null) return;
-        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+        VersionCompat.setScreen(minecraft, new ConfirmScreen(confirmed -> {
             if (confirmed) {
                 TrackerHistory.recordDeletion(list, TrackerConfig.INSTANCE.lists.indexOf(list));
                 TrackerConfig.deleteList(list);
                 ResourceTrackerClient.invalidateTargetItemCache();
             }
             menuList = null;
-            if (minecraft != null) minecraft.setScreen(this);
+            if (minecraft != null) VersionCompat.setScreen(minecraft, this);
         }, Component.translatable("gui.resourcetracker.delete_confirm_title"), Component.translatable("gui.resourcetracker.delete_confirm", list.name)));
     }
 
     @Override
     public void onClose() {
-        if (minecraft != null) minecraft.setScreen(parent);
+        if (minecraft != null) VersionCompat.setScreen(minecraft, parent);
     }
 }

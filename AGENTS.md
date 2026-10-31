@@ -9,7 +9,8 @@ collection progress on the HUD.
 - Main target: Minecraft 1.21.11
 - Main source compatibility: `src/compat/mc1_21_9_to_1_21_11`
 - Java: JDK 21 for Minecraft 1.21.x; use JDK 25 only for MC 26.x profiles
-- No test suite exists; compilation is the normal automated check
+- Dependency-free regression suite: `.\gradlew.bat regressionTest`; compile
+  affected profiles as the normal compatibility check
 
 ## Working Style
 
@@ -43,3 +44,6 @@ collection progress on the HUD.
   requests it.
 - Use `profileBuild` for alternate build files; do not use Gradle's old `-b`
   option. Runtime `runClient` checks are sequential when they are needed.
+- Automated graphical QA must use an isolated desktop/display. Never move the
+  system cursor, steal focus, or capture input on the user's active desktop.
+  On Windows, use a private desktop and virtual mouse coordinates for captures.

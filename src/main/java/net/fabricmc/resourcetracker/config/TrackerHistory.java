@@ -1,6 +1,7 @@
 package net.fabricmc.resourcetracker.config;
 
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
+import net.fabricmc.resourcetracker.model.WoodType;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -167,14 +168,14 @@ public final class TrackerHistory {
     // Appearance/name are deliberately outside resource history. They remain independently editable.
     record Snapshot(List<ItemState> items, Map<String, String> recipes,
                     Map<String, String> ingredients, Set<String> terminals,
-                    Map<String, RawIntent> raw, boolean includeSmelting) {
+                    Map<String, RawIntent> raw, boolean includeSmelting, WoodType woodType) {
         static Snapshot capture(TrackerConfig.TrackingList list) {
             list.captureRawState();
             Map<String, RawIntent> raw = new LinkedHashMap<>();
             list.rawState.forEach((id, state) -> raw.put(id, new RawIntent(state.collectedTarget, state.pinned)));
             return new Snapshot(list.items.stream().map(ItemState::capture).toList(),
                     new LinkedHashMap<>(list.recipeChoices), new LinkedHashMap<>(list.ingredientChoices),
-                    new LinkedHashSet<>(list.terminalItems), raw, list.includeSmelting);
+                    new LinkedHashSet<>(list.terminalItems), raw, list.includeSmelting, list.woodType);
         }
 
         void restore(TrackerConfig.TrackingList list) {
@@ -183,6 +184,7 @@ public final class TrackerHistory {
             list.ingredientChoices = new LinkedHashMap<>(ingredients);
             list.terminalItems = new LinkedHashSet<>(terminals);
             list.includeSmelting = includeSmelting;
+            list.woodType = woodType;
             list.rawState = new LinkedHashMap<>();
             raw.forEach((id, state) -> list.rawState.put(id, new TrackerConfig.RawState(state.collected(), state.pinned())));
             // Otherwise the next crafting update would capture stale derived marks over restored intent.

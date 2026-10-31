@@ -33,6 +33,10 @@ public class ColorPickerScreen extends Screen {
     private final List<Label> labels = new ArrayList<>();
     private final List<Preset> presets = new ArrayList<>();
     private final EditBox[] channels = new EditBox[4];
+    private final Map<String, String> fieldDrafts = new java.util.HashMap<>();
+    private final Map<String, Integer> fieldCursors = new java.util.HashMap<>();
+    private final Map<AbstractWidget, String> focusKeys = new IdentityHashMap<>();
+    private String focusKey;
     private EditBox hexField, alphaField;
     private int color, left, top, windowWidth, windowHeight, contentTop, contentBottom, contentHeight, scrollY, previewY, alphaY;
     private boolean advanced, updatingFields;
@@ -47,9 +51,18 @@ public class ColorPickerScreen extends Screen {
 
     @Override
     protected void init() {
+        if (getFocused() instanceof AbstractWidget focused) focusKey = focusKeys.get(focused);
+        for (Map.Entry<AbstractWidget, String> entry : focusKeys.entrySet()) {
+            if (entry.getKey() instanceof EditBox field) fieldDrafts.put(entry.getValue(), field.getValue());
+        }
+        for (Map.Entry<AbstractWidget, String> entry : focusKeys.entrySet()) {
+            if (entry.getKey() instanceof EditBox field) fieldCursors.put(entry.getValue(), field.getCursorPosition());
+        }
         clearWidgets();
         setFocused(null);
         contentWidgets.clear();
+        focusKeys.clear();
+        java.util.Arrays.fill(channels, null);
         invalidFields.clear();
         labels.clear();
         presets.clear();
@@ -80,6 +93,8 @@ public class ColorPickerScreen extends Screen {
         y += ((PRESETS.length + columns - 1) / columns) * 26 + 6;
         label(y, "gui.resourcetracker.color.hex", UiTheme.TEXT);
         hexField = field(left + 16, y + 14, windowWidth - 32, 7, Component.translatable("gui.resourcetracker.color.hex"), String.format("#%06X", color & 0xFFFFFF));
+        String hexValue = hexField.getValue().replaceFirst("^#", "");
+        markValidity(hexField, hexValue.matches("[0-9a-fA-F]{6}"), "gui.resourcetracker.validation.hex");
         hexField.setResponder(text -> {
             if (updatingFields) return;
             String value = text.startsWith("#") ? text.substring(1) : text;
@@ -91,6 +106,7 @@ public class ColorPickerScreen extends Screen {
         label(y, "gui.resourcetracker.color.alpha", UiTheme.TEXT);
         alphaY = y + 20;
         alphaField = field(left + 16, y + 14, 80, 3, Component.translatable("gui.resourcetracker.color.alpha"), String.valueOf(color >>> 24));
+        markValidity(alphaField, parseByte(alphaField.getValue()) != null, "gui.resourcetracker.validation.rgba");
         alphaField.setResponder(text -> {
             if (updatingFields) return;
             Integer value = parseByte(text);
@@ -105,26 +121,33 @@ public class ColorPickerScreen extends Screen {
         }).bounds(left + 16, 0, windowWidth - 32, 20).build(), y);
         y += 30;
         if (advanced) {
-            int channelWidth = (windowWidth - 44) / 4;
+            int channelColumns = windowWidth >= 340 ? 4 : 2;
+            int channelWidth = (windowWidth - 32 - (channelColumns - 1) * 4) / channelColumns;
             String[] names = {"R", "G", "B", "A"};
             for (int i = 0; i < channels.length; i++) {
                 int index = i;
-                int x = left + 16 + i * (channelWidth + 4);
-                labels.add(new Label(x, y, Component.literal(names[i]), UiTheme.MUTED));
-                channels[i] = field(x, y + 14, channelWidth, 3, Component.literal(names[i] + " (0–255)"), String.valueOf(channel(i)));
+                int x = left + 16 + (i % channelColumns) * (channelWidth + 4);
+                int channelY = y + (i / channelColumns) * 44;
+                labels.add(new Label(x, channelY, Component.literal(names[i]), UiTheme.MUTED));
+                channels[i] = field(x, channelY + 14, channelWidth, 3, Component.literal(names[i] + " (0–255)"), String.valueOf(channel(i)));
+                markValidity(channels[i], parseByte(channels[i].getValue()) != null, "gui.resourcetracker.validation.rgba");
                 channels[i].setResponder(text -> {
                     if (!updatingFields) applyChannels(index);
                 });
             }
-            y += 44;
+            y += ((channels.length + channelColumns - 1) / channelColumns) * 44;
         }
+        addContent(TrackerButton.builder(Component.translatable("gui.resourcetracker.color.original"), b -> applyColor(originalColor, null))
+                .bounds(left + 16, 0, windowWidth - 32, 20)
+                .tooltip(Tooltip.create(Component.translatable("gui.resourcetracker.color.original_note"))).build(), y);
+        y += 28;
         contentHeight = y + 6;
         repositionContent();
-        int footerWidth = (windowWidth - 40) / 2;
-        addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.color.original"), b -> applyColor(originalColor, null))
-                .bounds(left + 16, top + windowHeight - 28, footerWidth, 20).build());
         addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.done"), b -> onClose())
-                .bounds(left + 24 + footerWidth, top + windowHeight - 28, footerWidth, 20).primary().build());
+                .bounds(width / 2 - 60, top + windowHeight - 28, 120, 20).primary().build());
+        for (Map.Entry<AbstractWidget, String> entry : focusKeys.entrySet()) {
+            if (entry.getValue().equals(focusKey) && entry.getKey().active) { setFocused(entry.getKey()); break; }
+        }
     }
 
     private int channel(int index) { return (color >>> (index == 3 ? 24 : 16 - index * 8)) & 255; }
@@ -144,6 +167,7 @@ public class ColorPickerScreen extends Screen {
     private void applyColor(int value, EditBox source) {
         color = value;
         onChange.accept(value);
+        if (!advanced) for (String channel : new String[] {"R", "G", "B", "A"}) fieldDrafts.remove(channel + " (0\u2013255)");
         updatingFields = true;
         try {
             syncField(hexField, source, String.format("#%06X", color & 0xFFFFFF));
@@ -165,7 +189,10 @@ public class ColorPickerScreen extends Screen {
     private EditBox field(int x, int y, int width, int maxLength, Component label, String value) {
         EditBox field = new EditBox(font, x, 0, width, 20, label);
         field.setMaxLength(maxLength);
-        field.setValue(value);
+        String key = label.getString();
+        field.setValue(fieldDrafts.getOrDefault(key, value));
+        field.setCursorPosition(Math.min(field.getValue().length(), fieldCursors.getOrDefault(key, field.getValue().length())));
+        focusKeys.put(field, key);
         field.setTextColor(UiTheme.TEXT);
         addContent(field, y);
         return field;
@@ -173,6 +200,7 @@ public class ColorPickerScreen extends Screen {
     private void label(int y, String key, int color) { labels.add(new Label(left + 16, y, Component.translatable(key), color)); }
     private void addContent(AbstractWidget widget, int y) {
         contentWidgets.put(widget, y);
+        focusKeys.putIfAbsent(widget, "control_" + contentWidgets.size());
         addRenderableWidget(widget);
         addWidget(new ScrollFocusTarget(widget));
     }
@@ -258,7 +286,7 @@ public class ColorPickerScreen extends Screen {
         }
     }
     @Override
-    public void onClose() { if (minecraft != null) minecraft.setScreen(parent); }
+    public void onClose() { if (minecraft != null) VersionCompat.setScreen(minecraft, parent); }
 
     @Override
     public void setFocused(GuiEventListener focused) {
