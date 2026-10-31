@@ -154,6 +154,9 @@ jobs:
   smoke-universal:
     needs: build-universal
     runs-on: ubuntu-latest
+    env:
+      LIBGL_ALWAYS_SOFTWARE: 'true'
+      GALLIUM_DRIVER: llvmpipe
     strategy:
       fail-fast: false
       matrix:
@@ -190,9 +193,14 @@ jobs:
         run: |
           chmod +x gradlew
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb mesa-utils libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0
+          xvfb-run -a glxinfo -B
       - name: Run universal JAR on Minecraft ${{ matrix.mc }}
         shell: bash
+        env:
+          # SDL in 26.3 requests an sRGB visual; use EGL on the software display.
+          SDL_VIDEO_DRIVER: ${{ matrix.id == 'mc263' && 'x11' || '' }}
+          SDL_VIDEO_FORCE_EGL: ${{ matrix.id == 'mc263' && '1' || '' }}
         run: |
           JAR=$(find universal-artifact -name 'resourcetracker-*-universal.jar' -print -quit)
           test -n "$JAR"
