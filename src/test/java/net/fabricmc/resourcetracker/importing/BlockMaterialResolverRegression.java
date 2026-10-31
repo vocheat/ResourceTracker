@@ -1,7 +1,9 @@
 package net.fabricmc.resourcetracker.importing;
 
 import net.minecraft.SharedConstants;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -29,7 +31,8 @@ public final class BlockMaterialResolverRegression {
                 .equals(Map.of("minecraft:oak_door", 1)), "Non-vanilla lower door counts one item");
         require(BlockMaterialResolver.resolveState("example:door", door.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER))
                 .isEmpty(), "Non-vanilla upper door does not count again");
-        require(BlockMaterialResolver.resolveState("example:bed", Blocks.RED_BED.defaultBlockState()
+        var bed = BuiltInRegistries.BLOCK.stream().filter(BedBlock.class::isInstance).findFirst().orElseThrow();
+        require(BlockMaterialResolver.resolveState("example:bed", bed.defaultBlockState()
                 .setValue(BlockStateProperties.BED_PART, BedPart.HEAD)).isEmpty(), "Non-vanilla bed head does not count again");
         require(BlockMaterialResolver.resolveState("example:plant", Blocks.SUNFLOWER.defaultBlockState()
                 .setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER)).isEmpty(), "Non-vanilla upper plant does not count again");

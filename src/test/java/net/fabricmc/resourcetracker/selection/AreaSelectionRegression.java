@@ -2,6 +2,7 @@ package net.fabricmc.resourcetracker.selection;
 
 import net.fabricmc.resourcetracker.importing.BlockMaterialResolver;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.minecraft.world.level.block.BedBlock;
@@ -60,7 +61,8 @@ public final class AreaSelectionRegression {
         require(BlockMaterialResolver.resolveState(Blocks.OAK_DOOR.defaultBlockState()
                         .setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER)).isEmpty(),
                 "Upper door half is intentionally excluded");
-        require(BlockMaterialResolver.resolveState(Blocks.RED_BED.defaultBlockState()
+        var bed = BuiltInRegistries.BLOCK.stream().filter(BedBlock.class::isInstance).findFirst().orElseThrow();
+        require(BlockMaterialResolver.resolveState(bed.defaultBlockState()
                         .setValue(BedBlock.PART, BedPart.HEAD)).isEmpty(),
                 "Bed head half is intentionally excluded");
         require(BlockMaterialResolver.resolveState(Blocks.WHEAT.defaultBlockState())
