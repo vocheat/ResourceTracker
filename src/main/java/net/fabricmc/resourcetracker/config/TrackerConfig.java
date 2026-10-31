@@ -184,7 +184,7 @@ public class TrackerConfig {
         }
     }
 
-    public enum CountUnit { ITEMS, STACKS, SHULKERS }
+    public enum CountUnit { ITEMS, STACKS, DECIMAL_STACKS, SHULKERS }
 
     public static class TrackingList {
         public String id = UUID.randomUUID().toString();
@@ -201,6 +201,8 @@ public class TrackerConfig {
         public int backgroundColor = 0xA020231F;
         public List<TrackedItem> items = new ArrayList<>();
         public boolean hudRaw;
+        /** Include furnace inputs when expanding collection materials in the raw view. */
+        public boolean includeSmelting;
         public CountUnit countUnit = CountUnit.ITEMS;
         public boolean hideCompleted;
         public boolean sortRemaining;
@@ -813,6 +815,7 @@ public class TrackerConfig {
                     .append("showRemaining=").append(list.showRemaining).append('\n')
                     .append("showIcons=").append(list.showIcons).append('\n')
                     .append("hudRaw=").append(list.hudRaw).append('\n')
+                    .append("includeSmelting=").append(list.includeSmelting).append('\n')
                     .append("countUnit=").append(list.countUnit.name()).append('\n')
                     .append("hideCompleted=").append(list.hideCompleted).append('\n')
                     .append("sortRemaining=").append(list.sortRemaining).append('\n')
@@ -936,6 +939,7 @@ public class TrackerConfig {
             case "showRemaining" -> list.showRemaining = Boolean.parseBoolean(value);
             case "showIcons" -> list.showIcons = Boolean.parseBoolean(value);
             case "hudRaw" -> list.hudRaw = Boolean.parseBoolean(value);
+            case "includeSmelting" -> list.includeSmelting = Boolean.parseBoolean(value);
             case "countUnit" -> {
                 try { list.countUnit = CountUnit.valueOf(value); }
                 catch (IllegalArgumentException ignored) { list.countUnit = CountUnit.ITEMS; }

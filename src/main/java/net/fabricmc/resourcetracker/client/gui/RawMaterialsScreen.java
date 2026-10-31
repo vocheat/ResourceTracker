@@ -5,6 +5,8 @@ import net.fabricmc.resourcetracker.compat.VersionCompat;
 import net.fabricmc.resourcetracker.client.ResourceTrackerClient;
 import net.fabricmc.resourcetracker.config.TrackerConfig;
 import net.fabricmc.resourcetracker.config.TrackerHistory;
+import net.fabricmc.resourcetracker.crafting.CraftingRuntime;
+import net.fabricmc.resourcetracker.crafting.RecipeIndex;
 import net.fabricmc.resourcetracker.model.CountFormatter;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -15,6 +17,7 @@ import java.util.Locale;
 
 /** The derived view belongs to the original editor session and never saves independently. */
 public final class RawMaterialsScreen extends PagedDataScreen {
+    private static final String STONE = "minecraft:stone";
     private final TrackerConfig.TrackingList list;
     private String query = "";
     private EditBox searchField;
@@ -28,21 +31,56 @@ public final class RawMaterialsScreen extends PagedDataScreen {
     @Override
     protected void init() {
         boolean searching = searchField != null && searchField.isFocused();
-        layout(136);
+        List<RecipeIndex.Recipe> stoneRecipes = CraftingRuntime.index().recipesFor(STONE);
+        RecipeIndex.Recipe stoneRecipe = stoneRecipes.stream()
+                .filter(recipe -> (recipe.kind().equals("smelting") || recipe.kind().equals("blasting"))
+                        && recipe.ingredients().stream().anyMatch(input -> input.options().contains("minecraft:cobblestone")))
+                .findFirst().orElse(null);
+        boolean showStoneChoice = stoneRecipe != null && CraftingRuntime.plan(list).options().stream()
+                .anyMatch(option -> option.itemId().equals(STONE));
+        int extra = showStoneChoice ? 24 : 0;
+        layout(136 + extra);
         int tabWidth = (contentWidth - 6) / 2;
         button(Component.translatable("gui.resourcetracker.edit.items"), left, 30, tabWidth, b -> onClose());
         button(Component.translatable("gui.resourcetracker.edit.raw"), left + tabWidth + 6, 30, tabWidth, b -> {}).active = false;
-        Button hudModeButton = button(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), left, 54, contentWidth, b -> {
+        Button hudModeButton = button(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"), left, 54, tabWidth, b -> {
             list.hudRaw = !list.hudRaw;
             b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
             ResourceTrackerClient.invalidateTargetItemCache();
         });
         hudModeButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
                 Component.translatable("gui.resourcetracker.edit.hud_mode_hint")));
-        EditBox rawNote = label(Component.translatable("gui.resourcetracker.edit.raw_note"), left, 80, contentWidth);
+        button(Component.translatable(list.includeSmelting ? "gui.resourcetracker.raw.smelting_on" : "gui.resourcetracker.raw.smelting_off"),
+                left + tabWidth + 6, 54, tabWidth, b -> {
+                    TrackerHistory.record(list);
+                    list.includeSmelting = !list.includeSmelting;
+                    page = 0;
+                    changed();
+                    init();
+                }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                        Component.translatable("gui.resourcetracker.raw.smelting_hint")));
+        if (showStoneChoice) {
+            boolean smeltStone = !list.terminalItems.contains(STONE)
+                    && (list.includeSmelting || stoneRecipes.stream()
+                    .anyMatch(recipe -> recipe.id().equals(list.recipeChoices.get(STONE))));
+            button(Component.translatable(smeltStone ? "gui.resourcetracker.raw.stone_smelt" : "gui.resourcetracker.raw.stone_ready"),
+                    left, 78, contentWidth, b -> {
+                        TrackerHistory.record(list);
+                        if (smeltStone) list.terminalItems.add(STONE);
+                        else {
+                            list.terminalItems.remove(STONE);
+                            list.recipeChoices.put(STONE, stoneRecipe.id());
+                        }
+                        page = 0;
+                        changed();
+                        init();
+                    }).setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                            Component.translatable("gui.resourcetracker.raw.stone_hint")));
+        }
+        EditBox rawNote = label(Component.translatable("gui.resourcetracker.edit.raw_note"), left, 80 + extra, contentWidth);
         rawNote.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
                 Component.translatable("gui.resourcetracker.edit.raw_note_tooltip")));
-        EditBox search = new EditBox(font, left, 102, contentWidth, 18, Component.translatable("gui.resourcetracker.edit.search_tracked"));
+        EditBox search = new EditBox(font, left, 102 + extra, contentWidth, 18, Component.translatable("gui.resourcetracker.edit.search_tracked"));
         searchField = search;
         search.setValue(query);
         search.setResponder(value -> {

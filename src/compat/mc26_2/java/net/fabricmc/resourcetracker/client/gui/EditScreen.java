@@ -342,7 +342,8 @@ public class EditScreen extends Screen {
             TrackerConfig.CountUnit[] units = TrackerConfig.CountUnit.values();
             list.countUnit = units[(list.countUnit.ordinal() + 1) % units.length];
             b.setMessage(Component.translatable("gui.resourcetracker.edit.units." + list.countUnit.name().toLowerCase(java.util.Locale.ROOT)));
-        }).bounds(x, styleTop + 300, controlWidth, 20).build());
+        }).bounds(x, styleTop + 300, controlWidth, 20)
+                .tooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.units_hint"))).build());
         addStyleWidget(TrackerButton.builder(Component.translatable(list.hideCompleted ? "gui.resourcetracker.edit.hide_completed" : "gui.resourcetracker.edit.show_completed"), b -> {
             list.hideCompleted = !list.hideCompleted;
             b.setMessage(Component.translatable(list.hideCompleted ? "gui.resourcetracker.edit.hide_completed" : "gui.resourcetracker.edit.show_completed"));

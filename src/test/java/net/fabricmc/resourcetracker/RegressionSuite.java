@@ -15,11 +15,13 @@ public final class RegressionSuite {
     public static void main(String[] args) throws Exception {
         net.fabricmc.resourcetracker.config.TrackerHistoryRegression.main(new String[0]);
         net.fabricmc.resourcetracker.model.CompletionRegression.main(new String[0]);
+        net.fabricmc.resourcetracker.model.CountFormatterRegression.main(new String[0]);
         completion();
         units();
         hud();
         metadata();
         CraftingRegression.main(new String[0]);
+        net.fabricmc.resourcetracker.crafting.SmeltingRegression.main(new String[0]);
         ImportRegressionTest.main(new String[]{"--minecraft"});
         net.fabricmc.resourcetracker.importing.BlockMaterialResolverRegression.main(new String[0]);
         net.fabricmc.resourcetracker.client.gui.ItemReplacementRegression.main(new String[0]);

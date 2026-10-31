@@ -14,6 +14,7 @@ public final class TrackerHistoryRegression {
         list.recipeChoices.put("minecraft:stone", "recipe-a");
         list.ingredientChoices.put("slot-a", "minecraft:cobblestone");
         list.terminalItems.add("minecraft:oak_log");
+        list.includeSmelting = true;
         TrackerConfig.TrackedItem raw = new TrackerConfig.TrackedItem("minecraft:cobblestone", 12);
         raw.manuallyCollectedTarget = 12;
         raw.pinned = true;
@@ -26,6 +27,7 @@ public final class TrackerHistoryRegression {
         list.recipeChoices.clear();
         list.ingredientChoices.clear();
         list.terminalItems.clear();
+        list.includeSmelting = false;
         list.rawState.get(raw.itemId).collectedTarget = 0;
         raw.manuallyCollectedTarget = 0;
         raw.pinned = false;
@@ -40,6 +42,7 @@ public final class TrackerHistoryRegression {
         check(list.recipeChoices.get("minecraft:stone").equals("recipe-a")
                         && list.ingredientChoices.get("slot-a").equals("minecraft:cobblestone")
                         && list.terminalItems.contains("minecraft:oak_log"), "crafting decisions restore");
+        check(list.includeSmelting, "smelting expansion restores with crafting decisions");
         check(list.rawItems.isEmpty() && !list.rawPlanValid, "stale derived rows are discarded");
         list.captureRawState();
         check(list.rawState.get(raw.itemId).collectedTarget == 12 && list.rawState.get(raw.itemId).pinned,

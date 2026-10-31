@@ -167,14 +167,14 @@ public final class TrackerHistory {
     // Appearance/name are deliberately outside resource history. They remain independently editable.
     record Snapshot(List<ItemState> items, Map<String, String> recipes,
                     Map<String, String> ingredients, Set<String> terminals,
-                    Map<String, RawIntent> raw) {
+                    Map<String, RawIntent> raw, boolean includeSmelting) {
         static Snapshot capture(TrackerConfig.TrackingList list) {
             list.captureRawState();
             Map<String, RawIntent> raw = new LinkedHashMap<>();
             list.rawState.forEach((id, state) -> raw.put(id, new RawIntent(state.collectedTarget, state.pinned)));
             return new Snapshot(list.items.stream().map(ItemState::capture).toList(),
                     new LinkedHashMap<>(list.recipeChoices), new LinkedHashMap<>(list.ingredientChoices),
-                    new LinkedHashSet<>(list.terminalItems), raw);
+                    new LinkedHashSet<>(list.terminalItems), raw, list.includeSmelting);
         }
 
         void restore(TrackerConfig.TrackingList list) {
@@ -182,6 +182,7 @@ public final class TrackerHistory {
             list.recipeChoices = new LinkedHashMap<>(recipes);
             list.ingredientChoices = new LinkedHashMap<>(ingredients);
             list.terminalItems = new LinkedHashSet<>(terminals);
+            list.includeSmelting = includeSmelting;
             list.rawState = new LinkedHashMap<>();
             raw.forEach((id, state) -> list.rawState.put(id, new TrackerConfig.RawState(state.collected(), state.pinned())));
             // Otherwise the next crafting update would capture stale derived marks over restored intent.

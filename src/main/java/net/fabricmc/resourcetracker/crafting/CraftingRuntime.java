@@ -98,7 +98,7 @@ public final class CraftingRuntime {
             }
             CraftingPlan.Result result = ready
                     ? CraftingPlan.calculate(recipes, goals, Set.of(), stock, list.recipeChoices,
-                            list.ingredientChoices, list.terminalItems)
+                            list.ingredientChoices, list.terminalItems, list.includeSmelting)
                     : unavailable("gui.resourcetracker.raw.loading");
             List<TrackerConfig.TrackedItem> raw = new ArrayList<>();
             List<String> diagnostics = new ArrayList<>(result.diagnostics());
@@ -147,7 +147,7 @@ public final class CraftingRuntime {
         for (TrackerConfig.TrackedItem item : list.items) result.append(item.itemId).append('=')
                 .append(item.targetCount).append(':').append(item.manuallyCollectedTarget).append(';');
         return result.append(list.recipeChoices).append(list.ingredientChoices)
-                .append(list.terminalItems).toString();
+                .append(list.terminalItems).append(':').append(list.includeSmelting).toString();
     }
 
     private static CraftingPlan.Result unavailable(String key) {

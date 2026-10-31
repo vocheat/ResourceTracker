@@ -17,7 +17,7 @@ import java.util.TreeSet;
 public final class CraftingPlan {
     // Collection boundaries are deliberate, not inferred from the existence of a recipe.
     // Like EMI's vanilla defaults, keep leather, wool, dyes and ordinary metals as materials;
-    // their processing recipes remain available through an explicit recipe choice.
+    // Their processing recipes can be enabled for a list or selected explicitly.
     private static final Set<String> BASE_MATERIALS = Set.of(
             "minecraft:leather", "minecraft:stone", "minecraft:cobblestone", "minecraft:deepslate",
             "minecraft:cobbled_deepslate", "minecraft:blackstone", "minecraft:basalt",
@@ -49,7 +49,13 @@ public final class CraftingPlan {
     public static Result calculate(RecipeIndex index, Map<String, Long> goals, Set<String> manuallyDone,
                                    Map<String, Long> stock, Map<String, String> recipeChoices,
                                    Map<String, String> ingredientChoices, Set<String> stops) {
-        Planner planner = new Planner(index, recipeChoices, ingredientChoices, stops);
+        return calculate(index, goals, manuallyDone, stock, recipeChoices, ingredientChoices, stops, false);
+    }
+
+    public static Result calculate(RecipeIndex index, Map<String, Long> goals, Set<String> manuallyDone,
+                                   Map<String, Long> stock, Map<String, String> recipeChoices,
+                                   Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting) {
+        Planner planner = new Planner(index, recipeChoices, ingredientChoices, stops, includeSmelting);
         try {
             return planner.calculate(goals, manuallyDone, stock);
         } catch (ArithmeticException exception) {
@@ -64,6 +70,7 @@ public final class CraftingPlan {
         private final Map<String, String> recipeChoices;
         private final Map<String, String> ingredientChoices;
         private final Set<String> stops;
+        private final boolean includeSmelting;
         private final List<String> diagnostics;
         private final Map<String, Option> options = new LinkedHashMap<>();
         private final Map<String, RecipeIndex.Recipe> selected = new HashMap<>();
@@ -77,11 +84,12 @@ public final class CraftingPlan {
         private Map<String, Long> demandHints = Map.of();
 
         Planner(RecipeIndex index, Map<String, String> recipeChoices,
-                Map<String, String> ingredientChoices, Set<String> stops) {
+                Map<String, String> ingredientChoices, Set<String> stops, boolean includeSmelting) {
             this.index = index;
             this.recipeChoices = recipeChoices;
             this.ingredientChoices = ingredientChoices;
             this.stops = stops;
+            this.includeSmelting = includeSmelting;
             this.diagnostics = new ArrayList<>(index.diagnostics());
         }
 
@@ -312,9 +320,10 @@ public final class CraftingPlan {
             }
             boolean needsSeed = !choices.isEmpty() && choices.stream().allMatch(candidate -> candidate.ingredients().stream()
                     .anyMatch(ingredient -> ingredient.options().size() == 1 && ingredient.options().getFirst().equals(item)));
-            boolean defaultStopped = naturalBase(item) || needsSeed;
+            List<RecipeIndex.Recipe> automaticChoices = automaticRecipes(item, choices);
+            boolean defaultStopped = defaultStopped(item, choices);
             boolean stopped = stops.contains(item) || (recipe == null && defaultStopped);
-            if (!stopped && recipe == null && !choices.isEmpty()) recipe = preferredRecipe(choices, Math.max(1, demand));
+            if (!stopped && recipe == null && !automaticChoices.isEmpty()) recipe = preferredRecipe(automaticChoices, Math.max(1, demand));
             if (stopped) recipe = null;
             options.put(item, new Option(item, choices, recipe == null ? null : recipe.id(), stopped, defaultStopped));
             if (recipe == null && choices.isEmpty()) diagnostics.add("No supported vanilla crafting recipe for " + item);
@@ -369,7 +378,7 @@ public final class CraftingPlan {
                                     Map<String, Long> leftovers, Map<String, Long> rawUsed) {
             if (inventory.values().stream().noneMatch(count -> count > 0)
                     && leftovers.values().stream().noneMatch(count -> count > 0)) return 0;
-            RecipeIndex.Recipe recipe = stockRecipe(item);
+            RecipeIndex.Recipe recipe = stockRecipe(item, wanted, inventory);
             if (recipe == null || seedCount(recipe) > 0) return 0;
             long low = 0;
             long high = batches(wanted, recipe.outputCount());
@@ -402,7 +411,22 @@ public final class CraftingPlan {
             return supplied;
         }
 
-        private RecipeIndex.Recipe stockRecipe(String item) {
+        /** Automatic expansion of a collection boundary may only use cooking recipes. */
+        private List<RecipeIndex.Recipe> automaticRecipes(String item, List<RecipeIndex.Recipe> choices) {
+            if (!naturalBase(item)) return choices;
+            if (!includeSmelting) return List.of();
+            return choices.stream().filter(recipe -> switch (recipe.kind()) {
+                case "smelting", "blasting", "smoking", "campfire_cooking" -> true;
+                default -> false;
+            }).toList();
+        }
+
+        private boolean defaultStopped(String item, List<RecipeIndex.Recipe> choices) {
+            return naturalBase(item) && automaticRecipes(item, choices).isEmpty()
+                    || !choices.isEmpty() && choices.stream().allMatch(candidate -> seedCount(candidate) > 0);
+        }
+
+        private RecipeIndex.Recipe stockRecipe(String item, long demand, Map<String, Long> stock) {
             if (stops.contains(item)) return null;
             List<RecipeIndex.Recipe> choices = index.recipesFor(item);
             String requested = recipeChoices.get(item);
@@ -411,20 +435,19 @@ public final class CraftingPlan {
                         .findFirst().orElse(null);
                 if (explicit != null) return explicit;
             }
-            if (naturalBase(item) || choices.isEmpty()
-                    || choices.stream().allMatch(recipe -> seedCount(recipe) > 0)) return null;
-            return selected.getOrDefault(item, choices.getFirst());
+            if (defaultStopped(item, choices)) return null;
+            RecipeIndex.Recipe recipe = selected.get(item);
+            return recipe == null ? previewAutomaticRecipe(item, choices, demand, stock, new HashSet<>()) : recipe;
         }
 
         private long consumeStock(String item, long wanted, StockCraft trial) {
             long held = take(trial.inventory, item, wanted);
             long recycled = take(trial.leftovers, item, wanted - held);
             if (held > 0 || recycled > 0) {
-                RecipeIndex.Recipe recipe = stockRecipe(item);
+                RecipeIndex.Recipe recipe = stockRecipe(item, wanted, trial.inventory);
                 if (held > 0 && recipe == null) add(trial.rawUsed, item, held);
                 List<RecipeIndex.Recipe> choices = index.recipesFor(item);
-                boolean defaultStopped = naturalBase(item)
-                        || !choices.isEmpty() && choices.stream().allMatch(candidate -> seedCount(candidate) > 0);
+                boolean defaultStopped = defaultStopped(item, choices);
                 trial.usedOptions.putIfAbsent(item, new Option(item, choices,
                         recipe == null ? null : recipe.id(), recipe == null, defaultStopped));
             }
@@ -435,7 +458,7 @@ public final class CraftingPlan {
             long held = consumeStock(item, wanted, trial);
             long needed = wanted - held;
             if (needed > 0) {
-                RecipeIndex.Recipe recipe = stockRecipe(item);
+                RecipeIndex.Recipe recipe = stockRecipe(item, needed, trial.inventory);
                 if (recipe == null || seedCount(recipe) > 0
                         || !produceStock(recipe, batches(needed, recipe.outputCount()), trial, path)) return false;
                 if (take(trial.leftovers, item, needed) != needed) return false;
@@ -449,7 +472,7 @@ public final class CraftingPlan {
             if (!path.add(recipe.output())) return false;
             try {
                 trial.usedOptions.putIfAbsent(recipe.output(), new Option(recipe.output(), index.recipesFor(recipe.output()),
-                        recipe.id(), false, naturalBase(recipe.output())));
+                        recipe.id(), false, defaultStopped(recipe.output(), index.recipesFor(recipe.output()))));
                 for (RecipeIndex.Ingredient ingredient : recipe.ingredients()) {
                     long needed = Math.multiplyExact(batches, ingredient.count());
                     String explicit = ingredientChoices.get(ingredient.key());
@@ -539,9 +562,9 @@ public final class CraftingPlan {
                 String requested = recipeChoices.get(item);
                 RecipeIndex.Recipe recipe = requested == null ? selected.get(item) : choices.stream()
                         .filter(candidate -> candidate.id().equals(requested)).findFirst().orElse(null);
-                if (recipe == null && (naturalBase(item) || choices.isEmpty()
-                        || choices.stream().allMatch(candidate -> seedCount(candidate) > 0))) return (double) held / demand;
-                if (recipe == null) recipe = choices.getFirst();
+                if (recipe == null && defaultStopped(item, choices)) return (double) held / demand;
+                if (recipe == null) recipe = previewAutomaticRecipe(item, choices, needed, stock, path);
+                if (recipe == null) return (double) held / demand;
                 long seed = seedCount(recipe);
                 needed -= Math.min(needed, Math.max(0, seed - held));
                 double coverage = needed == 0 ? 0 : previewRecipe(recipe, needed, stock, path);
@@ -549,6 +572,30 @@ public final class CraftingPlan {
             } finally {
                 path.remove(item);
             }
+        }
+
+        private RecipeIndex.Recipe previewAutomaticRecipe(String item, List<RecipeIndex.Recipe> choices,
+                                                           long demand, Map<String, Long> stock, Set<String> path) {
+            List<RecipeIndex.Recipe> automatic = automaticRecipes(item, choices);
+            if (automatic.isEmpty()) return null;
+            RecipeIndex.Recipe best = automatic.getFirst();
+            // Preserve the bounded canonical lookahead for other crafting routes. Cooking at a
+            // new collection boundary must still recognize an on-hand ore instead of raw metal.
+            if (!naturalBase(item) || automatic.size() == 1) return best;
+            double bestCoverage = -1;
+            for (RecipeIndex.Recipe candidate : automatic) {
+                double coverage;
+                try {
+                    coverage = previewRecipe(candidate, demand, new HashMap<>(stock), new HashSet<>(path));
+                } catch (ArithmeticException exception) {
+                    coverage = -1;
+                }
+                if (coverage > bestCoverage) {
+                    best = candidate;
+                    bestCoverage = coverage;
+                }
+            }
+            return best;
         }
 
         private double previewRecipe(RecipeIndex.Recipe recipe, long demand, Map<String, Long> stock,
