@@ -83,6 +83,7 @@ processResources {
     inputs.property 'loader_version', loader_version
     inputs.property 'java_min_version', java_version.toString()
     inputs.property 'fabric_api_version', fabric_version
+    inputs.property 'selection_render_mixin', compatibilitySourceProfile == 'mc1_21_9_to_1_21_10'
     filteringCharset 'UTF-8'
 
     filesMatching('fabric.mod.json') {
@@ -92,6 +93,17 @@ processResources {
                 loader_version: loader_version,
                 java_min_version: java_version.toString(),
                 fabric_api_version: fabric_version
+    }
+
+    doLast {
+        // Fabric 1.21.9 has no world rendering events; this source profile
+        // supplies its own extraction/submission hooks.
+        if (compatibilitySourceProfile == 'mc1_21_9_to_1_21_10') {
+            def mixinFile = layout.buildDirectory.file('resources/main/resourcetracker.quickadd.mixins.json').get().asFile
+            def config = new groovy.json.JsonSlurper().parse(mixinFile, 'UTF-8')
+            config.client = (config.client + ['SelectionRenderMixin']).unique()
+            mixinFile.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(config)) + '\n', 'UTF-8')
+        }
     }
 }
 

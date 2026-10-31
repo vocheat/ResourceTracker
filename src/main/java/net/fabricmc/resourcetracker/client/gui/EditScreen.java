@@ -101,6 +101,7 @@ public class EditScreen extends Screen {
     private final List<Button> itemTabButtons = new ArrayList<>();
     private final List<Button> availableActionButtons = new ArrayList<>();
     private final List<Button> removeActionButtons = new ArrayList<>();
+    private final List<Button> replaceActionButtons = new ArrayList<>();
     private final List<Button> statusActionButtons = new ArrayList<>();
     private final List<Integer> availableProxyIndices = new ArrayList<>();
     private final List<Integer> removeProxyIndices = new ArrayList<>();
@@ -158,6 +159,7 @@ public class EditScreen extends Screen {
         itemTabButtons.clear();
         availableActionButtons.clear();
         removeActionButtons.clear();
+        replaceActionButtons.clear();
         statusActionButtons.clear();
         styleWidgetY.clear();
         styleLabels.clear();
@@ -207,9 +209,13 @@ public class EditScreen extends Screen {
             list.hudRaw = !list.hudRaw;
             b.setMessage(Component.translatable(list.hudRaw ? "gui.resourcetracker.edit.hud_raw" : "gui.resourcetracker.edit.hud_items"));
             net.fabricmc.resourcetracker.client.ResourceTrackerClient.invalidateTargetItemCache();
-        }).bounds(innerX, windowTop + 78, innerWidth, 20)
+        }).bounds(innerX, windowTop + 78, (innerWidth - 6) / 2, 20)
                 .tooltip(Tooltip.create(Component.translatable("gui.resourcetracker.edit.hud_mode_hint"))).build();
         addRenderableWidget(hudModeButton);
+        addRenderableWidget(TrackerButton.builder(Component.translatable("gui.resourcetracker.family.button"), b -> {
+            if (minecraft != null) VersionCompat.setScreen(minecraft, new FamilyReplacementScreen(this, list));
+        }).bounds(innerX + (innerWidth - 6) / 2 + 6, windowTop + 78, (innerWidth - 6) / 2, 20)
+                .tooltip(Tooltip.create(Component.translatable("gui.resourcetracker.family.hint"))).build());
 
         searchField = new EditBox(font, leftBoxX + 6, leftBoxY + 7, boxWidth - 38, 16,
                 Component.translatable("gui.resourcetracker.edit.search"));
@@ -540,9 +546,11 @@ public class EditScreen extends Screen {
     private void rebuildItemActionButtons() {
         for (Button button : availableActionButtons) removeWidget(button);
         for (Button button : removeActionButtons) removeWidget(button);
+        for (Button button : replaceActionButtons) removeWidget(button);
         for (Button button : statusActionButtons) removeWidget(button);
         availableActionButtons.clear();
         removeActionButtons.clear();
+        replaceActionButtons.clear();
         statusActionButtons.clear();
         availableProxyIndices.clear();
         removeProxyIndices.clear();
@@ -565,6 +573,13 @@ public class EditScreen extends Screen {
             addRenderableWidget(button);
             removeActionButtons.add(button);
             removeProxyIndices.add(-1);
+            Button replace = TrackerButton.builder(Component.empty(), b -> {
+                int index = removeProxyIndices.get(proxySlot);
+                if (index >= 0 && index < filteredTrackedItems.size()) openReplacement(filteredTrackedItems.get(index));
+            }).bounds(rightBoxX + 1, rightBoxY, Math.max(1, boxWidth - 137), ITEM_ROW_HEIGHT).build();
+            replace.setAlpha(0.0F);
+            addRenderableWidget(replace);
+            replaceActionButtons.add(replace);
             for (int action = 0; action < 2; action++) {
                 final boolean pin = action == 1;
                 Button status = TrackerButton.builder(Component.empty(), b -> {
@@ -624,7 +639,9 @@ public class EditScreen extends Screen {
 
     private int focusedTrackedIndex() {
         for (int i = 0; i < removeActionButtons.size(); i++) {
-            if (removeActionButtons.get(i).isFocused()) return removeProxyIndices.get(i);
+            if (removeActionButtons.get(i).isFocused() || replaceActionButtons.get(i).isFocused()
+                    || statusActionButtons.get(i * 2).isFocused() || statusActionButtons.get(i * 2 + 1).isFocused())
+                return removeProxyIndices.get(i);
         }
         return -1;
     }
@@ -633,6 +650,7 @@ public class EditScreen extends Screen {
         if (showPreview) {
             for (Button button : availableActionButtons) button.visible = false;
             for (Button button : removeActionButtons) button.visible = false;
+            for (Button button : replaceActionButtons) button.visible = false;
             for (Button button : statusActionButtons) button.visible = false;
             return;
         }
@@ -698,6 +716,16 @@ public class EditScreen extends Screen {
         for (int slot = 0; slot < removeActionButtons.size(); slot++) {
             Button remove = removeActionButtons.get(slot);
             int index = removeProxyIndices.get(slot);
+            Button replace = replaceActionButtons.get(slot);
+            replace.visible = remove.visible;
+            replace.setX(rightBoxX + 1);
+            replace.setY(remove.getY());
+            replace.setWidth(Math.max(1, boxWidth - 137));
+            replace.setHeight(remove.getHeight());
+            if (index >= 0 && index < filteredTrackedItems.size()) {
+                replace.setMessage(Component.translatable("gui.resourcetracker.edit.replace_item", filteredTrackedItems.get(index).getDisplayName()));
+                replace.setTooltip(Tooltip.create(replace.getMessage()));
+            }
             for (int action = 0; action < 2; action++) {
                 Button status = statusActionButtons.get(slot * 2 + action);
                 status.visible = remove.visible;
@@ -736,12 +764,35 @@ public class EditScreen extends Screen {
         }
     }
 
+    private Button[] trackedRowActions(int slot) {
+        return new Button[] { removeActionButtons.get(slot), replaceActionButtons.get(slot),
+                statusActionButtons.get(slot * 2), statusActionButtons.get(slot * 2 + 1) };
+    }
+
     @Override
     public ComponentPath nextFocusPath(FocusNavigationEvent event) {
         if (showPreview) return super.nextFocusPath(event);
         boolean forward;
         if (event instanceof FocusNavigationEvent.TabNavigation tab) {
             forward = tab.forward();
+            for (int slot = 0; slot < removeActionButtons.size(); slot++) {
+                Button[] actions = trackedRowActions(slot);
+                for (int action = 0; action < actions.length; action++) {
+                    if (!actions[action].isFocused()) continue;
+                    int nextAction = action + (forward ? 1 : -1);
+                    if (nextAction >= 0 && nextAction < actions.length) return ComponentPath.leaf(actions[nextAction]);
+                    int index = removeProxyIndices.get(slot) + (forward ? 1 : -1);
+                    if (index < 0 || index >= filteredTrackedItems.size()) return super.nextFocusPath(event);
+                    focusLogicalItem(true, index);
+                    for (int nextSlot = 0; nextSlot < removeProxyIndices.size(); nextSlot++) {
+                        if (removeProxyIndices.get(nextSlot) == index && removeActionButtons.get(nextSlot).visible) {
+                            Button[] nextActions = trackedRowActions(nextSlot);
+                            return ComponentPath.leaf(nextActions[forward ? 0 : nextActions.length - 1]);
+                        }
+                    }
+                    return super.nextFocusPath(event);
+                }
+            }
         } else if (event instanceof FocusNavigationEvent.ArrowNavigation arrow
                 && (arrow.direction() == ScreenDirection.UP || arrow.direction() == ScreenDirection.DOWN)) {
             forward = arrow.direction() == ScreenDirection.DOWN;
@@ -787,6 +838,12 @@ public class EditScreen extends Screen {
             if (indices.get(i) == index && buttons.get(i).visible) return ComponentPath.leaf(buttons.get(i));
         }
         return null;
+    }
+
+    private void openReplacement(TrackerConfig.TrackedItem item) {
+        if (minecraft == null) return;
+        TrackerHistory.endCountChange(list);
+        VersionCompat.setScreen(minecraft, new ItemPickerScreen(this, list, item, () -> { }));
     }
 
     private void confirmRemove(TrackerConfig.TrackedItem item) {
@@ -1032,7 +1089,9 @@ public class EditScreen extends Screen {
         RenderUtils.drawStyledScrollbar(context, x + w - 6, startDisplayY, displayHeight, filteredTrackedItems.size() * itemH, scrollRight);
 
         if (hoveredTracked != null) {
-            hoveredTooltipText = hoveredTracked.isValid() ? Component.literal(hoveredTracked.getDisplayName()) : Component.literal(hoveredTracked.itemId);
+            hoveredTooltipText = mx < x + w - 136
+                    ? Component.translatable("gui.resourcetracker.edit.replace_item", hoveredTracked.getDisplayName())
+                    : (hoveredTracked.isValid() ? Component.literal(hoveredTracked.getDisplayName()) : Component.literal(hoveredTracked.itemId));
         }
     }
 

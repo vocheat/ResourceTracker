@@ -11,22 +11,43 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.IntConsumer;
+import java.util.function.IntSupplier;
 
 /** Session-only undo of resource intent. All callers run on the client thread. */
 public final class TrackerHistory {
     private static final int LIMIT = 30;
     private static final Map<TrackerConfig.TrackingList, History> HISTORIES = new IdentityHashMap<>();
+    private static final Map<TrackerConfig.TrackingList, Draft> DRAFTS = new IdentityHashMap<>();
     private static final ArrayDeque<Deletion> DELETIONS = new ArrayDeque<>();
     private static String contextKey;
 
     private TrackerHistory() { }
+
+    /** Opt an unsaved draft into session history without adding it to the configuration. */
+    public static void registerDraft(TrackerConfig.TrackingList list, IntSupplier multiplierGetter,
+                                     IntConsumer multiplierRestorer) {
+        checkContext();
+        Objects.requireNonNull(list);
+        Objects.requireNonNull(multiplierGetter);
+        Objects.requireNonNull(multiplierRestorer);
+        if (!TrackerConfig.INSTANCE.lists.contains(list)) {
+            DRAFTS.putIfAbsent(list, new Draft(multiplierGetter, multiplierRestorer));
+        }
+    }
+
+    /** End a draft session and release its history and callbacks. Does not save. */
+    public static void discardDraft(TrackerConfig.TrackingList list) {
+        checkContext();
+        if (DRAFTS.remove(list) != null) HISTORIES.remove(list);
+    }
 
     /** Capture immediately before a discrete resource change. Does not save. */
     public static void record(TrackerConfig.TrackingList list) {
         if (!current(list)) return;
         History history = HISTORIES.computeIfAbsent(list, ignored -> new History());
         history.countItem = null;
-        push(history.snapshots, Snapshot.capture(list));
+        push(history.snapshots, capture(list));
     }
 
     /** One step per continuous edit of a row, until focus changes or another action occurs. */
@@ -34,7 +55,7 @@ public final class TrackerHistory {
         if (!current(list)) return;
         History history = HISTORIES.computeIfAbsent(list, ignored -> new History());
         if (history.countItem == item) return;
-        push(history.snapshots, Snapshot.capture(list));
+        push(history.snapshots, capture(list));
         history.countItem = item;
     }
 
@@ -55,14 +76,21 @@ public final class TrackerHistory {
         if (!canUndo(list)) return false;
         History history = HISTORIES.get(list);
         history.countItem = null;
-        history.snapshots.removeLast().restore(list);
+        Entry entry = history.snapshots.removeLast();
+        entry.snapshot().restore(list);
+        Draft draft = DRAFTS.get(list);
+        if (draft != null && entry.multiplier() != null) {
+            // The callback restores editor state only; rows already have their captured quantities.
+            draft.multiplierRestorer().accept(entry.multiplier());
+        }
         ResourceTrackerClient.invalidateTargetItemCache();
         return true;
     }
 
     /** Call before deleting a list; deletion undo has its own overview-screen stack. */
     public static void recordDeletion(TrackerConfig.TrackingList list, int index) {
-        if (!current(list) || TrackerConfig.isGlobalWriteBlocked()) return;
+        if (!current(list) || !TrackerConfig.INSTANCE.lists.contains(list)
+                || TrackerConfig.isGlobalWriteBlocked()) return;
         list.captureRawState();
         push(DELETIONS, new Deletion(list, Math.max(0, index)));
         endCountChange(list);
@@ -88,6 +116,7 @@ public final class TrackerHistory {
     /** Also call on config reload: a reload can replace objects without changing context. */
     public static void clear() {
         HISTORIES.clear();
+        DRAFTS.clear();
         DELETIONS.clear();
         contextKey = TrackerConfig.getActiveContextKey();
     }
@@ -98,7 +127,12 @@ public final class TrackerHistory {
 
     private static boolean current(TrackerConfig.TrackingList list) {
         checkContext();
-        return list != null && TrackerConfig.INSTANCE.lists.contains(list);
+        return list != null && (TrackerConfig.INSTANCE.lists.contains(list) || DRAFTS.containsKey(list));
+    }
+
+    private static Entry capture(TrackerConfig.TrackingList list) {
+        Draft draft = DRAFTS.get(list);
+        return new Entry(Snapshot.capture(list), draft == null ? null : draft.multiplierGetter().getAsInt());
     }
 
     private static <T> void push(ArrayDeque<T> stack, T value) {
@@ -107,10 +141,12 @@ public final class TrackerHistory {
     }
 
     private static final class History {
-        final ArrayDeque<Snapshot> snapshots = new ArrayDeque<>();
+        final ArrayDeque<Entry> snapshots = new ArrayDeque<>();
         TrackerConfig.TrackedItem countItem;
     }
 
+    private record Draft(IntSupplier multiplierGetter, IntConsumer multiplierRestorer) { }
+    private record Entry(Snapshot snapshot, Integer multiplier) { }
     private record Deletion(TrackerConfig.TrackingList list, int index) { }
 
     private record ItemState(String id, int target, int collected, boolean pinned) {

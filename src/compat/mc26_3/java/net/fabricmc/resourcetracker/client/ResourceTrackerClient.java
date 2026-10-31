@@ -86,6 +86,7 @@ public class ResourceTrackerClient implements ClientModInitializer {
         TrackerConfig.load();
         CraftingRuntime.initialize();
         QuickAddController.initialize();
+        AreaSelectionController.initialize();
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> TrackerConfig.save());
 
         // Register keybindings — via VersionCompat for cross-version support
@@ -100,6 +101,7 @@ public class ResourceTrackerClient implements ClientModInitializer {
         // Register the client tick event to handle input and update inventory counts
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             updateActiveListContext(client);
+            AreaSelectionController.tick(client);
 
             // Always use the registered KeyMapping so the Controls screen remains the
             // single source of truth for the binding, including user reassignment.

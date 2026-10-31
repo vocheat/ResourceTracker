@@ -35,7 +35,11 @@ public final class QuickAddMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
-        return selected ? List.of("ContainerScreenAccessor", "QuickAddNavigationMixin") : List.of();
+        if (!selected) return List.of();
+        if (activePackage.endsWith(".mc1219.mixin") || activePackage.endsWith(".mc12110.mixin")) {
+            return List.of("ContainerScreenAccessor", "QuickAddNavigationMixin", "SelectionRenderMixin");
+        }
+        return List.of("ContainerScreenAccessor", "QuickAddNavigationMixin");
     }
 
     @Override

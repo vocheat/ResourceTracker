@@ -1,6 +1,7 @@
 package net.fabricmc.resourcetracker.importing;
 
 import net.fabricmc.resourcetracker.compat.VersionCompat;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
@@ -10,8 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-/** Vanilla placement materials; deliberately refuses states which cannot be represented by item IDs. */
-final class BlockMaterialResolver {
+/** Converts block states to placement materials, rejecting states that need unsupported components. */
+public final class BlockMaterialResolver {
     private static final Set<String> SKIPPED = Set.of("air", "cave_air", "void_air", "piston_head", "moving_piston", "nether_portal", "end_portal", "end_gateway", "bubble_column");
     private static final Map<String, String> OVERRIDES = Map.ofEntries(
             Map.entry("farmland", "dirt"), Map.entry("dirt_path", "dirt"),
@@ -30,6 +31,11 @@ final class BlockMaterialResolver {
 
     private BlockMaterialResolver() { }
 
+    /** Converts a live block state into the placement items that represent it. */
+    public static Map<String, Integer> resolveState(BlockState state) throws IOException {
+        return resolveState(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(), state);
+    }
+
     static Map<String, Integer> resolve(String id, Map<String, String> properties) throws IOException {
         if (!id.startsWith("minecraft:")) throw new IOException("Modded block is unsupported: " + id);
         Block block = ImportCompat.block(id);
@@ -40,23 +46,30 @@ final class BlockMaterialResolver {
             if (property == null) throw new IOException("Unknown property " + entry.getKey() + " for " + id);
             state = withValue(state, property, entry.getValue(), id);
         }
+        return resolveState(id, state);
+    }
+
+    /** Shared state rules also apply to modded subclasses of vanilla block types. */
+    static Map<String, Integer> resolveState(String id, BlockState state) throws IOException {
+        Block block = state.getBlock();
         Map<String, String> values = new LinkedHashMap<>();
         for (Property<?> property : state.getProperties()) values.put(property.getName(), propertyValue(state, property));
-        String path = id.substring(10);
-        if (SKIPPED.contains(path)) return Map.of();
-        if (path.equals("player_head") || path.equals("player_wall_head"))
-            throw new IOException("Component-sensitive block requires an exported materials list: " + id);
+        boolean vanilla = id.startsWith("minecraft:");
+        String path = vanilla ? id.substring(10) : "";
+        if (state.isAir() || SKIPPED.contains(path)) return Map.of();
         if ((block instanceof DoorBlock || block instanceof DoublePlantBlock) && "upper".equals(values.get("half"))) return Map.of();
         if (block instanceof BedBlock && "head".equals(values.get("part"))) return Map.of();
+        if (path.equals("player_head") || path.equals("player_wall_head"))
+            throw new IOException("Component-sensitive block requires an exported materials list: " + id);
         if (path.equals("water") || path.equals("lava"))
             return "0".equals(values.get("level")) ? Map.of("minecraft:" + path + "_bucket", 1) : Map.of();
         Map<String, Integer> result = new LinkedHashMap<>();
-        if (block instanceof CandleCakeBlock) {
+        if (vanilla && block instanceof CandleCakeBlock) {
             add(result, "minecraft:cake", 1);
             add(result, "minecraft:" + path.substring(0, path.length() - "_cake".length()), 1);
             return result;
         }
-        if (block instanceof FlowerPotBlock pot && !path.equals("flower_pot")) {
+        if (vanilla && block instanceof FlowerPotBlock pot && !path.equals("flower_pot")) {
             add(result, "minecraft:flower_pot", 1);
             add(result, VersionCompat.getItemId(pot.getPotted().asItem()), 1);
             return result;
@@ -70,9 +83,9 @@ final class BlockMaterialResolver {
         }
         int count = 1;
         if (block instanceof SlabBlock && "double".equals(values.get("type"))) count = 2;
-        else if (path.equals("snow")) count = Integer.parseInt(values.get("layers"));
-        else if (path.equals("turtle_egg")) count = Integer.parseInt(values.get("eggs"));
-        else if (path.equals("sea_pickle")) count = Integer.parseInt(values.get("pickles"));
+        else if (block instanceof SnowLayerBlock) count = Integer.parseInt(values.get("layers"));
+        else if (block instanceof TurtleEggBlock) count = Integer.parseInt(values.get("eggs"));
+        else if (block instanceof SeaPickleBlock) count = Integer.parseInt(values.get("pickles"));
         else if (block instanceof CandleBlock) count = Integer.parseInt(values.get("candles"));
         else if (block instanceof MultifaceBlock) {
             count = 0;

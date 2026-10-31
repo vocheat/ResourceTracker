@@ -3,6 +3,7 @@ package net.fabricmc.resourcetracker;
 import net.fabricmc.resourcetracker.config.ListMetadata;
 import net.fabricmc.resourcetracker.crafting.CraftingRegression;
 import net.fabricmc.resourcetracker.importing.ImportRegressionTest;
+import net.fabricmc.resourcetracker.selection.AreaSelectionRegression;
 import net.fabricmc.resourcetracker.model.CountFormatter;
 import net.fabricmc.resourcetracker.model.HudSelection;
 import net.fabricmc.resourcetracker.model.ResourceState;
@@ -20,6 +21,11 @@ public final class RegressionSuite {
         metadata();
         CraftingRegression.main(new String[0]);
         ImportRegressionTest.main(new String[]{"--minecraft"});
+        net.fabricmc.resourcetracker.importing.BlockMaterialResolverRegression.main(new String[0]);
+        net.fabricmc.resourcetracker.client.gui.ItemReplacementRegression.main(new String[0]);
+        net.fabricmc.resourcetracker.client.gui.FamilyReplacementRegression.main(new String[0]);
+        net.fabricmc.resourcetracker.config.DraftHistoryRegression.main(new String[0]);
+        AreaSelectionRegression.main(new String[0]);
         System.out.println("ResourceTracker regression suite passed");
     }
 

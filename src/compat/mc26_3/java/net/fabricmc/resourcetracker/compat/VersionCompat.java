@@ -20,6 +20,10 @@ import net.minecraft.world.item.ItemStack;
 public class VersionCompat {
     private static final KeyMapping.Category KEY_CATEGORY = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("resourcetracker", "main"));
 
+    public static void showChatMessage(net.minecraft.client.Minecraft client, Component message) {
+        if (client.player != null) client.player.sendSystemMessage(message);
+    }
+
     public static void showCompletionMessage(net.minecraft.client.Minecraft client, Component message) {
         client.gui.hud.setOverlayMessage(message, false);
     }
@@ -90,6 +94,15 @@ public class VersionCompat {
                 "key.resourcetracker.quick_add",
                 InputConstants.Type.KEYBOARD,
                 InputConstants.KEY_K,
+                KEY_CATEGORY
+        ));
+    }
+
+    public static KeyMapping registerAreaSelectionKey() {
+        return KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.resourcetracker.select_area",
+                InputConstants.Type.KEYBOARD,
+                InputConstants.KEY_B,
                 KEY_CATEGORY
         ));
     }
