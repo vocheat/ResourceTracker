@@ -93,11 +93,18 @@ def publish(manifest, body, images, output):
 
     before = request()
     save("project-before.json", before)
+    old_urls = set(manifest["replace_gallery_urls"])
+
+    def matching_uploads(project, selected):
+        # Replacement images can retain the previous titles and captions.
+        return [entry for entry in project["gallery"]
+                if entry["url"] not in old_urls and entry.get("title") == selected["title_EN"]
+                and entry.get("description") == selected["caption_en"]]
+
     uploaded = {}
     for index, selected in enumerate(manifest["gallery"]):
         project = request()
-        matches = [entry for entry in project["gallery"]
-                   if entry.get("title") == selected["title_EN"] and entry.get("description") == selected["caption_en"]]
+        matches = matching_uploads(project, selected)
         if len(matches) > 1:
             raise RuntimeError("Ambiguous gallery entry: " + selected["title_EN"])
         if not matches:
@@ -105,8 +112,7 @@ def publish(manifest, body, images, output):
                 "ext": "png", "featured": "true" if index == 0 else "false",
                 "title": selected["title_EN"], "description": selected["caption_en"], "ordering": index})
             project = request()
-            matches = [entry for entry in project["gallery"]
-                       if entry.get("title") == selected["title_EN"] and entry.get("description") == selected["caption_en"]]
+            matches = matching_uploads(project, selected)
         if len(matches) != 1:
             raise RuntimeError("Uploaded screenshot is missing: " + selected["file"])
         entry = matches[0]
