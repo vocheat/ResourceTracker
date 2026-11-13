@@ -32,10 +32,11 @@ public final class RawMaterialsScreen extends PagedDataScreen {
         boolean searching = searchField != null && searchField.isFocused();
         int cursor = searchField == null ? view.query.length() : searchField.getCursorPosition();
         layout(104);
+        showPanel();
         int tabWidth = (contentWidth - 8) / 3;
         button(Component.translatable("gui.resourcetracker.ui.resources"), left, 30, tabWidth,
                 b -> ((EditScreen) parent).openTab("resources"));
-        button(Component.translatable("gui.resourcetracker.ui.raw"), left + tabWidth + 4, 30, tabWidth, b -> {}).active = false;
+        button(Component.translatable("gui.resourcetracker.ui.raw"), left + tabWidth + 4, 30, tabWidth, b -> {});
         button(Component.translatable("gui.resourcetracker.ui.hud"), left + (tabWidth + 4) * 2, 30, tabWidth,
                 b -> ((EditScreen) parent).openTab("hud"));
         Component summary = Component.translatable("gui.resourcetracker.raw.rules_summary", WoodChoiceScreen.name(list.woodType),
@@ -108,6 +109,15 @@ public final class RawMaterialsScreen extends PagedDataScreen {
         button(Component.translatable("gui.resourcetracker.undo"), left, height - 26, half,
                 b -> { if (TrackerHistory.undo(list)) init(); }).active = TrackerHistory.canUndo(list);
         button(Component.translatable("gui.resourcetracker.done"), left + half + 6, height - 26, half, b -> onClose());
+    }
+
+    @Override
+    protected boolean drawEditorBackground(BackgroundFill fill) {
+        if (!super.drawEditorBackground(fill)) return false;
+        int tabWidth = (contentWidth - 8) / 3;
+        int x = left + tabWidth + 4;
+        fill.draw(x, 51, x + tabWidth, 53, UiTheme.ACCENT);
+        return true;
     }
 
     private void selectedControls(TrackerConfig.TrackedItem item, int x, int y, int w) {

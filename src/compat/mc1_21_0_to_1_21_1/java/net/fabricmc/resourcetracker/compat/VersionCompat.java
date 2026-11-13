@@ -56,6 +56,10 @@ public class VersionCompat {
         ctx.pose().popPose();
     }
 
+    public static void nextGuiLayer(GuiGraphics ctx) {
+        ctx.flush();
+    }
+
     public static void translate(GuiGraphics ctx, float x, float y) {
         ctx.pose().translate(x, y, 0);
     }

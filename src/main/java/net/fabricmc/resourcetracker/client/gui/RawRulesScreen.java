@@ -22,6 +22,7 @@ final class RawRulesScreen extends PagedDataScreen {
 
     @Override protected void init() {
         layout(34);
+        showPanel();
         label(Component.translatable("gui.resourcetracker.raw.smelting_label"), left, 34, contentWidth - 58)
                 .setTooltip(Tooltip.create(Component.translatable("gui.resourcetracker.raw.smelting_hint")));
         button(RawMaterialsScreen.state(list.includeSmelting), left + contentWidth - 54, 32, 54, b -> {

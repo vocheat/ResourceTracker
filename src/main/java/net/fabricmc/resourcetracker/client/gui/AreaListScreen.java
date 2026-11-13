@@ -63,6 +63,7 @@ public final class AreaListScreen extends PagedDataScreen {
         boolean searching = searchField != null && searchField.isFocused();
         int cursor = searchField == null ? view.query.length() : searchField.getCursorPosition();
         layout(108, Component.translatable("gui.resourcetracker.draft.title"));
+        showPanel();
         undoShortcutDown = minecraft != null && VersionCompat.isUndoPressed(minecraft);
         multiplierField = null;
         applyMultiplier = null;
@@ -88,14 +89,22 @@ public final class AreaListScreen extends PagedDataScreen {
             selectedPanel(selected, left, rowTop, contentWidth);
         } else {
             detail = false;
-            searchField = DraftMaterialsTable.search(this, view, left, 80, contentWidth - 100, () -> {
+            Component actions = Component.translatable("gui.resourcetracker.compact.list_actions");
+            int actionWidth = font.width(actions) + 12;
+            boolean separateActions = contentWidth - actionWidth - 6 < 92;
+            if (separateActions) {
+                rowTop += 24;
+                pageSize = Math.max(1, (height - rowTop - 62) / 24);
+            }
+            searchField = DraftMaterialsTable.search(this, view, left, 80,
+                    separateActions ? contentWidth : contentWidth - actionWidth - 6, () -> {
                 focusSearch = true;
                 if (minecraft != null) minecraft.execute(this::init);
             });
             searchField.setCursorPosition(Math.min(cursor, view.query.length()));
             if (searching || focusSearch) setFocused(searchField);
-            button(Component.translatable("gui.resourcetracker.compact.list_actions"), left + contentWidth - 94, 80, 94,
-                    b -> showActions());
+            button(actions, separateActions ? left : left + contentWidth - actionWidth,
+                    separateActions ? 104 : 80, separateActions ? contentWidth : actionWidth, b -> showActions());
             int tableWidth = wide ? contentWidth - 192 : contentWidth;
             DraftMaterialsTable.rows(this, draft.items, view, tableWidth,
                     DraftMaterialsTable.Capability.SELECT_RESOURCE,

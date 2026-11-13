@@ -20,20 +20,45 @@ public class ChoiceScreen<T> extends PagedDataScreen {
     private final T selected;
     private final Function<T, Component> displayName;
     private final Consumer<T> onSelect;
+    private final boolean compactActions;
     private String query = "";
     private EditBox search;
 
     public ChoiceScreen(Screen parent, Component title, List<T> values, T selected,
                         Function<T, Component> displayName, Consumer<T> onSelect) {
+        this(parent, title, values, selected, displayName, onSelect, false);
+    }
+
+    private ChoiceScreen(Screen parent, Component title, List<T> values, T selected,
+                         Function<T, Component> displayName, Consumer<T> onSelect, boolean compactActions) {
         super(parent, title);
         this.values = new ArrayList<>(values);
         this.selected = selected;
         this.displayName = displayName;
         this.onSelect = onSelect;
+        this.compactActions = compactActions;
+    }
+
+    static <T> ChoiceScreen<T> actions(Screen parent, Component title, List<T> values,
+                                       Function<T, Component> displayName, Consumer<T> onSelect) {
+        return new ChoiceScreen<>(parent, title, values, null, displayName, onSelect, true);
     }
 
     @Override
     protected void init() {
+        if (compactActions) {
+            int groupHeight = 56 + 26 * values.size();
+            int top = Math.max(4, (height - groupHeight) / 2);
+            layout(top + 26, title, 320, top + 8);
+            showPanel(top, top + groupHeight);
+            int y = rowTop;
+            for (T value : values) {
+                button(displayName.apply(value), left, y, contentWidth, b -> select(value));
+                y += 26;
+            }
+            button(Component.translatable("gui.back"), left, y + 2, contentWidth, b -> onClose());
+            return;
+        }
         boolean focusSearch = search != null && search.isFocused();
         int cursor = search == null ? query.length() : search.getCursorPosition();
         layout(60);
@@ -70,10 +95,8 @@ public class ChoiceScreen<T> extends PagedDataScreen {
             boolean current = Objects.equals(selected, value);
             Component description = current ? Component.translatable("gui.resourcetracker.item_picker.current", name) : name;
             Component message = Component.literal(valueText);
-            var choice = TrackerButton.builder(message, b -> {
-                onSelect.accept(value);
-                if (minecraft != null && VersionCompat.currentScreen(minecraft) == this) onClose();
-            }).bounds(left, rowTop + (i % pageSize) * rowHeight, contentWidth, rowHeight - 4)
+            var choice = TrackerButton.builder(message, b -> select(value))
+                    .bounds(left, rowTop + (i % pageSize) * rowHeight, contentWidth, rowHeight - 4)
                     .leadingIcon(current ? PngIcons.Icon.CHECK : null)
                     .createNarration(s -> description.copy()).build();
             choice.setTooltip(Tooltip.create(description));
@@ -81,5 +104,10 @@ public class ChoiceScreen<T> extends PagedDataScreen {
         }
         if (filtered.isEmpty()) label(Component.translatable("gui.resourcetracker.edit.no_results"), left, rowTop + 4, contentWidth);
         button(Component.translatable("gui.back"), left, height - 26, contentWidth, b -> onClose());
+    }
+
+    private void select(T value) {
+        onSelect.accept(value);
+        if (minecraft != null && VersionCompat.currentScreen(minecraft) == this) onClose();
     }
 }

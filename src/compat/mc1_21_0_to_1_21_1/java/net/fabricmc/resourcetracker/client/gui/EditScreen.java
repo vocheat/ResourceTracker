@@ -82,6 +82,8 @@ public class EditScreen extends EditorInputScreen {
     private boolean catalog, detail, fullPreview, advancedPosition, undoShortcutDown;
     private boolean wide;
     private int left, contentWidth, contentTop, footerY, tableX, tableWidth, rowTop, pageSize;
+    private int stockX, statusX, catalogStatusWidth;
+    private boolean compactStatuses;
     private int styleX, styleTop, styleWidth, styleHeight, styleScroll, styleContentHeight;
     private int previewX, previewY, previewWidth, previewHeight, previewZoom = 2;
     private EditBox countField;
@@ -126,11 +128,9 @@ public class EditScreen extends EditorInputScreen {
         left = (width - contentWidth) / 2;
         footerY = height - 28;
         wide = width >= 620 && height >= 300;
-        contentTop = 62;
         if (selected() == null) detail = false;
         if (fullPreview) {
-            label(text("preview"), left, 12, UiTheme.TEXT);
-            previewX = left; previewY = 32; previewWidth = contentWidth; previewHeight = Math.max(50, footerY - 38);
+            previewX = left; previewY = 8; previewWidth = contentWidth; previewHeight = Math.max(50, footerY - 14);
             zoomButton(previewX + 8, previewY + 18, previewWidth - 16);
             button("back.preview", text("back_hud"), left, footerY, contentWidth, b -> { fullPreview = false; init(); });
         } else if (catalog) {
@@ -161,16 +161,22 @@ public class EditScreen extends EditorInputScreen {
     }
 
     private void buildHeader() {
-        int titleWidth = Math.min(150, Math.max(60, contentWidth / 3));
-        label(Component.literal(RenderUtils.shortenText(font, title.getString(), titleWidth - 6)), left, 14, UiTheme.TEXT);
-        EditBox name = new EditBox(font, left + titleWidth, 8, contentWidth - titleWidth, 20, Component.translatable("gui.resourcetracker.edit.list_name"));
+        int titleWidth = font.width(title) + 12;
+        boolean inline = contentWidth >= titleWidth + 160;
+        int nameY = inline ? 8 : 24;
+        int nameOffset = inline ? titleWidth : 0;
+        label(title, left, inline ? 14 : 10, UiTheme.TEXT);
+        EditBox name = new EditBox(font, left + nameOffset, nameY, contentWidth - nameOffset, 20,
+                Component.translatable("gui.resourcetracker.edit.list_name"));
         name.setMaxLength(32767); name.setValue(list.name); name.setResponder(value -> list.name = value);
         register("name", name);
         int w = (contentWidth - 8) / 3;
+        int tabY = nameY + 26;
+        contentTop = tabY + 28;
         String[] ids = {"resources", "raw", "hud"};
         for (int i = 0; i < ids.length; i++) {
             String id = ids[i];
-            button("tab." + id, Component.translatable("gui.resourcetracker.ui." + id), left + i * (w + 4), 34, w, b -> openTab(id));
+            button("tab." + id, Component.translatable("gui.resourcetracker.ui." + id), left + i * (w + 4), tabY, w, b -> openTab(id));
         }
     }
 
@@ -201,17 +207,33 @@ public class EditScreen extends EditorInputScreen {
         tableX = left;
         tableWidth = wide ? contentWidth - 216 : contentWidth;
         int toolY = contentTop;
-        int searchWidth = wide ? Math.max(60, tableWidth - 214) : tableWidth;
+        int actionsWidth = font.width(text("list_actions")) + 12;
+        int addWidth = font.width(text("add")) + 12;
+        boolean inline = wide && tableWidth >= actionsWidth + addWidth + 104;
+        int searchWidth = inline ? tableWidth - actionsWidth - addWidth - 12 : tableWidth;
         search("resources.search", resources, left, toolY, searchWidth);
-        int actionY = wide ? toolY : toolY + 24;
-        int actionX = wide ? left + searchWidth + 6 : left;
-        int addWidth = wide ? 70 : (tableWidth - 6) / 3;
-        button("catalog.open", text("add"), actionX, actionY, addWidth, b -> { catalog = true; focusKey = "catalog.search"; init(); });
-        button("list.actions", text("list_actions"), actionX + addWidth + 6, actionY,
-                tableX + tableWidth - actionX - addWidth - 6, b -> openListActions());
-        int headerY = actionY + 26;
-        label(text("target_items"), tableX + tableWidth - 146, headerY, UiTheme.MUTED);
-        label(text("stock"), tableX + tableWidth - 68, headerY, UiTheme.MUTED);
+        int actionY = inline ? toolY : toolY + 24;
+        int actionX = inline ? left + searchWidth + 6 : left;
+        boolean separateActions = addWidth + actionsWidth + 6 > tableWidth;
+        button("catalog.open", text("add"), actionX, actionY, Math.min(addWidth, tableWidth), b -> { catalog = true; focusKey = "catalog.search"; init(); });
+        button("list.actions", text("list_actions"), separateActions ? left : actionX + addWidth + 6,
+                separateActions ? actionY + 24 : actionY, separateActions ? tableWidth : actionsWidth, b -> openListActions());
+        int headerY = actionY + (separateActions ? 50 : 26);
+        int countWidth = font.width(Integer.toString(TrackerConfig.MAX_TARGET_COUNT));
+        int stockWidth = Math.max(countWidth, font.width(text("stock"))) + 8;
+        int targetWidth = Math.max(countWidth, font.width(text("target_items"))) + 8;
+        int statusWidth = Math.max(font.width(text("resource_status")),
+                Math.max(font.width(text("manual_short")), font.width(text("complete_short"))) + font.width("  ★")) + 8;
+        compactStatuses = tableWidth < 100 + stockWidth + targetWidth + statusWidth;
+        if (compactStatuses) {
+            statusWidth = Math.max(font.width(text("resource_status")),
+                    Math.max(font.width(text("manual_symbol")), PngIcons.SMALL_CHECK_ADVANCE) + font.width("  ★")) + 8;
+        }
+        statusX = tableX + tableWidth - statusWidth;
+        stockX = statusX - stockWidth;
+        label(text("target_items"), stockX - 8 - font.width(text("target_items")), headerY, UiTheme.MUTED);
+        label(text("stock"), statusX - 8 - font.width(text("stock")), headerY, UiTheme.MUTED);
+        label(text("resource_status"), statusX, headerY, UiTheme.MUTED);
         rowTop = headerY + 14;
         String filter = resources.query.trim().toLowerCase(Locale.ROOT);
         List<TrackerConfig.TrackedItem> filtered = list.items.stream().filter(item ->
@@ -248,7 +270,7 @@ public class EditScreen extends EditorInputScreen {
             TrackerConfig.TrackedItem item = tracked == null ? null : tracked.get(i);
             Item choice = available == null ? null : available.get(i);
             String id = item == null ? VersionCompat.getItemId(choice) : item.itemId;
-            Component narration = item == null ? Component.literal(catalogNames.get(choice))
+            Component narration = item == null ? Component.literal(catalogNames.get(choice)).append(". ").append(catalogStatus(id))
                     : text("row", item.getDisplayName(), item.targetCount, item.cachedCount).copy()
                         .append(". ").append(text("manual_collected", status(item.isManuallyCollected())))
                         .append(". ").append(text("pinned", status(item.pinned)));
@@ -285,15 +307,25 @@ public class EditScreen extends EditorInputScreen {
             catalogItems.sort(Comparator.comparing(catalogNames::get));
         }
         label(text("catalog_title"), left, 12, UiTheme.TEXT);
-        search("catalog.search", catalogState, left, 30, contentWidth);
-        TrackerConfig.TrackedItem selected = selected();
-        if (selected != null) {
-            label(text("last_target", RenderUtils.shortenText(font, selected.getDisplayName(), Math.max(20, contentWidth - 170))), left, 58, UiTheme.MUTED);
-            addCountField(selected, left + contentWidth - 78, 54, 78, false);
-        } else label(text("catalog_hint"), left, 58, UiTheme.MUTED);
-        tableX = left; tableWidth = contentWidth; rowTop = 80;
+        label(text("catalog_search"), left, 30, UiTheme.MUTED);
+        search("catalog.search", catalogState, left, 42, contentWidth);
+        int helpY = 69;
+        for (String line : RawTextScreen.wrap(font, text("catalog_hint").getString(), contentWidth)) {
+            label(Component.literal(line), left, helpY, UiTheme.MUTED);
+            helpY += 12;
+        }
         String filter = catalogState.query.trim().toLowerCase(Locale.ROOT);
-        buildRows(null, catalogItems.stream().filter(item -> catalogSearch.get(item).contains(filter)).toList(), catalogState);
+        List<Item> filtered = catalogItems.stream().filter(item -> catalogSearch.get(item).contains(filter)).toList();
+        TrackerConfig.TrackedItem selected = selected();
+        if (selected != null && filtered.stream().anyMatch(item -> VersionCompat.getItemId(item).equals(selected.itemId))) {
+            Component target = text("last_target", selected.getDisplayName());
+            label(Component.literal(RenderUtils.shortenText(font, target.getString(), contentWidth - 86)), left, helpY + 8, UiTheme.TEXT);
+            addCountField(selected, left + contentWidth - 78, helpY + 3, 78, false);
+            helpY += 38;
+        }
+        catalogStatusWidth = Math.max(font.width(text("catalog_added")) + 18, font.width(text("add"))) + 12;
+        tableX = left; tableWidth = contentWidth; rowTop = helpY + 4;
+        buildRows(null, filtered, catalogState);
         button("catalog.done", text("done_adding"), left, footerY, contentWidth, b -> { catalog = false; focusKey = "catalog.open"; init(); });
     }
 
@@ -314,6 +346,10 @@ public class EditScreen extends EditorInputScreen {
         return list.items.stream().filter(item -> item.itemId.equals(resources.selectedItemId)).findFirst().orElse(null);
     }
 
+    private Component catalogStatus(String id) {
+        return text(list.items.stream().anyMatch(item -> item.itemId.equals(id)) ? "catalog_added" : "add");
+    }
+
     private void buildDetail(int x, int y, int w, boolean scrolling) {
         TrackerConfig.TrackedItem item = selected();
         if (item == null) return;
@@ -327,10 +363,16 @@ public class EditScreen extends EditorInputScreen {
             TrackerHistory.record(list); item.toggleCollected(); invalidate(); init();
         }).setLeadingIcon(item.isManuallyCollected() ? PngIcons.Icon.CHECK : null)
                 .setTooltip(Tooltip.create(text("manual_hint")));
-        styleButton("pinned", text("pinned", status(item.pinned)), x, y + 90, w, b -> {
+        int nextY = y + 91;
+        for (String line : RawTextScreen.wrap(font, text("manual_hint").getString(), w - 4)) {
+            scrollingLabels.add(new LabelData(Component.literal(line), x, nextY, UiTheme.MUTED));
+            nextY += 12;
+        }
+        nextY += 4;
+        styleButton("pinned", text("pinned", status(item.pinned)), x, nextY, w, b -> {
             TrackerHistory.record(list); item.pinned = !item.pinned; invalidate(); init();
         });
-        styleButton("replace", text("replace"), x, y + 114, w, b -> {
+        styleButton("replace", text("replace"), x, nextY + 24, w, b -> {
             TrackerHistory.endCountChange(list);
             Map<String, Integer> before = new HashMap<>();
             for (TrackerConfig.TrackedItem previous : list.items) before.put(previous.itemId, previous.targetCount);
@@ -340,11 +382,11 @@ public class EditScreen extends EditorInputScreen {
                         !Objects.equals(before.get(current.itemId), current.targetCount)).map(current -> current.itemId).findFirst().orElse(null);
             }));
         });
-        styleButton("remove", text("remove_resource"), x, y + 138, w, b -> {
+        styleButton("remove", text("remove_resource"), x, nextY + 48, w, b -> {
             TrackerHistory.record(list); list.items.remove(item); countDrafts.remove(item.itemId);
             resources.selectedItemId = null; detail = false; invalidate(); init();
         });
-        styleContentHeight = y + 164 - styleTop;
+        styleContentHeight = nextY + 74 - styleTop;
     }
 
     private void addCountField(TrackerConfig.TrackedItem item, int x, int y, int w, boolean scrolling) {
@@ -656,25 +698,33 @@ public class EditScreen extends EditorInputScreen {
             if (tracked == null) context.renderItem(catalogStacks.get(row.catalogItem), tableX + 4, row.y + 5);
             else if (tracked.isValid()) context.renderItem(tracked.getStack(), tableX + 4, row.y + 5);
             String name = tracked == null ? catalogNames.get(row.catalogItem) : tracked.getDisplayName();
-            int nameWidth = tableWidth - (tracked == null ? 54 : 178);
-            context.drawString(font, RenderUtils.shortenText(font, name, Math.max(20, nameWidth)), tableX + 24, row.y + 8, UiTheme.TEXT, false);
+            String target = tracked == null ? "" : Integer.toString(tracked.targetCount);
+            int targetStart = stockX - 8 - font.width(target);
+            int nameWidth = tracked == null ? tableWidth - 28 - catalogStatusWidth : targetStart - tableX - 28;
+            context.drawString(font, RenderUtils.shortenText(font, name, Math.max(0, nameWidth)), tableX + 24, row.y + 8, UiTheme.TEXT, false);
             if (tracked != null) {
-                context.drawString(font, String.valueOf(tracked.targetCount), tableX + tableWidth - 146, row.y + 8, UiTheme.TEXT, false);
-                int stockX = tableX + tableWidth - 68;
-                int stockColor = tracked.isCompleted() ? UiTheme.ACCENT : UiTheme.MUTED;
-                int checkWidth = tracked.isManuallyCollected() ? PngIcons.SMALL_CHECK_ADVANCE : 0;
-                int pinWidth = tracked.pinned ? font.width(" ★") : 0;
-                String stock = RenderUtils.shortenText(font, String.valueOf(tracked.cachedCount), 64 - checkWidth - pinWidth);
-                context.drawString(font, stock, stockX, row.y + 8, stockColor, false);
-                int indicatorX = stockX + font.width(stock);
-                if (tracked.isManuallyCollected()) RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CHECK_SMALL,
-                        indicatorX, row.y + 8, checkWidth, font.lineHeight, stockColor);
-                if (tracked.pinned) context.drawString(font, " ★", indicatorX + checkWidth, row.y + 8, stockColor, false);
+                String stock = Integer.toString(tracked.cachedCount);
+                context.drawString(font, target, targetStart, row.y + 8, UiTheme.TEXT, false);
+                context.drawString(font, stock, statusX - 8 - font.width(stock), row.y + 8, UiTheme.TEXT, false);
+                context.fill(statusX - 5, row.y + 4, statusX - 4, row.y + 22, UiTheme.BORDER);
+                boolean manual = tracked.isManuallyCollected();
+                if (manual) {
+                    context.drawString(font, text(compactStatuses ? "manual_symbol" : "manual_short"), statusX, row.y + 8, UiTheme.ACCENT, false);
+                } else if (tracked.isCompleted()) {
+                    if (compactStatuses) RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CHECK_SMALL,
+                            statusX, row.y + 8, PngIcons.SMALL_CHECK_ADVANCE, font.lineHeight, UiTheme.ACCENT);
+                    else context.drawString(font, text("complete_short"), statusX, row.y + 8, UiTheme.ACCENT, false);
+                }
+                if (tracked.pinned) context.drawString(font, "★", tableX + tableWidth - font.width("★") - 6,
+                        row.y + 8, UiTheme.ACCENT, false);
             } else {
                 boolean existing = list.items.stream().anyMatch(item -> item.itemId.equals(id));
+                int actionX = tableX + tableWidth - catalogStatusWidth + 4;
                 if (existing) RenderUtils.drawPngIconInBox(context, PngIcons.Icon.CHECK,
-                        tableX + tableWidth - 24, row.y + 3, 20, 20, UiTheme.ACCENT);
-                else context.drawString(font, "+", tableX + tableWidth - 20, row.y + 8, UiTheme.MUTED, false);
+                        actionX, row.y + 5, 16, 16, UiTheme.ACCENT);
+                Component action = text(existing ? "catalog_added" : "add");
+                context.drawString(font, action, tableX + tableWidth - font.width(action) - 8,
+                        row.y + 8, existing ? UiTheme.ACCENT : UiTheme.MUTED, false);
             }
         }
         super.render(context, mouseX, mouseY, delta);
@@ -684,11 +734,12 @@ public class EditScreen extends EditorInputScreen {
                     color.getX() + color.getWidth() - 22, color.getY() + 2, 16, 16, getColorForIndex(i));
         }
         for (LabelData label : labels) {
-            boolean invalidCount = catalog && countField != null && invalidFields.containsKey(countField) && label.y == 58;
-            Component message = invalidCount ? text("invalid_count") : label.text;
-            int maxWidth = invalidCount ? countField.getX() - label.x - 6 : left + contentWidth - label.x;
-            context.drawString(font, RenderUtils.shortenText(font, message.getString(), Math.max(1, maxWidth)),
-                    label.x, label.y, invalidCount ? 0xFFFF7777 : label.color, false);
+            context.drawString(font, RenderUtils.shortenText(font, label.text.getString(), Math.max(1, left + contentWidth - label.x)),
+                    label.x, label.y, label.color, false);
+        }
+        if (catalog && countField != null && invalidFields.containsKey(countField)) {
+            String message = RenderUtils.shortenText(font, text("invalid_count").getString(), contentWidth);
+            context.drawString(font, message, left, countField.getY() + 23, UiTheme.DANGER, false);
         }
         if (!scrollingLabels.isEmpty()) {
             context.enableScissor(styleX, styleTop, styleX + styleWidth, styleTop + styleHeight);
@@ -705,7 +756,7 @@ public class EditScreen extends EditorInputScreen {
         if (!catalog && !detail && !fullPreview) {
             int w = (contentWidth - 8) / 3;
             int x = left + (tab.equals("hud") ? 2 * (w + 4) : 0);
-            context.fill(x, 55, x + w, 57, UiTheme.ACCENT);
+            context.fill(x, contentTop - 7, x + w, contentTop - 5, UiTheme.ACCENT);
         }
         showInvalidFieldTooltip(context, mouseX, mouseY);
     }
@@ -757,12 +808,19 @@ public class EditScreen extends EditorInputScreen {
         float desiredScale = hudScale * previewZoom;
         float fitScale = Math.min((float) availableWidth / modelWidth, (float) availableHeight / modelHeight);
         boolean fitted = desiredScale > fitScale;
+        int contentTop = panelY + 47;
         if (fitted) {
             availableHeight = Math.max(1, availableHeight - 12);
+            contentTop += 12;
             fitScale = Math.min((float) availableWidth / modelWidth, (float) availableHeight / modelHeight);
         }
         float scale = Math.min(desiredScale, fitScale);
-        int contentTop = panelY + 47;
+        if (fitted) {
+            String message = Component.translatable("gui.resourcetracker.edit.preview_fit_reason",
+                    Math.round(scale / hudScale * 100)).getString();
+            context.drawString(font, RenderUtils.shortenText(font, message, panelWidth - 16),
+                    panelX + 8, panelY + 42, UiTheme.MUTED, false);
+        }
         float originX = panelX + 8 + (availableWidth - modelWidth * scale) / 2 - model.backgroundMinX * scale;
         float originY = contentTop + (availableHeight - modelHeight * scale) / 2 - model.backgroundMinY * scale;
 
@@ -773,12 +831,6 @@ public class EditScreen extends EditorInputScreen {
         HudRenderer.render(context, font, model);
         VersionCompat.pop(context);
         context.disableScissor();
-        if (fitted) {
-            String message = Component.translatable("gui.resourcetracker.edit.preview_fitted",
-                    Math.round(scale / hudScale * 100)).getString();
-            context.drawString(font, RenderUtils.shortenText(font, message, panelWidth - 16),
-                    panelX + 8, panelY + panelHeight - 12, UiTheme.MUTED, false);
-        }
     }
 
     private EditBox createIntField(int x, int y, int w, int value, Integer min, Integer max, Component tooltip, java.util.function.IntConsumer onChange) {

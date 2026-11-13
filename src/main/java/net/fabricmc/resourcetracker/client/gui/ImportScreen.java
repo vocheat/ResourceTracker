@@ -61,6 +61,7 @@ public final class ImportScreen extends PagedDataScreen {
             return;
         }
         layout(124);
+        showPanel();
         EditBox path = new EditBox(font, left, 30, contentWidth - 64, 18,
                 Component.translatable("gui.resourcetracker.import.path"));
         path.setMaxLength(32767);
@@ -243,6 +244,7 @@ public final class ImportScreen extends PagedDataScreen {
         boolean searching = materialSearch != null && materialSearch.isFocused();
         int cursor = materialSearch == null ? previewView.query.length() : materialSearch.getCursorPosition();
         layout(108, Component.translatable("gui.resourcetracker.draft.title"));
+        showPanel();
         EditBox name = new EditBox(font, left, 30, contentWidth, 20,
                 Component.translatable("gui.resourcetracker.edit.list_name"));
         name.setMaxLength(120);
@@ -252,11 +254,13 @@ public final class ImportScreen extends PagedDataScreen {
         name.setCursorPosition(Math.min(nameCursor, previewName.length()));
         Component source = Component.translatable("gui.resourcetracker.draft.file_source",
                 preview.source().getFileName(), preview.materials().size());
-        Component sourceSummary = preview.diagnostics().isEmpty() ? source : DiagnosticText.of(preview.diagnostics().getFirst());
-        label(sourceSummary, left, 58, contentWidth - 100)
-                .setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(preview.source().toString())
-                        .append("\n").append(sourceSummary)));
-        button(Component.translatable("gui.resourcetracker.import.back_files"), left + contentWidth - 94, 54, 94,
+        Component backFiles = Component.translatable("gui.resourcetracker.import.back_files");
+        int backWidth = font.width(backFiles) + 12;
+        var sourceDetails = Component.literal(preview.source().toString()).append("\n").append(source);
+        if (!preview.diagnostics().isEmpty()) sourceDetails.append("\n").append(DiagnosticText.of(preview.diagnostics().getFirst()));
+        label(source, left, 58, contentWidth - backWidth - 6)
+                .setTooltip(net.minecraft.client.gui.components.Tooltip.create(sourceDetails));
+        button(backFiles, left + contentWidth - backWidth, 54, backWidth,
                 b -> { preview = null; page = browserPage; init(); });
         int notesWidth = preview.diagnostics().isEmpty() ? 0 : 94;
         materialSearch = DraftMaterialsTable.search(this, previewView, left, 80,

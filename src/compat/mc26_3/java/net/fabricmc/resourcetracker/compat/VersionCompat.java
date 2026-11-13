@@ -55,6 +55,10 @@ public class VersionCompat {
         ctx.pose().popMatrix();
     }
 
+    public static void nextGuiLayer(GuiGraphicsExtractor ctx) {
+        ctx.nextStratum();
+    }
+
     public static void translate(GuiGraphicsExtractor ctx, float x, float y) {
         ctx.pose().translate(x, y);
     }

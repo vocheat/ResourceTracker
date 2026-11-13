@@ -12,6 +12,7 @@ abstract class PagedDataScreen extends EditorInputScreen {
     protected final Screen parent;
     protected int left, contentWidth, page, pageSize, rowTop;
     private boolean undoShortcutDown;
+    private int panelTop, panelBottom;
 
     protected PagedDataScreen(Screen parent, Component title) {
         super(title);
@@ -23,14 +24,34 @@ abstract class PagedDataScreen extends EditorInputScreen {
     }
 
     protected void layout(int top, Component heading) {
+        layout(top, heading, 620, 10);
+    }
+
+    protected void layout(int top, Component heading, int maxWidth, int headingY) {
         undoShortcutDown = minecraft != null && VersionCompat.isUndoPressed(minecraft);
         setFocused(null);
         clearWidgets();
-        contentWidth = Math.max(80, Math.min(620, width - 24));
+        panelTop = panelBottom = 0;
+        contentWidth = Math.max(80, Math.min(maxWidth, width - 24));
         left = (width - contentWidth) / 2;
         rowTop = top;
         pageSize = Math.max(1, (height - top - 62) / 24);
-        label(heading, left, 10, contentWidth);
+        label(heading, left, headingY, contentWidth);
+    }
+
+    protected void showPanel() { showPanel(4, height - 4); }
+
+    protected void showPanel(int top, int bottom) {
+        panelTop = top;
+        panelBottom = bottom;
+    }
+
+    @Override
+    protected boolean drawEditorBackground(BackgroundFill fill) {
+        if (panelBottom <= panelTop) return false;
+        fill.draw(0, 0, width, height, 0xA0000000);
+        fill.draw(left - 8, panelTop, left + contentWidth + 8, panelBottom, UiTheme.WINDOW);
+        return true;
     }
 
     protected EditBox label(Component text, int x, int y, int w) {

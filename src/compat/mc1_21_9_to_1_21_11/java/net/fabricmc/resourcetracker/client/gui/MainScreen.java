@@ -145,8 +145,8 @@ public class MainScreen extends Screen {
 
     private void chooseCreation() {
         if (!TrackerConfig.hasActiveContext() || minecraft == null) return;
-        VersionCompat.setScreen(minecraft, new ChoiceScreen<>(this,
-                Component.translatable("gui.resourcetracker.main.create"), List.of("empty", "file", "area"), null,
+        VersionCompat.setScreen(minecraft, ChoiceScreen.actions(this,
+                Component.translatable("gui.resourcetracker.main.create"), List.of("empty", "file", "area"),
                 value -> Component.translatable("gui.resourcetracker.main.create_" + value), value -> {
             if (minecraft == null) return;
             switch (value) {

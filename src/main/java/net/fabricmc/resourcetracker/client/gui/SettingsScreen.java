@@ -78,7 +78,6 @@ public class SettingsScreen extends Screen {
                 String value = SECTIONS.get(i);
                 Button button = TrackerButton.builder(sectionName(value), b -> selectSection(value))
                         .bounds(left + 12, navigationTop + i * 28, 160, 20).build();
-                button.active = !section.equals(value);
                 addRenderableWidget(button);
             }
         } else {
@@ -86,7 +85,7 @@ public class SettingsScreen extends Screen {
                 if (minecraft != null) VersionCompat.setScreen(minecraft, new ChoiceScreen<>(this,
                         Component.translatable("gui.resourcetracker.settings.section_title"), SECTIONS, section,
                         this::sectionName, this::selectSection));
-            }).bounds(left + 16, navigationTop, windowWidth - 32, 20).build());
+            }).bounds(left + 16, navigationTop, windowWidth - 32, 20).primary().build());
         }
         int y = 4;
         if (recoveryMessage != null) y = wrapLabel(y, recoveryMessage, UiTheme.ACCENT) + 8;
@@ -357,6 +356,10 @@ public class SettingsScreen extends Screen {
         for (Label label : labels) context.drawString(font, label.text(), contentLeft, contentTop + label.y() - scrollY, label.color(), false);
         context.disableScissor();
         super.render(context, mouseX, mouseY, delta);
+        if (wide) {
+            int y = contentTop + SECTIONS.indexOf(section) * 28 + 21;
+            context.fill(left + 12, y, left + 172, y + 2, UiTheme.ACCENT);
+        }
         context.enableScissor(contentLeft - 2, contentTop, contentLeft + contentWidth + 2, contentBottom);
         for (Swatch swatch : swatches) if (swatch.button().visible) ColorPickerScreen.drawSwatch(context, swatch.button().getX() + 7, swatch.button().getY() + 2, 16, 16, color(swatch.index()));
         context.disableScissor();

@@ -1,5 +1,6 @@
 package net.fabricmc.resourcetracker.client.gui;
 
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -7,6 +8,17 @@ import net.minecraft.network.chat.Component;
 abstract class EditorInputScreen extends Screen {
     protected EditorInputScreen(Component title) { super(title); }
     protected boolean editorKeyPressed(int keyCode) { return false; }
+
+    @FunctionalInterface
+    protected interface BackgroundFill {
+        void draw(int left, int top, int right, int bottom, int color);
+    }
+
+    protected boolean drawEditorBackground(BackgroundFill fill) { return false; }
+
+    @Override public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        if (!drawEditorBackground(context::fill)) super.renderBackground(context, mouseX, mouseY, delta);
+    }
 
     @Override public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         return editorKeyPressed(keyCode) || super.keyPressed(keyCode, scanCode, modifiers);
